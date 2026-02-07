@@ -13,6 +13,7 @@ from simulator.ui_common import (
     sidebar_data_range,
     sidebar_allocation,
     sidebar_simulation_settings,
+    sidebar_cash_flows,
     filter_returns,
 )
 from simulator.guardrail import (
@@ -128,6 +129,8 @@ with st.sidebar:
         key_prefix="gr_", default_nsim=5_000,
     )
 
+    cash_flows = sidebar_cash_flows(key_prefix="gr_")
+
     st.subheader("📜 历史回测")
     available_hist_years = sorted(
         returns_df[returns_df["Year"] >= data_start_year]["Year"].tolist()
@@ -172,7 +175,7 @@ if run_button and valid:
     baseline_rate = baseline_rate_pct / 100.0
 
     with st.spinner("正在预生成回报序列..."):
-        scenarios = pregenerate_return_scenarios(
+        scenarios, inflation_matrix = pregenerate_return_scenarios(
             allocation=allocation,
             expense_ratios=expense_ratios,
             retirement_years=retirement_years,
@@ -190,6 +193,8 @@ if run_button and valid:
             rate_step=GUARDRAIL_RATE_STEP,
         )
 
+    cf_arg = cash_flows if cash_flows else None
+
     with st.spinner("正在运行 Guardrail 模拟..."):
         init_portfolio, traj_g, wd_g = run_guardrail_simulation(
             scenarios=scenarios,
@@ -203,11 +208,15 @@ if run_button and valid:
             table=table,
             rate_grid=rate_grid,
             adjustment_mode=adjustment_mode,
+            cash_flows=cf_arg,
+            inflation_matrix=inflation_matrix,
         )
 
     with st.spinner("正在运行基准模拟..."):
         traj_b, wd_b = run_fixed_baseline(
             scenarios, init_portfolio, baseline_rate, retirement_years,
+            cash_flows=cf_arg,
+            inflation_matrix=inflation_matrix,
         )
 
     # ===================================================================
@@ -445,6 +454,7 @@ if run_button and valid:
     hist_mask = filtered_df["Year"] >= hist_start_year
     hist_df = filtered_df[hist_mask].reset_index(drop=True)
     hist_real_returns = compute_real_portfolio_returns(hist_df, allocation, expense_ratios)
+    hist_inflation_series = hist_df["US Inflation"].values
     hist_years_available = len(hist_real_returns)
 
     if hist_years_available < retirement_years:
@@ -467,6 +477,8 @@ if run_button and valid:
         table=table,
         rate_grid=rate_grid,
         adjustment_mode=adjustment_mode,
+        cash_flows=cf_arg,
+        inflation_series=hist_inflation_series,
     )
 
     n_hist = hist["years_simulated"]

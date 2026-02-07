@@ -1,8 +1,11 @@
 """共享的 Streamlit 侧边栏 UI 组件，消除三个页面间的代码重复。"""
 
+from __future__ import annotations
+
 import streamlit as st
 import pandas as pd
 
+from simulator.cashflow import CashFlowItem
 from simulator.config import (
     INTL_STOCK_DATA_START_YEAR,
     DEFAULT_DATA_START_YEAR,
@@ -168,3 +171,127 @@ def filter_returns(
         )
 
     return filtered
+
+
+def sidebar_cash_flows(key_prefix: str = "") -> list[CashFlowItem]:
+    """自定义现金流编辑器（基于独立表单控件）。
+
+    每条现金流用 expander + 独立 widget 展示，通过唯一 ID 管理状态，
+    避免 st.data_editor 的状态丢失问题。
+
+    Parameters
+    ----------
+    key_prefix : str
+        Streamlit widget key 前缀（多页面防冲突）。
+
+    Returns
+    -------
+    list[CashFlowItem]
+        用户定义的现金流列表。
+    """
+    st.subheader("💰 自定义现金流")
+
+    # ------ 唯一 ID 列表管理 ------
+    ids_key = f"{key_prefix}cf_ids"
+    next_id_key = f"{key_prefix}cf_next_id"
+    if ids_key not in st.session_state:
+        st.session_state[ids_key] = []
+    if next_id_key not in st.session_state:
+        st.session_state[next_id_key] = 1
+
+    # 添加按钮
+    if st.button("➕ 添加现金流", key=f"{key_prefix}cf_add"):
+        new_id = st.session_state[next_id_key]
+        st.session_state[ids_key].append(new_id)
+        st.session_state[next_id_key] = new_id + 1
+        st.rerun()
+
+    # ------ 渲染每条现金流 ------
+    cash_flow_items: list[CashFlowItem] = []
+    delete_id: int | None = None
+
+    for uid in st.session_state[ids_key]:
+        # 读取名称用于 expander 标题（从 session_state 取已有值）
+        name_key = f"{key_prefix}cf_{uid}_name"
+        current_name = st.session_state.get(name_key, "新现金流")
+        display_name = current_name if current_name else "新现金流"
+
+        with st.expander(f"{display_name}", expanded=True):
+            # 第一行：名称 + 类型
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                name = st.text_input(
+                    "名称", value="新现金流",
+                    key=name_key,
+                    label_visibility="collapsed",
+                    placeholder="名称",
+                )
+            with c2:
+                cf_type = st.selectbox(
+                    "类型", ["支出", "收入"],
+                    key=f"{key_prefix}cf_{uid}_type",
+                    label_visibility="collapsed",
+                )
+
+            # 第二行：金额 + 起始年
+            c3, c4 = st.columns(2)
+            with c3:
+                raw_amount = st.number_input(
+                    "金额 ($)", min_value=0, max_value=100_000_000,
+                    value=10_000, step=1_000, format="%d",
+                    key=f"{key_prefix}cf_{uid}_amt",
+                )
+            with c4:
+                start_year = st.number_input(
+                    "起始年", min_value=1, max_value=200,
+                    value=1, step=1,
+                    key=f"{key_prefix}cf_{uid}_start",
+                    help="退休第几年开始（1=第一年）",
+                )
+
+            # 第三行：持续年数 + 通胀调整
+            c5, c6 = st.columns(2)
+            with c5:
+                duration = st.number_input(
+                    "持续年数", min_value=1, max_value=200,
+                    value=10, step=1,
+                    key=f"{key_prefix}cf_{uid}_dur",
+                )
+            with c6:
+                inflation_adj = st.checkbox(
+                    "通胀调整",
+                    value=True,
+                    key=f"{key_prefix}cf_{uid}_infl",
+                    help="勾选 = 金额为 year-0 实际购买力",
+                )
+
+            # 删除按钮
+            if st.button(
+                "🗑 删除", key=f"{key_prefix}cf_{uid}_del",
+                use_container_width=True,
+            ):
+                delete_id = uid
+
+            # 收集有效数据
+            amount = float(raw_amount) if cf_type == "收入" else -float(raw_amount)
+            if raw_amount > 0:
+                cash_flow_items.append(
+                    CashFlowItem(
+                        name=name or "未命名",
+                        amount=amount,
+                        start_year=int(start_year),
+                        duration=int(duration),
+                        inflation_adjusted=inflation_adj,
+                    )
+                )
+
+    # ------ 处理删除 ------
+    if delete_id is not None:
+        st.session_state[ids_key].remove(delete_id)
+        # 清理该 ID 相关的 session_state keys
+        for suffix in ("name", "type", "amt", "start", "dur", "infl", "del"):
+            k = f"{key_prefix}cf_{delete_id}_{suffix}"
+            st.session_state.pop(k, None)
+        st.rerun()
+
+    return cash_flow_items

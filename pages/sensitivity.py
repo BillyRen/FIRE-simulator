@@ -11,6 +11,7 @@ from simulator.ui_common import (
     sidebar_data_range,
     sidebar_allocation,
     sidebar_simulation_settings,
+    sidebar_cash_flows,
     filter_returns,
 )
 from simulator.sweep import (
@@ -99,6 +100,8 @@ with st.sidebar:
         key_prefix="sens_", default_nsim=5_000,
     )
 
+    cash_flows = sidebar_cash_flows(key_prefix="sens_")
+
     st.subheader("🔍 扫描范围")
     col_r1, col_r2 = st.columns(2)
     with col_r1:
@@ -121,7 +124,7 @@ filtered_df = filter_returns(returns_df, data_start_year, retirement_years)
 
 if run_button and total_pct == 100 and min_block <= max_block:
     with st.spinner("正在预生成回报序列..."):
-        scenarios = pregenerate_return_scenarios(
+        scenarios, inflation_matrix = pregenerate_return_scenarios(
             allocation=allocation,
             expense_ratios=expense_ratios,
             retirement_years=retirement_years,
@@ -141,6 +144,8 @@ if run_button and total_pct == 100 and min_block <= max_block:
             withdrawal_strategy=withdrawal_strategy,
             dynamic_ceiling=dynamic_ceiling,
             dynamic_floor=dynamic_floor,
+            cash_flows=cash_flows if cash_flows else None,
+            inflation_matrix=inflation_matrix,
         )
 
     # 插值目标成功率

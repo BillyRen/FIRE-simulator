@@ -16,6 +16,7 @@ from simulator.ui_common import (
     sidebar_data_range,
     sidebar_allocation,
     sidebar_simulation_settings,
+    sidebar_cash_flows,
     filter_returns,
 )
 
@@ -115,6 +116,8 @@ with st.sidebar:
 
     retirement_years, min_block, max_block, num_simulations = sidebar_simulation_settings()
 
+    cash_flows = sidebar_cash_flows()
+
     run_button = st.button("🚀 运行模拟", type="primary", use_container_width=True)
 
 # ---------------------------------------------------------------------------
@@ -137,6 +140,7 @@ if run_button and total_pct == 100 and min_block <= max_block:
             withdrawal_strategy=withdrawal_strategy,
             dynamic_ceiling=dynamic_ceiling,
             dynamic_floor=dynamic_floor,
+            cash_flows=cash_flows if cash_flows else None,
         )
 
         results = compute_statistics(trajectories, retirement_years, withdrawals)
