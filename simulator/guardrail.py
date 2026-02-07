@@ -6,6 +6,8 @@
 
 import numpy as np
 
+from simulator.config import GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP
+
 
 # ---------------------------------------------------------------------------
 # 1. 查找表构建
@@ -13,9 +15,9 @@ import numpy as np
 
 def build_success_rate_table(
     scenarios: np.ndarray,
-    rate_min: float = 0.0,
-    rate_max: float = 0.20,
-    rate_step: float = 0.001,
+    rate_min: float = GUARDRAIL_RATE_MIN,
+    rate_max: float = GUARDRAIL_RATE_MAX,
+    rate_step: float = GUARDRAIL_RATE_STEP,
 ) -> tuple[np.ndarray, np.ndarray]:
     """构建 2D 成功率查找表。
 
@@ -165,7 +167,66 @@ def find_rate_for_target(
 
 
 # ---------------------------------------------------------------------------
-# 4. Guardrail 模拟
+# 4. 护栏调整辅助函数
+# ---------------------------------------------------------------------------
+
+def _apply_guardrail_adjustment(
+    wd: float,
+    value: float,
+    current_success: float,
+    target_success: float,
+    adjustment_pct: float,
+    adjustment_mode: str,
+    remaining: int,
+    table: np.ndarray,
+    rate_grid: np.ndarray,
+) -> float:
+    """根据调整模式计算护栏触发后的新提取金额。
+
+    Parameters
+    ----------
+    wd : float
+        当前提取金额。
+    value : float
+        当前资产价值。
+    current_success : float
+        当前成功率。
+    target_success : float
+        目标成功率。
+    adjustment_pct : float
+        调整百分比 (0-1)。
+    adjustment_mode : str
+        "amount" = 按金额比例调整, "success_rate" = 按成功率比例调整。
+    remaining : int
+        剩余年限。
+    table, rate_grid : np.ndarray
+        成功率查找表及网格。
+
+    Returns
+    -------
+    float
+        调整后的提取金额。
+    """
+    if adjustment_mode == "success_rate":
+        # 计算中间目标成功率，然后找对应的提取率
+        adjusted_success = current_success + adjustment_pct * (
+            target_success - current_success
+        )
+        adjusted_rate = find_rate_for_target(
+            table, rate_grid, adjusted_success, remaining
+        )
+        return value * adjusted_rate
+    else:
+        # 默认 "amount" 模式：按金额比例调整
+        target_rate = find_rate_for_target(
+            table, rate_grid, target_success, remaining
+        )
+        target_wd = value * target_rate
+        return wd + adjustment_pct * (target_wd - wd)
+
+
+# ---------------------------------------------------------------------------
+# 5. Guardrail 模拟
 # ---------------------------------------------------------------------------
 
 def run_guardrail_simulation(
@@ -179,6 +240,7 @@ def run_guardrail_simulation(
     min_remaining_years: int,
     table: np.ndarray,
     rate_grid: np.ndarray,
+    adjustment_mode: str = "amount",
 ) -> tuple[float, np.ndarray, np.ndarray]:
     """运行 Risk-based Guardrail 模拟。
 
@@ -209,6 +271,8 @@ def run_guardrail_simulation(
         成功率查找表。
     rate_grid : np.ndarray
         提取率网格。
+    adjustment_mode : str
+        "amount" = 按金额比例调整, "success_rate" = 按成功率比例调整。
 
     Returns
     -------
@@ -247,20 +311,12 @@ def run_guardrail_simulation(
                 )
 
                 # 检查护栏
-                if current_success < lower_guardrail:
-                    # 成功率太低，需要缩减开支
-                    target_rate = find_rate_for_target(
-                        table, rate_grid, target_success, remaining
+                if current_success < lower_guardrail or current_success > upper_guardrail:
+                    wd = _apply_guardrail_adjustment(
+                        wd, value, current_success, target_success,
+                        adjustment_pct, adjustment_mode, remaining,
+                        table, rate_grid,
                     )
-                    target_wd = value * target_rate
-                    wd = wd + adjustment_pct * (target_wd - wd)
-                elif current_success > upper_guardrail:
-                    # 成功率太高，可以增加开支
-                    target_rate = find_rate_for_target(
-                        table, rate_grid, target_success, remaining
-                    )
-                    target_wd = value * target_rate
-                    wd = wd + adjustment_pct * (target_wd - wd)
 
             withdrawals[i, year] = wd
             value = value * (1.0 + scenarios[i, year]) - wd
@@ -320,3 +376,131 @@ def run_fixed_baseline(
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals
+
+
+# ---------------------------------------------------------------------------
+# 6. 历史回测（单条真实路径）
+# ---------------------------------------------------------------------------
+
+def run_historical_backtest(
+    real_returns: np.ndarray,
+    initial_portfolio: float,
+    annual_withdrawal: float,
+    target_success: float,
+    upper_guardrail: float,
+    lower_guardrail: float,
+    adjustment_pct: float,
+    retirement_years: int,
+    min_remaining_years: int,
+    baseline_rate: float,
+    table: np.ndarray,
+    rate_grid: np.ndarray,
+    adjustment_mode: str = "amount",
+) -> dict:
+    """在单条历史回报路径上运行 guardrail 策略和固定基准策略。
+
+    使用蒙特卡洛查找表来评估每年的成功率（模拟真实决策过程：
+    退休者基于蒙特卡洛概率估计来判断是否触发护栏调整）。
+
+    Parameters
+    ----------
+    real_returns : np.ndarray
+        1D 数组，从起始年开始的实际组合回报序列。
+    initial_portfolio : float
+        初始资产（由蒙特卡洛阶段的 guardrail 模拟计算得出）。
+    annual_withdrawal : float
+        初始年提取金额。
+    target_success : float
+        目标成功率。
+    upper_guardrail, lower_guardrail : float
+        上下护栏。
+    adjustment_pct : float
+        调整百分比。
+    retirement_years : int
+        退休年限，会被截断到 len(real_returns)。
+    min_remaining_years : int
+        成功率计算的最小剩余年限。
+    baseline_rate : float
+        基准固定提取率。
+    table : np.ndarray
+        成功率查找表。
+    rate_grid : np.ndarray
+        提取率网格。
+    adjustment_mode : str
+        "amount" = 按金额比例调整, "success_rate" = 按成功率比例调整。
+
+    Returns
+    -------
+    dict
+        包含以下键：
+        - years_simulated: 实际模拟年数
+        - g_portfolio: guardrail 逐年资产值 (years_simulated + 1,)
+        - g_withdrawals: guardrail 逐年提取金额 (years_simulated,)
+        - g_success_rates: 每年的成功率 (years_simulated,)
+        - b_portfolio: 基准逐年资产值 (years_simulated + 1,)
+        - b_withdrawals: 基准逐年提取金额 (years_simulated,)
+        - g_total_consumption: guardrail 总消费额
+        - b_total_consumption: 基准总消费额
+    """
+    n_available = len(real_returns)
+    n_years = min(retirement_years, n_available)
+
+    # Guardrail 策略
+    g_portfolio = np.zeros(n_years + 1)
+    g_portfolio[0] = initial_portfolio
+    g_withdrawals = np.zeros(n_years)
+    g_success_rates = np.zeros(n_years)
+
+    value = initial_portfolio
+    wd = annual_withdrawal
+
+    for year in range(n_years):
+        remaining = max(min_remaining_years, retirement_years - year)
+
+        if value > 0:
+            current_rate = wd / value
+            current_success = lookup_success_rate(
+                table, rate_grid, current_rate, remaining
+            )
+            g_success_rates[year] = current_success
+
+            if current_success < lower_guardrail or current_success > upper_guardrail:
+                wd = _apply_guardrail_adjustment(
+                    wd, value, current_success, target_success,
+                    adjustment_pct, adjustment_mode, remaining,
+                    table, rate_grid,
+                )
+        else:
+            g_success_rates[year] = 0.0
+
+        g_withdrawals[year] = wd
+        value = value * (1.0 + real_returns[year]) - wd
+        if value <= 0:
+            value = 0.0
+        g_portfolio[year + 1] = value
+
+    # 基准固定策略
+    baseline_wd = initial_portfolio * baseline_rate
+    b_portfolio = np.zeros(n_years + 1)
+    b_portfolio[0] = initial_portfolio
+    b_withdrawals = np.zeros(n_years)
+
+    value = initial_portfolio
+    for year in range(n_years):
+        b_withdrawals[year] = baseline_wd if value > 0 else 0.0
+        if value > 0:
+            value = value * (1.0 + real_returns[year]) - baseline_wd
+            if value <= 0:
+                value = 0.0
+        b_portfolio[year + 1] = value
+
+    return {
+        "years_simulated": n_years,
+        "g_portfolio": g_portfolio,
+        "g_withdrawals": g_withdrawals,
+        "g_success_rates": g_success_rates,
+        "b_portfolio": b_portfolio,
+        "b_withdrawals": b_withdrawals,
+        "g_total_consumption": float(np.sum(g_withdrawals)),
+        "b_total_consumption": float(np.sum(b_withdrawals)),
+    }
