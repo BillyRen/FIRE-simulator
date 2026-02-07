@@ -231,6 +231,17 @@ if run_button and total_pct == 100 and min_block <= max_block:
         portfolio_needed = annual_withdrawal / rates[mask]
         sr_for_portfolio = success_rates[mask]
 
+        # 动态计算 X 轴上限：找到成功率刚达到 ~100% 的最小所需资产，取 2 倍作为上限
+        # 注意：portfolio_needed 与 rate 反向（小 rate → 大 portfolio），
+        # 所以成功率 >=99.5% 的点对应的是大资产值，取 .min() 找到过渡边界
+        high_sr_mask = sr_for_portfolio >= 0.995
+        if np.any(high_sr_mask):
+            x_max = float(portfolio_needed[high_sr_mask].min()) * 2.0
+        else:
+            x_max = float(initial_portfolio) * 5.0
+        # 至少显示到当前资产的 1.5 倍
+        x_max = max(x_max, float(initial_portfolio) * 1.5)
+
         fig2 = go.Figure()
 
         fig2.add_trace(go.Scatter(
@@ -259,6 +270,7 @@ if run_button and total_pct == 100 and min_block <= max_block:
         fig2.update_layout(
             xaxis_title="所需初始资产 ($)",
             xaxis_tickformat="$,.0f",
+            xaxis_range=[0, x_max],
             yaxis_title="成功率 (%)",
             yaxis_range=[-2, 105],
             height=450,
