@@ -9,6 +9,8 @@ import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { runSimulation } from "@/lib/api";
+import { downloadTrajectories } from "@/lib/csv";
+import { DownloadButton } from "@/components/download-button";
 import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, SimulationResponse } from "@/lib/types";
 
@@ -90,6 +92,27 @@ export default function SimulatorPage() {
 
         {result && !loading && (
           <>
+            {/* 下载按钮组 */}
+            <div className="flex flex-wrap gap-2">
+              <DownloadButton
+                label="下载资产轨迹"
+                onClick={() =>
+                  downloadTrajectories("资产轨迹", result.percentile_trajectories)
+                }
+              />
+              {result.withdrawal_percentile_trajectories && (
+                <DownloadButton
+                  label="下载提取轨迹"
+                  onClick={() =>
+                    downloadTrajectories(
+                      "提取金额轨迹",
+                      result.withdrawal_percentile_trajectories!
+                    )
+                  }
+                />
+              )}
+            </div>
+
             {/* 指标卡片 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <MetricCard label="成功率" value={pct(result.success_rate)} />
@@ -130,7 +153,7 @@ export default function SimulatorPage() {
                 <CardTitle className="text-sm">统计摘要</CardTitle>
               </CardHeader>
               <CardContent>
-                <StatsTable rows={result.final_values_summary} />
+                <StatsTable rows={result.final_values_summary} downloadName="统计摘要" />
               </CardContent>
             </Card>
           </>

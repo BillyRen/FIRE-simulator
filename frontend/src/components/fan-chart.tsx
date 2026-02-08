@@ -79,11 +79,16 @@ export function FanChart({
         xaxis: { title: xLabels ? undefined : { text: "年" } },
         yaxis: { title: { text: yTitle }, tickformat: "$,.0f" },
         height,
-        margin: { l: 80, r: 30, t: 50, b: 50 },
-        legend: { x: 0, y: 1.15, orientation: "h" },
+        margin: { l: 80, r: 30, t: 80, b: 50 },
+        legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
         hovermode: "x unified",
       }}
-      config={{ responsive: true, displayModeBar: false }}
+      config={{
+        responsive: true,
+        displayModeBar: "hover",
+        modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] as Plotly.ModeBarDefaultButtons[],
+        toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+      }}
       style={{ width: "100%" }}
     />
   );

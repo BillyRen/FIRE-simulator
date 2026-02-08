@@ -8,6 +8,8 @@ import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { runSweep } from "@/lib/api";
+import { downloadCSV } from "@/lib/csv";
+import { DownloadButton } from "@/components/download-button";
 import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, SweepResponse } from "@/lib/types";
 
@@ -126,6 +128,23 @@ export default function SensitivityPage() {
 
         {result && !loading && (
           <>
+            {/* 下载按钮组 */}
+            <div className="flex flex-wrap gap-2">
+              <DownloadButton
+                label="下载扫描数据"
+                onClick={() =>
+                  downloadCSV(
+                    "敏感性扫描",
+                    ["提取率", "成功率"],
+                    result.rates.map((r, i) => [
+                      `${(r * 100).toFixed(2)}%`,
+                      `${(result.success_rates[i] * 100).toFixed(1)}%`,
+                    ])
+                  )
+                }
+              />
+            </div>
+
             {/* 分析 1: 成功率 vs 提取率 */}
             <Card>
               <CardHeader className="pb-2">
@@ -153,11 +172,16 @@ export default function SensitivityPage() {
                     margin: { l: 60, r: 30, t: 30, b: 50 },
                     hovermode: "x unified",
                   }}
-                  config={{ responsive: true, displayModeBar: false }}
-                  style={{ width: "100%" }}
-                />
-              </CardContent>
-            </Card>
+                    config={{
+                      responsive: true,
+                      displayModeBar: "hover",
+                      modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+                      toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                    }}
+                    style={{ width: "100%" }}
+                  />
+                </CardContent>
+              </Card>
 
             {/* 目标成功率表格 */}
             <Card>
@@ -174,6 +198,7 @@ export default function SensitivityPage() {
                     "年提取额": r.annual_withdrawal ?? "N/A",
                     "所需资产": r.needed_portfolio ?? "N/A",
                   }))}
+                  downloadName="目标成功率汇总"
                 />
               </CardContent>
             </Card>
@@ -210,7 +235,12 @@ export default function SensitivityPage() {
                       margin: { l: 60, r: 30, t: 30, b: 50 },
                       hovermode: "x unified",
                     }}
-                    config={{ responsive: true, displayModeBar: false }}
+                    config={{
+                      responsive: true,
+                      displayModeBar: "hover",
+                      modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+                      toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                    }}
                     style={{ width: "100%" }}
                   />
                 </CardContent>

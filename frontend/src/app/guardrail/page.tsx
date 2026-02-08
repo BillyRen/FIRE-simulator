@@ -20,6 +20,8 @@ import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { runGuardrail, runBacktest } from "@/lib/api";
+import { downloadCSV, downloadTrajectories } from "@/lib/csv";
+import { DownloadButton } from "@/components/download-button";
 import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, GuardrailResponse, BacktestResponse } from "@/lib/types";
 
@@ -226,6 +228,28 @@ export default function GuardrailPage() {
 
             {/* ═══ MC Tab ═══ */}
             <TabsContent value="mc" className="space-y-6">
+              {/* 下载按钮组 */}
+              <div className="flex flex-wrap gap-2">
+                <DownloadButton
+                  label="下载资产轨迹"
+                  onClick={() =>
+                    downloadTrajectories("Guardrail_资产轨迹", mcResult.g_percentile_trajectories)
+                  }
+                />
+                <DownloadButton
+                  label="下载提取轨迹"
+                  onClick={() =>
+                    downloadTrajectories("Guardrail_提取轨迹", mcResult.g_withdrawal_percentiles)
+                  }
+                />
+                <DownloadButton
+                  label="下载基准轨迹"
+                  onClick={() =>
+                    downloadTrajectories("基准_资产轨迹", mcResult.b_percentile_trajectories)
+                  }
+                />
+              </div>
+
               {/* 指标卡片 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <MetricCard
@@ -303,7 +327,7 @@ export default function GuardrailPage() {
                   <CardTitle className="text-sm">关键指标对比</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <StatsTable rows={mcResult.metrics} />
+                  <StatsTable rows={mcResult.metrics} downloadName="Guardrail_指标对比" />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -340,6 +364,47 @@ export default function GuardrailPage() {
 
               {btResult && !btLoading && (
                 <>
+                  {/* 下载按钮 */}
+                  <div className="flex flex-wrap gap-2">
+                    <DownloadButton
+                      label="下载回测数据"
+                      onClick={() => {
+                        const n = btResult.years_simulated;
+                        const headers = [
+                          "年份",
+                          "Guardrail_资产",
+                          "Guardrail_提取额",
+                          "Guardrail_成功率",
+                          "基准_资产",
+                          "基准_提取额",
+                        ];
+                        const rows: (string | number)[][] = [];
+                        for (let i = 0; i < n; i++) {
+                          rows.push([
+                            btResult.year_labels[i],
+                            Math.round(btResult.g_portfolio[i]),
+                            Math.round(btResult.g_withdrawals[i]),
+                            `${(btResult.g_success_rates[i] * 100).toFixed(1)}%`,
+                            Math.round(btResult.b_portfolio[i]),
+                            Math.round(btResult.b_withdrawals[i]),
+                          ]);
+                        }
+                        // 追加最后一年末的资产值
+                        if (btResult.g_portfolio.length > n) {
+                          rows.push([
+                            btResult.year_labels[n] ?? btResult.year_labels[n - 1] + 1,
+                            Math.round(btResult.g_portfolio[n]),
+                            "",
+                            "",
+                            Math.round(btResult.b_portfolio[n]),
+                            "",
+                          ]);
+                        }
+                        downloadCSV("历史回测数据", headers, rows);
+                      }}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <MetricCard
                       label="Guardrail 总消费"
@@ -390,11 +455,16 @@ export default function GuardrailPage() {
                           xaxis: { title: { text: "年份" } },
                           yaxis: { title: { text: "资产 ($)" }, tickformat: "$,.0f" },
                           height: 400,
-                          margin: { l: 80, r: 30, t: 50, b: 50 },
-                          legend: { x: 0, y: 1.15, orientation: "h" },
+                          margin: { l: 80, r: 30, t: 80, b: 50 },
+                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
                           hovermode: "x unified",
                         }}
-                        config={{ responsive: true, displayModeBar: false }}
+                        config={{
+                          responsive: true,
+                          displayModeBar: "hover",
+                          modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+                          toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                        }}
                         style={{ width: "100%" }}
                       />
                     </CardContent>
@@ -488,11 +558,16 @@ export default function GuardrailPage() {
                             range: [0, 105],
                           },
                           height: 450,
-                          margin: { l: 80, r: 60, t: 50, b: 50 },
-                          legend: { x: 0, y: 1.2, orientation: "h" },
+                          margin: { l: 80, r: 60, t: 100, b: 50 },
+                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
                           hovermode: "x unified",
                         }}
-                        config={{ responsive: true, displayModeBar: false }}
+                        config={{
+                          responsive: true,
+                          displayModeBar: "hover",
+                          modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+                          toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                        }}
                         style={{ width: "100%" }}
                       />
                     </CardContent>
