@@ -170,6 +170,43 @@ export interface BacktestResponse {
 }
 
 // ---------------------------------------------------------------------------
+// 5. 资产配置扫描
+// ---------------------------------------------------------------------------
+
+export interface AllocationSweepRequest {
+  initial_portfolio: number;
+  annual_withdrawal: number;
+  expense_ratios: ExpenseRatios;
+  retirement_years: number;
+  min_block: number;
+  max_block: number;
+  num_simulations: number;
+  data_start_year: number;
+  withdrawal_strategy: "fixed" | "dynamic";
+  dynamic_ceiling: number;
+  dynamic_floor: number;
+  leverage: number;
+  borrowing_spread: number;
+  allocation_step: number;
+  cash_flows: CashFlowItem[];
+}
+
+export interface AllocationResult {
+  us_stock: number;
+  intl_stock: number;
+  us_bond: number;
+  success_rate: number;
+  median_final: number;
+  mean_final: number;
+  p10_depletion_year: number | null;
+}
+
+export interface AllocationSweepResponse {
+  results: AllocationResult[];
+  best_by_success: AllocationResult;
+}
+
+// ---------------------------------------------------------------------------
 // 共享表单状态
 // ---------------------------------------------------------------------------
 

@@ -9,6 +9,8 @@ import type {
   GuardrailResponse,
   BacktestRequest,
   BacktestResponse,
+  AllocationSweepRequest,
+  AllocationSweepResponse,
 } from "./types";
 
 async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
@@ -38,4 +40,8 @@ export async function runGuardrail(req: GuardrailRequest): Promise<GuardrailResp
 
 export async function runBacktest(req: BacktestRequest): Promise<BacktestResponse> {
   return post<BacktestRequest, BacktestResponse>("/api/guardrail/backtest", req);
+}
+
+export async function runAllocationSweep(req: AllocationSweepRequest): Promise<AllocationSweepResponse> {
+  return post<AllocationSweepRequest, AllocationSweepResponse>("/api/allocation-sweep", req);
 }

@@ -183,7 +183,44 @@ class BacktestResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 5. 历史数据
+# 5. 资产配置扫描
+# ---------------------------------------------------------------------------
+
+class AllocationSweepRequest(BaseModel):
+    initial_portfolio: float = Field(1_000_000, gt=0)
+    annual_withdrawal: float = Field(40_000, ge=0)
+    expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
+    retirement_years: int = Field(65, ge=1, le=100)
+    min_block: int = Field(5, ge=1, le=30)
+    max_block: int = Field(15, ge=1, le=55)
+    num_simulations: int = Field(5_000, ge=100, le=50_000)
+    data_start_year: int = Field(1926)
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    dynamic_ceiling: float = Field(0.05, ge=0, le=1)
+    dynamic_floor: float = Field(0.025, ge=0, le=1)
+    leverage: float = Field(1.0, ge=1.0, le=5.0)
+    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
+    allocation_step: float = Field(0.1, ge=0.05, le=0.2)
+    cash_flows: list[CashFlowSchema] = []
+
+
+class AllocationResult(BaseModel):
+    us_stock: float
+    intl_stock: float
+    us_bond: float
+    success_rate: float
+    median_final: float
+    mean_final: float
+    p10_depletion_year: int | None = None
+
+
+class AllocationSweepResponse(BaseModel):
+    results: list[AllocationResult]
+    best_by_success: AllocationResult
+
+
+# ---------------------------------------------------------------------------
+# 6. 历史数据
 # ---------------------------------------------------------------------------
 
 class ReturnsResponse(BaseModel):

@@ -33,11 +33,16 @@ from simulator.portfolio import compute_real_portfolio_returns
 from simulator.statistics import PERCENTILES, compute_statistics, final_values_summary_table
 from simulator.sweep import (
     interpolate_targets,
+    pregenerate_raw_scenarios,
     pregenerate_return_scenarios,
+    sweep_allocations,
     sweep_withdrawal_rates,
 )
 
 from schemas import (
+    AllocationResult,
+    AllocationSweepRequest,
+    AllocationSweepResponse,
     BacktestRequest,
     BacktestResponse,
     GuardrailRequest,
@@ -401,7 +406,50 @@ def api_backtest(req: BacktestRequest):
 
 
 # ---------------------------------------------------------------------------
-# 5. GET /api/returns
+# 5. POST /api/allocation-sweep
+# ---------------------------------------------------------------------------
+
+@app.post("/api/allocation-sweep", response_model=AllocationSweepResponse)
+def api_allocation_sweep(req: AllocationSweepRequest):
+    filtered = _filter_df(req.data_start_year)
+    if len(filtered) < 2:
+        raise HTTPException(400, "可用数据不足")
+
+    raw = pregenerate_raw_scenarios(
+        expense_ratios=_expense_dict(req.expense_ratios),
+        retirement_years=req.retirement_years,
+        min_block=req.min_block,
+        max_block=req.max_block,
+        num_simulations=req.num_simulations,
+        returns_df=filtered,
+    )
+
+    cash_flows = _to_cash_flows(req.cash_flows)
+
+    raw_results = sweep_allocations(
+        raw_scenarios=raw,
+        initial_portfolio=req.initial_portfolio,
+        annual_withdrawal=req.annual_withdrawal,
+        allocation_step=req.allocation_step,
+        withdrawal_strategy=req.withdrawal_strategy,
+        dynamic_ceiling=req.dynamic_ceiling,
+        dynamic_floor=req.dynamic_floor,
+        cash_flows=cash_flows,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+    )
+
+    alloc_results = [AllocationResult(**r) for r in raw_results]
+    best = max(alloc_results, key=lambda x: x.success_rate)
+
+    return AllocationSweepResponse(
+        results=alloc_results,
+        best_by_success=best,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. GET /api/returns
 # ---------------------------------------------------------------------------
 
 @app.get("/api/returns", response_model=ReturnsResponse)

@@ -19,6 +19,8 @@ interface SidebarFormProps {
   onChange: (params: FormParams) => void;
   /** 是否展示提取策略选择（敏感性页面不需要） */
   showWithdrawalStrategy?: boolean;
+  /** 是否展示资产配置区域（配置优化页面不需要） */
+  showAllocation?: boolean;
   /** 额外的子元素（如 guardrail 特有参数） */
   children?: React.ReactNode;
 }
@@ -90,6 +92,7 @@ export function SidebarForm({
   params,
   onChange,
   showWithdrawalStrategy = true,
+  showAllocation = true,
   children,
 }: SidebarFormProps) {
   const p = params;
@@ -120,43 +123,47 @@ export function SidebarForm({
 
       {/* 资产配置 */}
       <div>
-        <h3 className="text-sm font-semibold mb-2">📊 资产配置</h3>
-        <div className="grid grid-cols-3 gap-2">
-          <NumberField
-            label="美股 %"
-            value={Math.round(p.allocation.us_stock * 100)}
-            onChange={(v) =>
-              set("allocation", { ...p.allocation, us_stock: v / 100 })
-            }
-            min={0}
-            max={100}
-          />
-          <NumberField
-            label="国际股 %"
-            value={Math.round(p.allocation.intl_stock * 100)}
-            onChange={(v) =>
-              set("allocation", { ...p.allocation, intl_stock: v / 100 })
-            }
-            min={0}
-            max={100}
-          />
-          <NumberField
-            label="美债 %"
-            value={Math.round(p.allocation.us_bond * 100)}
-            onChange={(v) =>
-              set("allocation", { ...p.allocation, us_bond: v / 100 })
-            }
-            min={0}
-            max={100}
-          />
-        </div>
-        {Math.abs(
-          p.allocation.us_stock + p.allocation.intl_stock + p.allocation.us_bond - 1
-        ) > 0.01 && (
-          <p className="text-[10px] text-red-500 mt-1">⚠️ 配置比例之和需为 100%</p>
+        <h3 className="text-sm font-semibold mb-2">📊 {showAllocation ? "资产配置" : "资产费率"}</h3>
+        {showAllocation && (
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              <NumberField
+                label="美股 %"
+                value={Math.round(p.allocation.us_stock * 100)}
+                onChange={(v) =>
+                  set("allocation", { ...p.allocation, us_stock: v / 100 })
+                }
+                min={0}
+                max={100}
+              />
+              <NumberField
+                label="国际股 %"
+                value={Math.round(p.allocation.intl_stock * 100)}
+                onChange={(v) =>
+                  set("allocation", { ...p.allocation, intl_stock: v / 100 })
+                }
+                min={0}
+                max={100}
+              />
+              <NumberField
+                label="美债 %"
+                value={Math.round(p.allocation.us_bond * 100)}
+                onChange={(v) =>
+                  set("allocation", { ...p.allocation, us_bond: v / 100 })
+                }
+                min={0}
+                max={100}
+              />
+            </div>
+            {Math.abs(
+              p.allocation.us_stock + p.allocation.intl_stock + p.allocation.us_bond - 1
+            ) > 0.01 && (
+              <p className="text-[10px] text-red-500 mt-1">⚠️ 配置比例之和需为 100%</p>
+            )}
+          </>
         )}
 
-        <div className="grid grid-cols-3 gap-2 mt-2">
+        <div className={`grid grid-cols-3 gap-2 ${showAllocation ? "mt-2" : ""}`}>
           <NumberField
             label="美股费率 %"
             value={+(p.expense_ratios.us_stock * 100).toFixed(2)}

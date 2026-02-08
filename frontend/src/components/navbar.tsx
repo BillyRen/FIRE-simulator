@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: "/", label: "🔥 退休模拟器" },
   { href: "/sensitivity", label: "📈 敏感性分析" },
   { href: "/guardrail", label: "🛡️ 风险护栏" },
+  { href: "/allocation", label: "🎯 资产配置优化" },
 ];
 
 export function Navbar() {
