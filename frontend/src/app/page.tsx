@@ -134,7 +134,7 @@ export default function SimulatorPage() {
               </CardContent>
             </Card>
 
-            {/* 提取金额扇形图（动态策略） */}
+            {/* 提取金额扇形图 */}
             {result.withdrawal_percentile_trajectories && (
               <Card>
                 <CardContent className="pt-4">

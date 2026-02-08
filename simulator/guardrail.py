@@ -269,6 +269,7 @@ def run_guardrail_simulation(
             # 加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
+                withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
@@ -350,6 +351,7 @@ def run_fixed_baseline(
             # 加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
+                withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
@@ -473,6 +475,7 @@ def run_historical_backtest(
         # 加入自定义现金流
         if cf_schedule is not None:
             value += cf_schedule[year]
+            g_withdrawals[year] -= cf_schedule[year]
 
         if value <= 0:
             value = 0.0
@@ -493,6 +496,7 @@ def run_historical_backtest(
             # 基准策略也加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
+                b_withdrawals[year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
