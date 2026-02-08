@@ -72,6 +72,8 @@ export default function GuardrailPage() {
     adjustment_mode: adjustmentMode,
     min_remaining_years: minRemainingYears,
     baseline_rate: baselineRate,
+    leverage: params.leverage,
+    borrowing_spread: params.borrowing_spread,
     cash_flows: params.cash_flows,
   });
 

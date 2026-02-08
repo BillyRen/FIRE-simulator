@@ -126,6 +126,8 @@ def api_simulate(req: SimulationRequest):
         dynamic_ceiling=req.dynamic_ceiling,
         dynamic_floor=req.dynamic_floor,
         cash_flows=_to_cash_flows(req.cash_flows),
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
     )
 
     results = compute_statistics(trajectories, req.retirement_years, withdrawals)
@@ -179,6 +181,8 @@ def api_sweep(req: SweepRequest):
         max_block=req.max_block,
         num_simulations=req.num_simulations,
         returns_df=filtered,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
     )
 
     cash_flows = _to_cash_flows(req.cash_flows)
@@ -240,6 +244,8 @@ def api_guardrail(req: GuardrailRequest):
         max_block=req.max_block,
         num_simulations=req.num_simulations,
         returns_df=filtered,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
     )
 
     rate_grid, table = build_success_rate_table(
@@ -340,6 +346,8 @@ def api_backtest(req: BacktestRequest):
         max_block=req.max_block,
         num_simulations=req.num_simulations,
         returns_df=filtered,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
     )
     rate_grid, table = build_success_rate_table(
         scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
@@ -352,6 +360,7 @@ def api_backtest(req: BacktestRequest):
 
     hist_returns = compute_real_portfolio_returns(
         hist_df, _alloc_dict(req.allocation), _expense_dict(req.expense_ratios),
+        leverage=req.leverage, borrowing_spread=req.borrowing_spread,
     )
     hist_inflation = hist_df["US Inflation"].values
 

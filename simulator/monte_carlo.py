@@ -25,6 +25,8 @@ def run_simulation(
     dynamic_ceiling: float = 0.05,
     dynamic_floor: float = 0.025,
     cash_flows: list[CashFlowItem] | None = None,
+    leverage: float = 1.0,
+    borrowing_spread: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """运行蒙特卡洛退休模拟。
 
@@ -108,7 +110,8 @@ def run_simulation(
 
         # 2. 计算组合实际回报
         real_returns = compute_real_portfolio_returns(
-            sampled, allocation, expense_ratios
+            sampled, allocation, expense_ratios,
+            leverage=leverage, borrowing_spread=borrowing_spread,
         )
 
         # 3. 计算该路径的现金流 schedule

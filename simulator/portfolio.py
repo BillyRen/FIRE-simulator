@@ -8,11 +8,14 @@ def compute_real_portfolio_returns(
     sampled_returns: pd.DataFrame,
     allocation: dict[str, float],
     expense_ratios: dict[str, float],
+    leverage: float = 1.0,
+    borrowing_spread: float = 0.0,
 ) -> np.ndarray:
     """根据资产配置和费用率计算组合的实际回报率序列。
 
     计算公式：
     - 名义组合回报 = Σ allocation[asset] * (return[asset] - expense[asset])
+    - 若有杠杆：名义回报 = L * 名义回报 - (L-1) * (通胀 + 借贷利差)
     - 实际组合回报 = (1 + 名义组合回报) / (1 + 通胀) - 1
 
     Parameters
@@ -24,6 +27,10 @@ def compute_real_portfolio_returns(
         资产配置比例，键为 "us_stock", "intl_stock", "us_bond"，值之和应为 1.0。
     expense_ratios : dict
         各资产对应的费用率，键同 allocation。
+    leverage : float
+        杠杆倍数，1.0 表示无杠杆。
+    borrowing_spread : float
+        借贷利差（实际利率），借贷成本 = 通胀 + 利差。
 
     Returns
     -------
@@ -44,8 +51,13 @@ def compute_real_portfolio_returns(
         expense = expense_ratios.get(asset_key, 0.0)
         nominal_return += weight * (sampled_returns[col_name].values - expense)
 
-    # 扣除通胀，得到实际回报
+    # 杠杆计算
     inflation = sampled_returns["US Inflation"].values
+    if leverage != 1.0:
+        borrowing_cost = inflation + borrowing_spread
+        nominal_return = leverage * nominal_return - (leverage - 1.0) * borrowing_cost
+
+    # 扣除通胀，得到实际回报
     real_return = (1.0 + nominal_return) / (1.0 + inflation) - 1.0
 
     return real_return

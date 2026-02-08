@@ -23,6 +23,8 @@ def pregenerate_return_scenarios(
     num_simulations: int,
     returns_df: pd.DataFrame,
     seed: int | None = None,
+    leverage: float = 1.0,
+    borrowing_spread: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """预生成实际组合回报矩阵和通胀矩阵。
 
@@ -42,6 +44,10 @@ def pregenerate_return_scenarios(
         历史回报数据。
     seed : int or None
         随机种子。
+    leverage : float
+        杠杆倍数。
+    borrowing_spread : float
+        借贷利差。
 
     Returns
     -------
@@ -59,7 +65,8 @@ def pregenerate_return_scenarios(
             returns_df, retirement_years, min_block, max_block, rng=rng
         )
         scenarios[i] = compute_real_portfolio_returns(
-            sampled, allocation, expense_ratios
+            sampled, allocation, expense_ratios,
+            leverage=leverage, borrowing_spread=borrowing_spread,
         )
         inflation_matrix[i] = sampled["US Inflation"].values
 

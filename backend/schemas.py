@@ -46,6 +46,8 @@ class SimulationRequest(BaseModel):
     withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
+    leverage: float = Field(1.0, ge=1.0, le=5.0)
+    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = []
 
 
@@ -82,6 +84,8 @@ class SweepRequest(BaseModel):
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     rate_max: float = Field(0.12, gt=0, le=0.5)
     rate_step: float = Field(0.001, gt=0, le=0.1)
+    leverage: float = Field(1.0, ge=1.0, le=5.0)
+    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = []
 
 
@@ -118,6 +122,8 @@ class GuardrailRequest(BaseModel):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(10, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
+    leverage: float = Field(1.0, ge=1.0, le=5.0)
+    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = []
 
 
@@ -157,6 +163,8 @@ class BacktestRequest(BaseModel):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(10, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
+    leverage: float = Field(1.0, ge=1.0, le=5.0)
+    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     initial_portfolio: float = Field(..., gt=0, description="由 guardrail MC 阶段计算得出")
     hist_start_year: int = Field(1990)
     cash_flows: list[CashFlowSchema] = []

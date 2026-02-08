@@ -271,6 +271,36 @@ export function SidebarForm({
         </>
       )}
 
+      <Separator />
+
+      {/* 杠杆设置 */}
+      <div>
+        <h3 className="text-sm font-semibold mb-2">📈 杠杆设置</h3>
+        <NumberField
+          label="杠杆倍数"
+          value={p.leverage}
+          onChange={(v) => set("leverage", v)}
+          min={1}
+          max={5}
+          step={0.1}
+          suffix="x"
+          help="1.0 = 无杠杆"
+        />
+        {p.leverage > 1 && (
+          <div className="mt-2">
+            <NumberField
+              label="借贷利差 %"
+              value={+(p.borrowing_spread * 100).toFixed(2)}
+              onChange={(v) => set("borrowing_spread", v / 100)}
+              min={0}
+              max={20}
+              step={0.1}
+              help="借贷成本 = 通胀 + 利差"
+            />
+          </div>
+        )}
+      </div>
+
       {/* 额外子元素（Guardrail 参数等） */}
       {children}
 

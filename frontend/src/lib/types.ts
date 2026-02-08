@@ -37,6 +37,8 @@ export interface SimulationRequest {
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
+  leverage: number;
+  borrowing_spread: number;
   cash_flows: CashFlowItem[];
 }
 
@@ -73,6 +75,8 @@ export interface SweepRequest {
   dynamic_floor: number;
   rate_max: number;
   rate_step: number;
+  leverage: number;
+  borrowing_spread: number;
   cash_flows: CashFlowItem[];
 }
 
@@ -109,6 +113,8 @@ export interface GuardrailRequest {
   adjustment_mode: "amount" | "success_rate";
   min_remaining_years: number;
   baseline_rate: number;
+  leverage: number;
+  borrowing_spread: number;
   cash_flows: CashFlowItem[];
 }
 
@@ -144,6 +150,8 @@ export interface BacktestRequest {
   adjustment_mode: "amount" | "success_rate";
   min_remaining_years: number;
   baseline_rate: number;
+  leverage: number;
+  borrowing_spread: number;
   initial_portfolio: number;
   hist_start_year: number;
   cash_flows: CashFlowItem[];
@@ -178,6 +186,8 @@ export interface FormParams {
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
+  leverage: number;
+  borrowing_spread: number;
   cash_flows: CashFlowItem[];
 }
 
@@ -194,5 +204,7 @@ export const DEFAULT_PARAMS: FormParams = {
   withdrawal_strategy: "fixed",
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,
+  leverage: 1.0,
+  borrowing_spread: 0.02,
   cash_flows: [],
 };
