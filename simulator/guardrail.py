@@ -210,14 +210,26 @@ def run_guardrail_simulation(
     """
     num_sims = scenarios.shape[0]
 
-    # 1. 计算初始资产
+    # 1. 预计算现金流 schedule（需在计算初始资产前准备好）
+    has_cf = cash_flows is not None and len(cash_flows) > 0
+
+    # 2. 计算初始资产（考虑自定义现金流的等效提取率）
     initial_rate = find_rate_for_target(table, rate_grid, target_success, retirement_years)
     if initial_rate <= 0:
         initial_rate = rate_grid[1] if len(rate_grid) > 1 else 0.01
-    initial_portfolio = annual_withdrawal / initial_rate
 
-    # 2. 预计算现金流 schedule
-    has_cf = cash_flows is not None and len(cash_flows) > 0
+    if has_cf:
+        # 用通胀调整现金流估算平均影响（名义现金流在此阶段无法精确计算，用通胀调整部分近似）
+        init_cf_schedule = build_cf_schedule(
+            [cf for cf in cash_flows if cf.inflation_adjusted], retirement_years
+        )
+        future_cf_avg = float(np.mean(init_cf_schedule)) if len(init_cf_schedule) > 0 else 0.0
+        effective_wd = annual_withdrawal - future_cf_avg  # 支出为负，减去后增大
+        initial_portfolio = max(effective_wd, annual_withdrawal * 0.1) / initial_rate
+    else:
+        initial_portfolio = annual_withdrawal / initial_rate
+
+    # 3. 预计算逐路径现金流 schedule
     if has_cf:
         adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
@@ -226,7 +238,7 @@ def run_guardrail_simulation(
     else:
         fixed_cf_schedule = None
 
-    # 3. 逐年模拟
+    # 4. 逐年模拟
     trajectories = np.zeros((num_sims, retirement_years + 1))
     trajectories[:, 0] = initial_portfolio
     withdrawals = np.zeros((num_sims, retirement_years))
@@ -251,7 +263,16 @@ def run_guardrail_simulation(
             remaining = max(min_remaining_years, retirement_years - year)
 
             if value > 0:
-                current_rate = wd / value
+                # 将未来现金流折算为等效提取率
+                if cf_schedule is not None:
+                    actual_remaining = retirement_years - year
+                    future_slice = cf_schedule[year:year + actual_remaining]
+                    future_cf_avg = float(np.mean(future_slice)) if len(future_slice) > 0 else 0.0
+                    effective_rate = max((wd - future_cf_avg) / value, 0.0)
+                else:
+                    effective_rate = wd / value
+
+                current_rate = effective_rate
                 current_success = lookup_success_rate(
                     table, rate_grid, current_rate, remaining
                 )
@@ -454,7 +475,16 @@ def run_historical_backtest(
         remaining = max(min_remaining_years, retirement_years - year)
 
         if value > 0:
-            current_rate = wd / value
+            # 将未来现金流折算为等效提取率
+            if cf_schedule is not None:
+                actual_remaining = retirement_years - year
+                future_slice = cf_schedule[year:year + actual_remaining]
+                future_cf_avg = float(np.mean(future_slice)) if len(future_slice) > 0 else 0.0
+                effective_rate = max((wd - future_cf_avg) / value, 0.0)
+            else:
+                effective_rate = wd / value
+
+            current_rate = effective_rate
             current_success = lookup_success_rate(
                 table, rate_grid, current_rate, remaining
             )
