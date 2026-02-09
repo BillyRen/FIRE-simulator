@@ -247,7 +247,7 @@ export const DEFAULT_PARAMS: FormParams = {
   min_block: 5,
   max_block: 15,
   num_simulations: 2_000,
-  data_start_year: 1926,
+  data_start_year: 1970,
   withdrawal_strategy: "fixed",
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,
