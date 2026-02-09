@@ -17,14 +17,22 @@ export function useIsMobile(breakpoint = 640) {
 
 export function mobileMargin(isMobile: boolean) {
   return isMobile
-    ? { l: 45, r: 10, t: 50, b: 40 }
+    ? { l: 45, r: 10, t: 10, b: 30 }
     : { l: 80, r: 30, t: 80, b: 50 };
 }
 
 export function mobileMarginDualAxis(isMobile: boolean) {
   return isMobile
-    ? { l: 45, r: 35, t: 50, b: 40 }
+    ? { l: 45, r: 35, t: 10, b: 30 }
     : { l: 80, r: 60, t: 100, b: 50 };
+}
+
+/** Mobile-friendly title: rendered as HTML above the chart on mobile */
+export function MobileChartTitle({ title, isMobile }: { title: string; isMobile: boolean }) {
+  if (!isMobile) return null;
+  return (
+    <p className="text-xs font-semibold text-center mb-1">{title}</p>
+  );
 }
 
 interface FanChartProps {
@@ -116,40 +124,41 @@ export function FanChart({
 
   traces.push(...extraTraces);
 
-  const chartHeight = isMobile ? 300 : (height ?? 450);
+  const chartHeight = isMobile ? 280 : (height ?? 450);
 
   return (
-    <PlotlyChart
-      data={traces}
-      layout={{
-        title: isMobile
-          ? { text: title, font: { size: 12 }, y: 0.98, yanchor: "top" as const }
-          : { text: title, font: { size: 14 } },
-        xaxis: {
-          title: xLabels ? undefined : { text: t("fanChart.yearAxis") },
-          tickfont: { size: isMobile ? 9 : 12 },
-        },
-        yaxis: {
-          title: isMobile ? undefined : { text: resolvedYTitle },
-          tickformat: isMobile ? "$~s" : "$,.0f",
-          tickfont: { size: isMobile ? 9 : 12 },
-        },
-        height: chartHeight,
-        margin: isMobile
-          ? { l: 45, r: 10, t: 35, b: 60 }
-          : { l: 80, r: 30, t: 80, b: 50 },
-        legend: isMobile
-          ? { x: 0.5, y: -0.25, xanchor: "center", yanchor: "top", orientation: "h", font: { size: 9 } }
-          : { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
-        hovermode: "x unified",
-      }}
-      config={{
-        responsive: true,
-        displayModeBar: isMobile ? false : "hover",
-        modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] as Plotly.ModeBarDefaultButtons[],
-        toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
-      }}
-      style={{ width: "100%" }}
-    />
+    <div>
+      <MobileChartTitle title={title} isMobile={isMobile} />
+      <PlotlyChart
+        data={traces}
+        layout={{
+          title: isMobile ? undefined : { text: title, font: { size: 14 } },
+          xaxis: {
+            title: xLabels ? undefined : { text: t("fanChart.yearAxis") },
+            tickfont: { size: isMobile ? 9 : 12 },
+          },
+          yaxis: {
+            title: isMobile ? undefined : { text: resolvedYTitle },
+            tickformat: isMobile ? "$~s" : "$,.0f",
+            tickfont: { size: isMobile ? 9 : 12 },
+          },
+          height: chartHeight,
+          margin: isMobile
+            ? { l: 45, r: 10, t: 10, b: 30 }
+            : { l: 80, r: 30, t: 80, b: 50 },
+          legend: isMobile
+            ? { x: 0.5, y: 1.02, xanchor: "center", yanchor: "bottom", orientation: "h", font: { size: 8 } }
+            : { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
+          hovermode: "x unified",
+        }}
+        config={{
+          responsive: true,
+          displayModeBar: isMobile ? false : "hover",
+          modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] as Plotly.ModeBarDefaultButtons[],
+          toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+        }}
+        style={{ width: "100%" }}
+      />
+    </div>
   );
 }

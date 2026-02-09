@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
-import { FanChart, useIsMobile } from "@/components/fan-chart";
+import { FanChart, useIsMobile, MobileChartTitle } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
@@ -441,6 +441,7 @@ export default function GuardrailPage() {
                   {/* 资产轨迹 */}
                   <Card>
                     <CardContent className="pt-4">
+                      <MobileChartTitle title={t("historicalPortfolioComparison")} isMobile={isMobile} />
                       <PlotlyChart
                         data={[
                           {
@@ -465,21 +466,19 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: isMobile
-                            ? { text: t("historicalPortfolioComparison"), font: { size: 12 }, y: 0.98, yanchor: "top" as const }
-                            : { text: t("historicalPortfolioComparison"), font: { size: 14 } },
+                          title: isMobile ? undefined : { text: t("historicalPortfolioComparison"), font: { size: 14 } },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: { title: isMobile ? undefined : { text: t("assetAxis") }, tickformat: isMobile ? "$~s" : "$,.0f", tickfont: { size: isMobile ? 9 : 12 } },
-                          height: isMobile ? 300 : 400,
-                          margin: isMobile ? { l: 45, r: 10, t: 35, b: 55 } : { l: 80, r: 30, t: 80, b: 50 },
+                          height: isMobile ? 280 : 400,
+                          margin: isMobile ? { l: 45, r: 10, t: 10, b: 30 } : { l: 80, r: 30, t: 80, b: 50 },
                           legend: isMobile
-                            ? { x: 0.5, y: -0.2, xanchor: "center" as const, yanchor: "top" as const, orientation: "h" as const, font: { size: 9 } }
+                            ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 8 } }
                             : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
                           hovermode: "x unified",
                         }}
                         config={{
                           responsive: true,
-                          displayModeBar: "hover",
+                          displayModeBar: isMobile ? false : "hover",
                           modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
                           toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
                         }}
@@ -491,6 +490,7 @@ export default function GuardrailPage() {
                   {/* 提取金额 + 成功率 */}
                   <Card>
                     <CardContent className="pt-4">
+                      <MobileChartTitle title={t("withdrawalAmountAndSuccess")} isMobile={isMobile} />
                       <PlotlyChart
                         data={[
                           {
@@ -558,9 +558,7 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: isMobile
-                            ? { text: t("withdrawalAmountAndSuccess"), font: { size: 12 }, y: 0.98, yanchor: "top" as const }
-                            : { text: t("withdrawalAmountAndSuccess"), font: { size: 14 } },
+                          title: isMobile ? undefined : { text: t("withdrawalAmountAndSuccess"), font: { size: 14 } },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: {
                             title: isMobile ? undefined : { text: t("withdrawalAmount") },
@@ -575,16 +573,16 @@ export default function GuardrailPage() {
                             range: [0, 105],
                             tickfont: { size: isMobile ? 9 : 12 },
                           },
-                          height: isMobile ? 320 : 450,
-                          margin: isMobile ? { l: 45, r: 35, t: 35, b: 75 } : { l: 80, r: 60, t: 100, b: 50 },
+                          height: isMobile ? 300 : 450,
+                          margin: isMobile ? { l: 45, r: 35, t: 10, b: 30 } : { l: 80, r: 60, t: 100, b: 50 },
                           legend: isMobile
-                            ? { x: 0.5, y: -0.3, xanchor: "center" as const, yanchor: "top" as const, orientation: "h" as const, font: { size: 9 } }
+                            ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 7 }, tracegroupgap: 2 }
                             : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
                           hovermode: "x unified",
                         }}
                         config={{
                           responsive: true,
-                          displayModeBar: "hover",
+                          displayModeBar: isMobile ? false : "hover",
                           modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
                           toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
                         }}
