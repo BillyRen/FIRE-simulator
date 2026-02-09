@@ -16,6 +16,7 @@ import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { MetricCard } from "@/components/metric-card";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
+import { useIsMobile } from "@/components/fan-chart";
 import { runAllocationSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
@@ -33,6 +34,7 @@ function pct(n: number): string {
 export default function AllocationPage() {
   const t = useTranslations("allocation");
   const tc = useTranslations("common");
+  const isMobile = useIsMobile();
 
   const [params, setParams] = useState<FormParams>({
     ...DEFAULT_PARAMS,
@@ -92,7 +94,7 @@ export default function AllocationPage() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 p-6 max-w-[1600px] mx-auto">
+    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
       {/* ── 左侧参数面板 ── */}
       <aside className="lg:w-[340px] shrink-0 space-y-4">
         <Card>
@@ -240,12 +242,12 @@ export default function AllocationPage() {
                         gridcolor: "rgba(0,0,0,0.1)",
                       },
                     },
-                    margin: { t: 40, b: 40, l: 60, r: 60 },
+                    margin: isMobile ? { t: 20, b: 20, l: 10, r: 10 } : { t: 40, b: 40, l: 60, r: 60 },
                     showlegend: false,
-                    height: 500,
+                    height: isMobile ? 350 : 500,
                   }}
                   config={{
-                    displayModeBar: "hover" as const,
+                    displayModeBar: isMobile ? false : ("hover" as const),
                     modeBarButtonsToRemove: [
                       "select2d",
                       "lasso2d",
@@ -258,7 +260,7 @@ export default function AllocationPage() {
                       height: 800,
                     },
                   }}
-                  style={{ width: "100%", height: "500px" }}
+                  style={{ width: "100%", height: isMobile ? "350px" : "500px" }}
                 />
               </CardContent>
             </Card>

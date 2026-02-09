@@ -1,7 +1,31 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import PlotlyChart from "./plotly-chart";
+
+export function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < breakpoint);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [breakpoint]);
+  return isMobile;
+}
+
+export function mobileMargin(isMobile: boolean) {
+  return isMobile
+    ? { l: 45, r: 10, t: 50, b: 40 }
+    : { l: 80, r: 30, t: 80, b: 50 };
+}
+
+export function mobileMarginDualAxis(isMobile: boolean) {
+  return isMobile
+    ? { l: 45, r: 35, t: 50, b: 40 }
+    : { l: 80, r: 60, t: 100, b: 50 };
+}
 
 interface FanChartProps {
   /** 分位数轨迹 { "10": [...], "25": [...], "50": [...], "75": [...], "90": [...] } */
@@ -36,6 +60,7 @@ export function FanChart({
   color = "59, 130, 246", // blue-500 RGB
 }: FanChartProps) {
   const t = useTranslations();
+  const isMobile = useIsMobile();
   const n = trajectories["50"]?.length ?? 0;
   const x = xLabels ?? Array.from({ length: n }, (_, i) => i);
 
@@ -91,21 +116,34 @@ export function FanChart({
 
   traces.push(...extraTraces);
 
+  const chartHeight = isMobile ? 300 : (height ?? 450);
+
   return (
     <PlotlyChart
       data={traces}
       layout={{
-        title: { text: title, font: { size: 14 } },
-        xaxis: { title: xLabels ? undefined : { text: t("fanChart.yearAxis") } },
-        yaxis: { title: { text: resolvedYTitle }, tickformat: "$,.0f" },
-        height,
-        margin: { l: 80, r: 30, t: 80, b: 50 },
-        legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
+        title: { text: title, font: { size: isMobile ? 12 : 14 } },
+        xaxis: {
+          title: xLabels ? undefined : { text: t("fanChart.yearAxis") },
+          tickfont: { size: isMobile ? 9 : 12 },
+        },
+        yaxis: {
+          title: isMobile ? undefined : { text: resolvedYTitle },
+          tickformat: isMobile ? "$~s" : "$,.0f",
+          tickfont: { size: isMobile ? 9 : 12 },
+        },
+        height: chartHeight,
+        margin: isMobile
+          ? { l: 45, r: 10, t: 50, b: 40 }
+          : { l: 80, r: 30, t: 80, b: 50 },
+        legend: isMobile
+          ? { x: 0, y: 1.0, yanchor: "bottom", orientation: "h", font: { size: 9 } }
+          : { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
         hovermode: "x unified",
       }}
       config={{
         responsive: true,
-        displayModeBar: "hover",
+        displayModeBar: isMobile ? false : "hover",
         modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] as Plotly.ModeBarDefaultButtons[],
         toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
       }}

@@ -8,6 +8,7 @@ import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
+import { useIsMobile } from "@/components/fan-chart";
 import { runSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
@@ -17,6 +18,7 @@ import type { FormParams, SweepResponse } from "@/lib/types";
 export default function SensitivityPage() {
   const t = useTranslations("sensitivity");
   const tc = useTranslations("common");
+  const isMobile = useIsMobile();
 
   const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
   const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
@@ -64,7 +66,7 @@ export default function SensitivityPage() {
     : null;
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 p-6 max-w-[1600px] mx-auto">
+    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
       {/* ── 左侧参数 ── */}
       <aside className="lg:w-[340px] shrink-0 space-y-4">
         <Card>
@@ -169,15 +171,15 @@ export default function SensitivityPage() {
                     },
                   ]}
                   layout={{
-                    xaxis: { title: { text: t("analysis1XAxis") } },
-                    yaxis: { title: { text: t("analysis1YAxis") }, range: [0, 105] },
-                    height: 400,
-                    margin: { l: 60, r: 30, t: 30, b: 50 },
+                    xaxis: { title: { text: t("analysis1XAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
+                    yaxis: { title: isMobile ? undefined : { text: t("analysis1YAxis") }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
+                    height: isMobile ? 280 : 400,
+                    margin: isMobile ? { l: 35, r: 10, t: 20, b: 40 } : { l: 60, r: 30, t: 30, b: 50 },
                     hovermode: "x unified",
                   }}
                   config={{
                     responsive: true,
-                    displayModeBar: "hover",
+                    displayModeBar: isMobile ? false : "hover",
                     modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
                     toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
                   }}
@@ -230,17 +232,18 @@ export default function SensitivityPage() {
                     layout={{
                       xaxis: {
                         title: { text: t("analysis2XAxis") },
-                        tickformat: "$,.0f",
+                        tickformat: isMobile ? "$~s" : "$,.0f",
                         range: [0, analysis2Data.xMax],
+                        tickfont: { size: isMobile ? 9 : 12 },
                       },
-                      yaxis: { title: { text: t("analysis1YAxis") }, range: [0, 105] },
-                      height: 400,
-                      margin: { l: 60, r: 30, t: 30, b: 50 },
+                      yaxis: { title: isMobile ? undefined : { text: t("analysis1YAxis") }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
+                      height: isMobile ? 280 : 400,
+                      margin: isMobile ? { l: 35, r: 10, t: 20, b: 40 } : { l: 60, r: 30, t: 30, b: 50 },
                       hovermode: "x unified",
                     }}
                     config={{
                       responsive: true,
-                      displayModeBar: "hover",
+                      displayModeBar: isMobile ? false : "hover",
                       modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
                       toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
                     }}

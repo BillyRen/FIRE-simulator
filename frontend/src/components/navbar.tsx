@@ -25,14 +25,14 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-12 items-center px-6 max-w-[1600px] mx-auto justify-between">
-        <nav className="flex items-center gap-1">
+      <div className="flex h-12 items-center px-3 sm:px-6 max-w-[1600px] mx-auto justify-between">
+        <nav className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide">
           {NAV_ITEMS.map(({ href, label }) => (
             <Link
               key={href}
               href={href}
               className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                "px-2 sm:px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors whitespace-nowrap",
                 pathname === href
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -44,7 +44,7 @@ export function Navbar() {
         </nav>
         <button
           onClick={switchLocale}
-          className="px-2 py-1 rounded-md text-xs font-medium border hover:bg-accent transition-colors"
+          className="px-2 py-1 rounded-md text-xs font-medium border hover:bg-accent transition-colors shrink-0 ml-2"
         >
           {locale === "zh" ? "EN" : "中文"}
         </button>

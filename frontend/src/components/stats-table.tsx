@@ -67,7 +67,7 @@ export function StatsTable({ rows, downloadName }: StatsTableProps) {
           </Button>
         </div>
       )}
-      <div className="rounded-md border overflow-auto max-h-[500px]">
+      <div className="rounded-md border overflow-auto max-h-[500px] -mx-1 px-1">
         <Table>
           <TableHeader>
             <TableRow>

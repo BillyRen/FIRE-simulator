@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
-import { FanChart } from "@/components/fan-chart";
+import { FanChart, useIsMobile, mobileMargin, mobileMarginDualAxis } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
@@ -37,6 +37,7 @@ function pct(n: number): string {
 export default function GuardrailPage() {
   const t = useTranslations("guardrail");
   const tc = useTranslations("common");
+  const isMobile = useIsMobile();
 
   const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
   const [withdrawal, setWithdrawal] = useState(40_000);
@@ -114,7 +115,7 @@ export default function GuardrailPage() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 p-6 max-w-[1600px] mx-auto">
+    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
       {/* ── 左侧参数面板 ── */}
       <aside className="lg:w-[340px] shrink-0 space-y-4">
         <Card>
@@ -464,12 +465,12 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: { text: t("historicalPortfolioComparison"), font: { size: 14 } },
-                          xaxis: { title: { text: t("yearAxis") } },
-                          yaxis: { title: { text: t("assetAxis") }, tickformat: "$,.0f" },
-                          height: 400,
-                          margin: { l: 80, r: 30, t: 80, b: 50 },
-                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
+                          title: { text: t("historicalPortfolioComparison"), font: { size: isMobile ? 12 : 14 } },
+                          xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
+                          yaxis: { title: isMobile ? undefined : { text: t("assetAxis") }, tickformat: isMobile ? "$~s" : "$,.0f", tickfont: { size: isMobile ? 9 : 12 } },
+                          height: isMobile ? 300 : 400,
+                          margin: mobileMargin(isMobile),
+                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" as const, font: { size: isMobile ? 9 : 12 } },
                           hovermode: "x unified",
                         }}
                         config={{
@@ -557,21 +558,23 @@ export default function GuardrailPage() {
                             text: t("withdrawalAmountAndSuccess"),
                             font: { size: 14 },
                           },
-                          xaxis: { title: { text: t("yearAxis") } },
+                          xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: {
-                            title: { text: t("withdrawalAmount") },
-                            tickformat: "$,.0f",
+                            title: isMobile ? undefined : { text: t("withdrawalAmount") },
+                            tickformat: isMobile ? "$~s" : "$,.0f",
+                            tickfont: { size: isMobile ? 9 : 12 },
                             side: "left",
                           },
                           yaxis2: {
-                            title: { text: t("successRateAxis") },
+                            title: isMobile ? undefined : { text: t("successRateAxis") },
                             overlaying: "y",
                             side: "right",
                             range: [0, 105],
+                            tickfont: { size: isMobile ? 9 : 12 },
                           },
-                          height: 450,
-                          margin: { l: 80, r: 60, t: 100, b: 50 },
-                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
+                          height: isMobile ? 320 : 450,
+                          margin: mobileMarginDualAxis(isMobile),
+                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" as const, font: { size: isMobile ? 9 : 12 } },
                           hovermode: "x unified",
                         }}
                         config={{

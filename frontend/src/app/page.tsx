@@ -52,7 +52,7 @@ export default function SimulatorPage() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 p-6 max-w-[1600px] mx-auto">
+    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
       {/* ── 左侧参数面板 ── */}
       <aside className="lg:w-[340px] shrink-0 space-y-4">
         <Card>
