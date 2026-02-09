@@ -126,6 +126,7 @@ export interface GuardrailResponse {
   g_withdrawal_percentiles: Record<string, number[]>;
   b_success_rate: number;
   b_percentile_trajectories: Record<string, number[]>;
+  b_withdrawal_percentiles: Record<string, number[]>;
   baseline_annual_wd: number;
   metrics: Array<Record<string, string>>;
 }

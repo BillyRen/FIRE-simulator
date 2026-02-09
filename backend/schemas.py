@@ -137,6 +137,7 @@ class GuardrailResponse(BaseModel):
     # Baseline MC
     b_success_rate: float
     b_percentile_trajectories: dict[str, list[float]]
+    b_withdrawal_percentiles: dict[str, list[float]]
     baseline_annual_wd: float
     # 关键指标
     metrics: list[dict[str, str]]

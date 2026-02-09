@@ -57,16 +57,32 @@ export function FanChart({
     });
   }
 
-  // Median line
-  if (trajectories["50"]) {
-    traces.push({
-      x: x as Plotly.Datum[],
-      y: trajectories["50"],
-      mode: "lines",
-      name: "P50 (中位数)",
-      line: { color: `rgb(${color})`, width: 2.5 },
-      type: "scatter",
-    });
+  // Percentile traces (ordered high to low so hover tooltip reads P90 > P75 > P50 > P25 > P10)
+  const PERCENTILE_ORDER = ["90", "75", "50", "25", "10"];
+  for (const p of PERCENTILE_ORDER) {
+    if (!trajectories[p]) continue;
+    if (p === "50") {
+      traces.push({
+        x: x as Plotly.Datum[],
+        y: trajectories["50"],
+        mode: "lines",
+        name: "P50 (中位数)",
+        line: { color: `rgb(${color})`, width: 2.5 },
+        type: "scatter",
+        hovertemplate: `P50: %{y:$,.0f}<extra></extra>`,
+      });
+    } else {
+      traces.push({
+        x: x as Plotly.Datum[],
+        y: trajectories[p],
+        mode: "lines",
+        line: { width: 0, color: "transparent" },
+        name: `P${p}`,
+        showlegend: false,
+        type: "scatter",
+        hovertemplate: `P${p}: %{y:$,.0f}<extra></extra>`,
+      });
+    }
   }
 
   traces.push(...extraTraces);

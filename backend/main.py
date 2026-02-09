@@ -290,6 +290,7 @@ def api_guardrail(req: GuardrailRequest):
     g_pct_traj = {str(p): np.percentile(traj_g, p, axis=0).tolist() for p in band_pcts}
     b_pct_traj = {str(p): np.percentile(traj_b, p, axis=0).tolist() for p in band_pcts}
     g_wd_pcts = {str(p): np.percentile(wd_g, p, axis=0).tolist() for p in band_pcts}
+    b_wd_pcts = {str(p): np.percentile(wd_b, p, axis=0).tolist() for p in band_pcts}
 
     # 最低消费
     def min_nonzero_per_row(arr):
@@ -327,6 +328,7 @@ def api_guardrail(req: GuardrailRequest):
         g_withdrawal_percentiles=g_wd_pcts,
         b_success_rate=b_success,
         b_percentile_trajectories=b_pct_traj,
+        b_withdrawal_percentiles=b_wd_pcts,
         baseline_annual_wd=baseline_wd,
         metrics=metrics,
     )

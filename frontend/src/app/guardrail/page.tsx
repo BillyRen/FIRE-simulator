@@ -301,22 +301,31 @@ export default function GuardrailPage() {
                     color="16, 185, 129" // green
                     extraTraces={[
                       {
-                        y: Array(
+                        y: mcResult.b_withdrawal_percentiles?.["50"] ?? Array(
                           mcResult.g_withdrawal_percentiles["50"]?.length ?? 0
                         ).fill(mcResult.baseline_annual_wd),
                         mode: "lines",
-                        name: `基准 ${fmt(mcResult.baseline_annual_wd)}/年`,
+                        name: `基准 P50 提取额`,
                         line: { color: "rgb(234,88,12)", width: 2, dash: "dash" },
                         type: "scatter",
+                        hovertemplate: `基准: %{y:$,.0f}<extra></extra>`,
                       },
                       {
-                        y: Array(
-                          mcResult.g_withdrawal_percentiles["50"]?.length ?? 0
-                        ).fill(withdrawal),
+                        y: (() => {
+                          const bP50 = mcResult.b_withdrawal_percentiles?.["50"];
+                          const baseWd = mcResult.baseline_annual_wd;
+                          if (bP50) {
+                            // 从基准 P50 提取现金流影响，叠加到初始提取额
+                            return bP50.map((v) => withdrawal + (v - baseWd));
+                          }
+                          const n = mcResult.g_withdrawal_percentiles["50"]?.length ?? 0;
+                          return Array(n).fill(withdrawal);
+                        })(),
                         mode: "lines",
                         name: `初始提取 ${fmt(withdrawal)}/年`,
                         line: { color: "gray", width: 1, dash: "dot" },
                         type: "scatter",
+                        hovertemplate: `初始提取: %{y:$,.0f}<extra></extra>`,
                       },
                     ]}
                   />
