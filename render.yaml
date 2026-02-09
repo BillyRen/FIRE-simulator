@@ -1,0 +1,14 @@
+services:
+  - type: web
+    runtime: python
+    name: fire-simulator-api
+    repo: https://github.com/BillyRen/FIRE-simulator.git
+    branch: main
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://frontend-six-nu-41.vercel.app
+      - key: PYTHON_VERSION
+        value: "3.12.0"
