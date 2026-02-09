@@ -574,6 +574,66 @@ export default function GuardrailPage() {
                       />
                     </CardContent>
                   </Card>
+
+                  {/* 护栏调整明细表 */}
+                  {btResult.adjustment_events && btResult.adjustment_events.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                        <CardTitle className="text-sm">
+                          护栏调整记录（共 {btResult.adjustment_events.length} 次）
+                        </CardTitle>
+                        <DownloadButton
+                          label="下载调整记录"
+                          onClick={() => {
+                            const headers = ["年份", "调整前提取额", "调整后提取额", "变动幅度", "调整前成功率", "调整后成功率"];
+                            const rows = btResult.adjustment_events.map((e) => [
+                              btResult.year_labels[e.year],
+                              `$${Math.round(e.old_wd).toLocaleString()}`,
+                              `$${Math.round(e.new_wd).toLocaleString()}`,
+                              `${((e.new_wd / e.old_wd - 1) * 100).toFixed(1)}%`,
+                              `${(e.success_before * 100).toFixed(1)}%`,
+                              `${(e.success_after * 100).toFixed(1)}%`,
+                            ]);
+                            downloadCSV("guardrail_adjustments.csv", headers, rows);
+                          }}
+                        />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="max-h-[400px] overflow-auto">
+                          <table className="w-full text-sm">
+                            <thead className="sticky top-0 bg-background border-b">
+                              <tr>
+                                <th className="text-left px-2 py-1.5">年份</th>
+                                <th className="text-right px-2 py-1.5">调整前提取额</th>
+                                <th className="text-right px-2 py-1.5">调整后提取额</th>
+                                <th className="text-right px-2 py-1.5">变动幅度</th>
+                                <th className="text-right px-2 py-1.5">调整前成功率</th>
+                                <th className="text-right px-2 py-1.5">调整后成功率</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {btResult.adjustment_events.map((e, i) => {
+                                const change = (e.new_wd / e.old_wd - 1) * 100;
+                                const isUp = change > 0;
+                                return (
+                                  <tr key={i} className="border-b hover:bg-accent/50">
+                                    <td className="px-2 py-1">{btResult.year_labels[e.year]}</td>
+                                    <td className="text-right px-2 py-1">{fmt(e.old_wd)}</td>
+                                    <td className="text-right px-2 py-1">{fmt(e.new_wd)}</td>
+                                    <td className={`text-right px-2 py-1 font-medium ${isUp ? "text-green-600" : "text-red-600"}`}>
+                                      {isUp ? "+" : ""}{change.toFixed(1)}%
+                                    </td>
+                                    <td className="text-right px-2 py-1">{pct(e.success_before)}</td>
+                                    <td className="text-right px-2 py-1">{pct(e.success_after)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
                 </>
               )}
 

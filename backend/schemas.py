@@ -170,6 +170,14 @@ class BacktestRequest(BaseModel):
     cash_flows: list[CashFlowSchema] = []
 
 
+class AdjustmentEvent(BaseModel):
+    year: int
+    old_wd: float
+    new_wd: float
+    success_before: float
+    success_after: float
+
+
 class BacktestResponse(BaseModel):
     years_simulated: int
     year_labels: list[int]
@@ -180,6 +188,7 @@ class BacktestResponse(BaseModel):
     b_withdrawals: list[float]
     g_total_consumption: float
     b_total_consumption: float
+    adjustment_events: list[AdjustmentEvent] = []
 
 
 # ---------------------------------------------------------------------------

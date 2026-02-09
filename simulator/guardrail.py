@@ -138,8 +138,17 @@ def _apply_guardrail_adjustment(
     remaining: int,
     table: np.ndarray,
     rate_grid: np.ndarray,
+    future_cf_avg: float = 0.0,
 ) -> float:
-    """根据调整模式计算护栏触发后的新提取金额。"""
+    """根据调整模式计算护栏触发后的新提取金额。
+
+    Parameters
+    ----------
+    future_cf_avg : float
+        未来现金流年均值（负值=支出，正值=收入）。
+        查找表中的 rate 代表"总等效提取率"，包含现金流的影响。
+        target_wd 需要减去现金流部分，还原为基础提取额。
+    """
     if adjustment_mode == "success_rate":
         adjusted_success = current_success + adjustment_pct * (
             target_success - current_success
@@ -147,13 +156,15 @@ def _apply_guardrail_adjustment(
         adjusted_rate = find_rate_for_target(
             table, rate_grid, adjusted_success, remaining
         )
-        return value * adjusted_rate
+        # rate 是总等效提取率，还原为基础提取额：wd = value * rate + cf_avg
+        return value * adjusted_rate + future_cf_avg
     else:
         # 默认 "amount" 模式
         target_rate = find_rate_for_target(
             table, rate_grid, target_success, remaining
         )
-        target_wd = value * target_rate
+        # rate 是总等效提取率，还原为基础提取额：target_wd = value * rate + cf_avg
+        target_wd = value * target_rate + future_cf_avg
         return wd + adjustment_pct * (target_wd - wd)
 
 
@@ -278,10 +289,12 @@ def run_guardrail_simulation(
                 )
 
                 if current_success < lower_guardrail or current_success > upper_guardrail:
+                    _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
                     wd = _apply_guardrail_adjustment(
                         wd, value, current_success, target_success,
                         adjustment_pct, adjustment_mode, remaining,
                         table, rate_grid,
+                        future_cf_avg=_cf_avg,
                     )
 
             withdrawals[i, year] = wd
@@ -467,6 +480,7 @@ def run_historical_backtest(
     g_portfolio[0] = initial_portfolio
     g_withdrawals = np.zeros(n_years)
     g_success_rates = np.zeros(n_years)
+    adjustment_events: list[dict] = []
 
     value = initial_portfolio
     wd = annual_withdrawal
@@ -491,11 +505,29 @@ def run_historical_backtest(
             g_success_rates[year] = current_success
 
             if current_success < lower_guardrail or current_success > upper_guardrail:
+                old_wd = wd
+                _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
                 wd = _apply_guardrail_adjustment(
                     wd, value, current_success, target_success,
                     adjustment_pct, adjustment_mode, remaining,
                     table, rate_grid,
+                    future_cf_avg=_cf_avg,
                 )
+                # 计算调整后的成功率
+                if cf_schedule is not None:
+                    new_effective_rate = max((wd - future_cf_avg) / value, 0.0)
+                else:
+                    new_effective_rate = wd / value
+                new_success = lookup_success_rate(
+                    table, rate_grid, new_effective_rate, remaining
+                )
+                adjustment_events.append({
+                    "year": year,
+                    "old_wd": float(old_wd),
+                    "new_wd": float(wd),
+                    "success_before": float(current_success),
+                    "success_after": float(new_success),
+                })
         else:
             g_success_rates[year] = 0.0
 
@@ -541,4 +573,5 @@ def run_historical_backtest(
         "b_withdrawals": b_withdrawals,
         "g_total_consumption": float(np.sum(g_withdrawals)),
         "b_total_consumption": float(np.sum(b_withdrawals)),
+        "adjustment_events": adjustment_events,
     }

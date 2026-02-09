@@ -157,6 +157,14 @@ export interface BacktestRequest {
   cash_flows: CashFlowItem[];
 }
 
+export interface AdjustmentEvent {
+  year: number;
+  old_wd: number;
+  new_wd: number;
+  success_before: number;
+  success_after: number;
+}
+
 export interface BacktestResponse {
   years_simulated: number;
   year_labels: number[];
@@ -167,6 +175,7 @@ export interface BacktestResponse {
   b_withdrawals: number[];
   g_total_consumption: number;
   b_total_consumption: number;
+  adjustment_events: AdjustmentEvent[];
 }
 
 // ---------------------------------------------------------------------------

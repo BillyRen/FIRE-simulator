@@ -402,6 +402,7 @@ def api_backtest(req: BacktestRequest):
         b_withdrawals=result["b_withdrawals"].tolist(),
         g_total_consumption=result["g_total_consumption"],
         b_total_consumption=result["b_total_consumption"],
+        adjustment_events=result.get("adjustment_events", []),
     )
 
 
