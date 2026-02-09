@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
-import { FanChart, useIsMobile, mobileMargin, mobileMarginDualAxis } from "@/components/fan-chart";
+import { FanChart, useIsMobile } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
@@ -465,12 +465,16 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: { text: t("historicalPortfolioComparison"), font: { size: isMobile ? 12 : 14 } },
+                          title: isMobile
+                            ? { text: t("historicalPortfolioComparison"), font: { size: 12 }, y: 0.98, yanchor: "top" as const }
+                            : { text: t("historicalPortfolioComparison"), font: { size: 14 } },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: { title: isMobile ? undefined : { text: t("assetAxis") }, tickformat: isMobile ? "$~s" : "$,.0f", tickfont: { size: isMobile ? 9 : 12 } },
                           height: isMobile ? 300 : 400,
-                          margin: mobileMargin(isMobile),
-                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" as const, font: { size: isMobile ? 9 : 12 } },
+                          margin: isMobile ? { l: 45, r: 10, t: 35, b: 55 } : { l: 80, r: 30, t: 80, b: 50 },
+                          legend: isMobile
+                            ? { x: 0.5, y: -0.2, xanchor: "center" as const, yanchor: "top" as const, orientation: "h" as const, font: { size: 9 } }
+                            : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
                           hovermode: "x unified",
                         }}
                         config={{
@@ -554,10 +558,9 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: {
-                            text: t("withdrawalAmountAndSuccess"),
-                            font: { size: 14 },
-                          },
+                          title: isMobile
+                            ? { text: t("withdrawalAmountAndSuccess"), font: { size: 12 }, y: 0.98, yanchor: "top" as const }
+                            : { text: t("withdrawalAmountAndSuccess"), font: { size: 14 } },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: {
                             title: isMobile ? undefined : { text: t("withdrawalAmount") },
@@ -573,8 +576,10 @@ export default function GuardrailPage() {
                             tickfont: { size: isMobile ? 9 : 12 },
                           },
                           height: isMobile ? 320 : 450,
-                          margin: mobileMarginDualAxis(isMobile),
-                          legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" as const, font: { size: isMobile ? 9 : 12 } },
+                          margin: isMobile ? { l: 45, r: 35, t: 35, b: 75 } : { l: 80, r: 60, t: 100, b: 50 },
+                          legend: isMobile
+                            ? { x: 0.5, y: -0.3, xanchor: "center" as const, yanchor: "top" as const, orientation: "h" as const, font: { size: 9 } }
+                            : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
                           hovermode: "x unified",
                         }}
                         config={{

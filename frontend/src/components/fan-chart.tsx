@@ -122,7 +122,9 @@ export function FanChart({
     <PlotlyChart
       data={traces}
       layout={{
-        title: { text: title, font: { size: isMobile ? 12 : 14 } },
+        title: isMobile
+          ? { text: title, font: { size: 12 }, y: 0.98, yanchor: "top" as const }
+          : { text: title, font: { size: 14 } },
         xaxis: {
           title: xLabels ? undefined : { text: t("fanChart.yearAxis") },
           tickfont: { size: isMobile ? 9 : 12 },
@@ -134,10 +136,10 @@ export function FanChart({
         },
         height: chartHeight,
         margin: isMobile
-          ? { l: 45, r: 10, t: 50, b: 40 }
+          ? { l: 45, r: 10, t: 35, b: 60 }
           : { l: 80, r: 30, t: 80, b: 50 },
         legend: isMobile
-          ? { x: 0, y: 1.0, yanchor: "bottom", orientation: "h", font: { size: 9 } }
+          ? { x: 0.5, y: -0.25, xanchor: "center", yanchor: "top", orientation: "h", font: { size: 9 } }
           : { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
         hovermode: "x unified",
       }}
