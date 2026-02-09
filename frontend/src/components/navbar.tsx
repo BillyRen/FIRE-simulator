@@ -2,21 +2,30 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
-  { href: "/", label: "🔥 退休模拟器" },
-  { href: "/sensitivity", label: "📈 敏感性分析" },
-  { href: "/guardrail", label: "🛡️ 风险护栏" },
-  { href: "/allocation", label: "🎯 资产配置优化" },
-];
-
 export function Navbar() {
+  const t = useTranslations("nav");
   const pathname = usePathname();
+  const locale = useLocale();
+
+  const NAV_ITEMS = [
+    { href: "/", label: t("simulator") },
+    { href: "/sensitivity", label: t("sensitivity") },
+    { href: "/guardrail", label: t("guardrail") },
+    { href: "/allocation", label: t("allocation") },
+  ];
+
+  const switchLocale = () => {
+    const newLocale = locale === "zh" ? "en" : "zh";
+    document.cookie = `locale=${newLocale};path=/;max-age=31536000`;
+    window.location.reload();
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-12 items-center px-6 max-w-[1600px] mx-auto">
+      <div className="flex h-12 items-center px-6 max-w-[1600px] mx-auto justify-between">
         <nav className="flex items-center gap-1">
           {NAV_ITEMS.map(({ href, label }) => (
             <Link
@@ -33,6 +42,12 @@ export function Navbar() {
             </Link>
           ))}
         </nav>
+        <button
+          onClick={switchLocale}
+          className="px-2 py-1 rounded-md text-xs font-medium border hover:bg-accent transition-colors"
+        >
+          {locale === "zh" ? "EN" : "中文"}
+        </button>
       </div>
     </header>
   );

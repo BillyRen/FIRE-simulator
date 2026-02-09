@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
@@ -23,6 +24,9 @@ function pct(n: number): string {
 }
 
 export default function SimulatorPage() {
+  const t = useTranslations("simulator");
+  const tc = useTranslations("common");
+
   const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
   const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
   const [withdrawal, setWithdrawal] = useState(DEFAULT_PARAMS.annual_withdrawal);
@@ -41,7 +45,7 @@ export default function SimulatorPage() {
       });
       setResult(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "未知错误");
+      setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setLoading(false);
     }
@@ -53,18 +57,18 @@ export default function SimulatorPage() {
       <aside className="lg:w-[340px] shrink-0 space-y-4">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">🔥 退休模拟参数</CardTitle>
+            <CardTitle className="text-base">{t("title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-2">
               <NumberField
-                label="初始资产 ($)"
+                label={tc("initialPortfolio")}
                 value={portfolio}
                 onChange={setPortfolio}
                 min={0}
               />
               <NumberField
-                label="年提取额 ($)"
+                label={tc("annualWithdrawal")}
                 value={withdrawal}
                 onChange={setWithdrawal}
                 min={0}
@@ -74,7 +78,7 @@ export default function SimulatorPage() {
             <SidebarForm params={params} onChange={setParams} />
 
             <Button onClick={handleRun} className="w-full" disabled={loading}>
-              {loading ? "运行中…" : "运行模拟"}
+              {loading ? tc("running") : t("runSimulation")}
             </Button>
           </CardContent>
         </Card>
@@ -95,17 +99,17 @@ export default function SimulatorPage() {
             {/* 下载按钮组 */}
             <div className="flex flex-wrap gap-2">
               <DownloadButton
-                label="下载资产轨迹"
+                label={t("downloadPortfolioTrajectory")}
                 onClick={() =>
-                  downloadTrajectories("资产轨迹", result.percentile_trajectories)
+                  downloadTrajectories("portfolio_trajectory", result.percentile_trajectories)
                 }
               />
               {result.withdrawal_percentile_trajectories && (
                 <DownloadButton
-                  label="下载提取轨迹"
+                  label={t("downloadWithdrawalTrajectory")}
                   onClick={() =>
                     downloadTrajectories(
-                      "提取金额轨迹",
+                      "withdrawal_trajectory",
                       result.withdrawal_percentile_trajectories!
                     )
                   }
@@ -115,11 +119,11 @@ export default function SimulatorPage() {
 
             {/* 指标卡片 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <MetricCard label="成功率" value={pct(result.success_rate)} />
-              <MetricCard label="中位数最终资产" value={fmt(result.final_median)} />
-              <MetricCard label="平均最终资产" value={fmt(result.final_mean)} />
+              <MetricCard label={t("successRate")} value={pct(result.success_rate)} />
+              <MetricCard label={t("medianFinalPortfolio")} value={fmt(result.final_median)} />
+              <MetricCard label={t("meanFinalPortfolio")} value={fmt(result.final_mean)} />
               <MetricCard
-                label="初始提取率"
+                label={t("initialWithdrawalRate")}
                 value={pct(result.initial_withdrawal_rate)}
               />
             </div>
@@ -129,7 +133,7 @@ export default function SimulatorPage() {
               <CardContent className="pt-4">
                 <FanChart
                   trajectories={result.percentile_trajectories}
-                  title="资产组合轨迹 (通胀调整后)"
+                  title={t("portfolioTrajectory")}
                 />
               </CardContent>
             </Card>
@@ -140,7 +144,7 @@ export default function SimulatorPage() {
                 <CardContent className="pt-4">
                   <FanChart
                     trajectories={result.withdrawal_percentile_trajectories}
-                    title="年度提取金额轨迹"
+                    title={t("withdrawalTrajectory")}
                     color="234, 88, 12" // orange
                   />
                 </CardContent>
@@ -150,10 +154,10 @@ export default function SimulatorPage() {
             {/* 统计表 */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">统计摘要</CardTitle>
+                <CardTitle className="text-sm">{t("statsSummary")}</CardTitle>
               </CardHeader>
               <CardContent>
-                <StatsTable rows={result.final_values_summary} downloadName="统计摘要" />
+                <StatsTable rows={result.final_values_summary} downloadName="stats_summary" />
               </CardContent>
             </Card>
           </>
@@ -161,7 +165,7 @@ export default function SimulatorPage() {
 
         {!result && !loading && (
           <div className="flex items-center justify-center h-64 text-muted-foreground">
-            配置参数后点击「运行模拟」查看结果
+            {t("placeholder")}
           </div>
         )}
       </main>

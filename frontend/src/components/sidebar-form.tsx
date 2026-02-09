@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -17,11 +18,8 @@ import type { FormParams } from "@/lib/types";
 interface SidebarFormProps {
   params: FormParams;
   onChange: (params: FormParams) => void;
-  /** 是否展示提取策略选择（敏感性页面不需要） */
   showWithdrawalStrategy?: boolean;
-  /** 是否展示资产配置区域（配置优化页面不需要） */
   showAllocation?: boolean;
-  /** 额外的子元素（如 guardrail 特有参数） */
   children?: React.ReactNode;
 }
 
@@ -46,7 +44,6 @@ export function NumberField({
 }) {
   const [display, setDisplay] = useState(String(value));
 
-  // 外部 value 变化时同步到 display（仅在 input 未聚焦时）
   useEffect(() => {
     setDisplay(String(value));
   }, [value]);
@@ -95,6 +92,7 @@ export function SidebarForm({
   showAllocation = true,
   children,
 }: SidebarFormProps) {
+  const t = useTranslations("sidebar");
   const p = params;
   const set = <K extends keyof FormParams>(key: K, val: FormParams[K]) =>
     onChange({ ...p, [key]: val });
@@ -103,9 +101,9 @@ export function SidebarForm({
     <div className="space-y-4">
       {/* 数据范围 */}
       <div>
-        <h3 className="text-sm font-semibold mb-2">📅 数据范围</h3>
+        <h3 className="text-sm font-semibold mb-2">{t("dataRange")}</h3>
         <NumberField
-          label="数据起始年"
+          label={t("dataStartYear")}
           value={p.data_start_year}
           onChange={(v) => set("data_start_year", v)}
           min={1871}
@@ -114,7 +112,7 @@ export function SidebarForm({
         />
         {p.data_start_year < 1970 && (
           <p className="text-[10px] text-amber-600 mt-1">
-            ⚠️ 1970 年以前国际股票数据由美股模拟
+            {t("dataWarning")}
           </p>
         )}
       </div>
@@ -123,12 +121,14 @@ export function SidebarForm({
 
       {/* 资产配置 */}
       <div>
-        <h3 className="text-sm font-semibold mb-2">📊 {showAllocation ? "资产配置" : "资产费率"}</h3>
+        <h3 className="text-sm font-semibold mb-2">
+          {showAllocation ? t("assetAllocation") : t("assetExpenseRatio")}
+        </h3>
         {showAllocation && (
           <>
             <div className="grid grid-cols-3 gap-2">
               <NumberField
-                label="美股 %"
+                label={t("usStock")}
                 value={Math.round(p.allocation.us_stock * 100)}
                 onChange={(v) =>
                   set("allocation", { ...p.allocation, us_stock: v / 100 })
@@ -137,7 +137,7 @@ export function SidebarForm({
                 max={100}
               />
               <NumberField
-                label="国际股 %"
+                label={t("intlStock")}
                 value={Math.round(p.allocation.intl_stock * 100)}
                 onChange={(v) =>
                   set("allocation", { ...p.allocation, intl_stock: v / 100 })
@@ -146,7 +146,7 @@ export function SidebarForm({
                 max={100}
               />
               <NumberField
-                label="美债 %"
+                label={t("usBond")}
                 value={Math.round(p.allocation.us_bond * 100)}
                 onChange={(v) =>
                   set("allocation", { ...p.allocation, us_bond: v / 100 })
@@ -158,14 +158,14 @@ export function SidebarForm({
             {Math.abs(
               p.allocation.us_stock + p.allocation.intl_stock + p.allocation.us_bond - 1
             ) > 0.01 && (
-              <p className="text-[10px] text-red-500 mt-1">⚠️ 配置比例之和需为 100%</p>
+              <p className="text-[10px] text-red-500 mt-1">{t("allocationWarning")}</p>
             )}
           </>
         )}
 
         <div className={`grid grid-cols-3 gap-2 ${showAllocation ? "mt-2" : ""}`}>
           <NumberField
-            label="美股费率 %"
+            label={t("usStockFee")}
             value={+(p.expense_ratios.us_stock * 100).toFixed(2)}
             onChange={(v) =>
               set("expense_ratios", { ...p.expense_ratios, us_stock: v / 100 })
@@ -174,7 +174,7 @@ export function SidebarForm({
             min={0}
           />
           <NumberField
-            label="国际股费率 %"
+            label={t("intlStockFee")}
             value={+(p.expense_ratios.intl_stock * 100).toFixed(2)}
             onChange={(v) =>
               set("expense_ratios", { ...p.expense_ratios, intl_stock: v / 100 })
@@ -183,7 +183,7 @@ export function SidebarForm({
             min={0}
           />
           <NumberField
-            label="美债费率 %"
+            label={t("usBondFee")}
             value={+(p.expense_ratios.us_bond * 100).toFixed(2)}
             onChange={(v) =>
               set("expense_ratios", { ...p.expense_ratios, us_bond: v / 100 })
@@ -198,17 +198,17 @@ export function SidebarForm({
 
       {/* 模拟设置 */}
       <div>
-        <h3 className="text-sm font-semibold mb-2">⚙️ 模拟设置</h3>
+        <h3 className="text-sm font-semibold mb-2">{t("simulationSettings")}</h3>
         <div className="grid grid-cols-2 gap-2">
           <NumberField
-            label="退休年限"
+            label={t("retirementYears")}
             value={p.retirement_years}
             onChange={(v) => set("retirement_years", v)}
             min={1}
             max={100}
           />
           <NumberField
-            label="模拟次数"
+            label={t("numSimulations")}
             value={p.num_simulations}
             onChange={(v) => set("num_simulations", v)}
             min={100}
@@ -216,20 +216,20 @@ export function SidebarForm({
             step={1000}
           />
           <NumberField
-            label="最小采样窗口"
+            label={t("minBlock")}
             value={p.min_block}
             onChange={(v) => set("min_block", v)}
             min={1}
             max={p.max_block}
-            suffix="年"
+            suffix={t("yearsSuffix")}
           />
           <NumberField
-            label="最大采样窗口"
+            label={t("maxBlock")}
             value={p.max_block}
             onChange={(v) => set("max_block", v)}
             min={p.min_block}
             max={55}
-            suffix="年"
+            suffix={t("yearsSuffix")}
           />
         </div>
       </div>
@@ -238,7 +238,7 @@ export function SidebarForm({
         <>
           <Separator />
           <div>
-            <h3 className="text-sm font-semibold mb-2">💰 提取策略</h3>
+            <h3 className="text-sm font-semibold mb-2">{t("withdrawalStrategy")}</h3>
             <Select
               value={p.withdrawal_strategy}
               onValueChange={(v) =>
@@ -249,15 +249,15 @@ export function SidebarForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="fixed">固定提取</SelectItem>
-                <SelectItem value="dynamic">动态提取 (Vanguard)</SelectItem>
+                <SelectItem value="fixed">{t("fixedWithdrawal")}</SelectItem>
+                <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
               </SelectContent>
             </Select>
 
             {p.withdrawal_strategy === "dynamic" && (
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <NumberField
-                  label="年度上调上限 %"
+                  label={t("dynamicCeiling")}
                   value={+(p.dynamic_ceiling * 100).toFixed(1)}
                   onChange={(v) => set("dynamic_ceiling", v / 100)}
                   min={0}
@@ -265,7 +265,7 @@ export function SidebarForm({
                   step={0.5}
                 />
                 <NumberField
-                  label="年度下调上限 %"
+                  label={t("dynamicFloor")}
                   value={+(p.dynamic_floor * 100).toFixed(1)}
                   onChange={(v) => set("dynamic_floor", v / 100)}
                   min={0}
@@ -282,27 +282,27 @@ export function SidebarForm({
 
       {/* 杠杆设置 */}
       <div>
-        <h3 className="text-sm font-semibold mb-2">📈 杠杆设置</h3>
+        <h3 className="text-sm font-semibold mb-2">{t("leverage")}</h3>
         <NumberField
-          label="杠杆倍数"
+          label={t("leverageMultiplier")}
           value={p.leverage}
           onChange={(v) => set("leverage", v)}
           min={1}
           max={5}
           step={0.1}
           suffix="x"
-          help="1.0 = 无杠杆"
+          help={t("noLeverage")}
         />
         {p.leverage > 1 && (
           <div className="mt-2">
             <NumberField
-              label="借贷利差 %"
+              label={t("borrowingSpread")}
               value={+(p.borrowing_spread * 100).toFixed(2)}
               onChange={(v) => set("borrowing_spread", v / 100)}
               min={0}
               max={20}
               step={0.1}
-              help="借贷成本 = 通胀 + 利差"
+              help={t("borrowingCostHelp")}
             />
           </div>
         )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMessages } from "next-intl";
 import {
   Table,
   TableBody,
@@ -13,13 +14,29 @@ import { downloadTableRows } from "@/lib/csv";
 
 interface StatsTableProps {
   rows: Array<Record<string, string>>;
-  /** CSV 下载文件名（不含扩展名），为空则不显示下载按钮 */
+  /** CSV download filename (without extension), empty = no download button */
   downloadName?: string;
 }
 
 export function StatsTable({ rows, downloadName }: StatsTableProps) {
+  const messages = useMessages();
+  const backendMap = (messages?.backendKeys ?? {}) as Record<string, string>;
+
   if (!rows || rows.length === 0) return null;
-  const keys = Object.keys(rows[0]);
+
+  /** Translate a backend string via plain lookup; return as-is if no match */
+  const tr = (s: string): string => backendMap[s] ?? s;
+
+  /** Translate all keys and known values in rows */
+  const translatedRows = rows.map((row) => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(row)) {
+      out[tr(k)] = tr(v);
+    }
+    return out;
+  });
+
+  const keys = Object.keys(translatedRows[0]);
 
   return (
     <div className="space-y-1">
@@ -29,7 +46,7 @@ export function StatsTable({ rows, downloadName }: StatsTableProps) {
             variant="ghost"
             size="sm"
             className="h-6 text-xs text-muted-foreground gap-1 px-2"
-            onClick={() => downloadTableRows(downloadName, rows)}
+            onClick={() => downloadTableRows(downloadName, translatedRows)}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -60,7 +77,7 @@ export function StatsTable({ rows, downloadName }: StatsTableProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row, i) => (
+            {translatedRows.map((row, i) => (
               <TableRow key={i}>
                 {keys.map((k) => (
                   <TableCell key={k} className="whitespace-nowrap tabular-nums">

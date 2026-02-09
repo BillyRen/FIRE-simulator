@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -13,7 +14,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { MetricCard } from "@/components/metric-card";
-import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { runAllocationSweep } from "@/lib/api";
@@ -30,13 +30,10 @@ function pct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-const STEP_OPTIONS = [
-  { value: "0.05", label: "5%（约 231 种组合）" },
-  { value: "0.1", label: "10%（约 66 种组合）" },
-  { value: "0.2", label: "20%（约 21 种组合）" },
-];
-
 export default function AllocationPage() {
+  const t = useTranslations("allocation");
+  const tc = useTranslations("common");
+
   const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
   const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
   const [withdrawal, setWithdrawal] = useState(DEFAULT_PARAMS.annual_withdrawal);
@@ -45,9 +42,14 @@ export default function AllocationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 排序
   const [sortKey, setSortKey] = useState<string>("success_rate");
   const [sortAsc, setSortAsc] = useState(false);
+
+  const STEP_OPTIONS = [
+    { value: "0.05", label: t("stepOption5") },
+    { value: "0.1", label: t("stepOption10") },
+    { value: "0.2", label: t("stepOption20") },
+  ];
 
   const handleRun = async () => {
     setLoading(true);
@@ -61,7 +63,7 @@ export default function AllocationPage() {
       });
       setResult(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "未知错误");
+      setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setLoading(false);
     }
@@ -92,18 +94,18 @@ export default function AllocationPage() {
       <aside className="lg:w-[340px] shrink-0 space-y-4">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">🎯 资产配置优化</CardTitle>
+            <CardTitle className="text-base">{t("title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <NumberField
-              label="初始资产 ($)"
+              label={t("initialPortfolio")}
               value={portfolio}
               onChange={setPortfolio}
               min={1}
               step={10000}
             />
             <NumberField
-              label="年提取金额 ($)"
+              label={t("annualWithdrawal")}
               value={withdrawal}
               onChange={setWithdrawal}
               min={0}
@@ -111,7 +113,7 @@ export default function AllocationPage() {
             />
 
             <div>
-              <Label className="text-xs">扫描步长</Label>
+              <Label className="text-xs">{t("scanStep")}</Label>
               <Select
                 value={String(allocStep)}
                 onValueChange={(v) => setAllocStep(parseFloat(v))}
@@ -137,7 +139,7 @@ export default function AllocationPage() {
             />
 
             <Button onClick={handleRun} className="w-full" disabled={loading}>
-              {loading ? "扫描中..." : "开始扫描"}
+              {loading ? t("scanning") : t("startScan")}
             </Button>
           </CardContent>
         </Card>
@@ -158,24 +160,24 @@ export default function AllocationPage() {
             {/* 最优配置指标 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <MetricCard
-                label="最优成功率"
+                label={t("bestSuccessRate")}
                 value={pct(result.best_by_success.success_rate)}
               />
               <MetricCard
-                label="最优配置"
+                label={t("bestAllocation")}
                 value={`${(result.best_by_success.us_stock * 100).toFixed(0)}/${(result.best_by_success.intl_stock * 100).toFixed(0)}/${(result.best_by_success.us_bond * 100).toFixed(0)}`}
-                sub="美股/国际股/美债"
+                sub={t("allocationSub")}
               />
               <MetricCard
-                label="中位数最终资产"
+                label={t("medianFinalPortfolio")}
                 value={fmt(result.best_by_success.median_final)}
               />
               <MetricCard
-                label="P10 耗尽年"
+                label={t("p10DepletionYear")}
                 value={
                   result.best_by_success.p10_depletion_year
-                    ? `第 ${result.best_by_success.p10_depletion_year} 年`
-                    : "未耗尽"
+                    ? tc("yearN", { n: result.best_by_success.p10_depletion_year })
+                    : tc("notDepleted")
                 }
               />
             </div>
@@ -183,7 +185,7 @@ export default function AllocationPage() {
             {/* 三角热力图 */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">资产配置 — 成功率热力图</CardTitle>
+                <CardTitle className="text-sm">{t("heatmapTitle")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <PlotlyChart
@@ -196,7 +198,7 @@ export default function AllocationPage() {
                       c: result.results.map((r) => r.us_bond * 100),
                       text: result.results.map(
                         (r) =>
-                          `美股${(r.us_stock * 100).toFixed(0)}% 国际股${(r.intl_stock * 100).toFixed(0)}% 美债${(r.us_bond * 100).toFixed(0)}%<br>成功率: ${(r.success_rate * 100).toFixed(1)}%<br>中位数终值: ${fmt(r.median_final)}`
+                          `${t("ternaryUSStock").replace(" %", "")}${(r.us_stock * 100).toFixed(0)}% ${t("ternaryIntlStock").replace(" %", "")}${(r.intl_stock * 100).toFixed(0)}% ${t("ternaryUSBond").replace(" %", "")}${(r.us_bond * 100).toFixed(0)}%<br>${tc("successRate")}: ${(r.success_rate * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`
                       ),
                       hoverinfo: "text",
                       marker: {
@@ -206,7 +208,7 @@ export default function AllocationPage() {
                         cmin: Math.min(...result.results.map((r) => r.success_rate * 100)),
                         cmax: Math.max(...result.results.map((r) => r.success_rate * 100)),
                         colorbar: {
-                          title: { text: "成功率 (%)" },
+                          title: { text: t("ternaryColorbar") },
                           ticksuffix: "%",
                         },
                         line: { width: 1, color: "rgba(0,0,0,0.2)" },
@@ -217,19 +219,19 @@ export default function AllocationPage() {
                     ternary: {
                       sum: 100,
                       aaxis: {
-                        title: { text: "美股 %" },
+                        title: { text: t("ternaryUSStock") },
                         min: 0,
                         linewidth: 1,
                         gridcolor: "rgba(0,0,0,0.1)",
                       },
                       baxis: {
-                        title: { text: "国际股 %" },
+                        title: { text: t("ternaryIntlStock") },
                         min: 0,
                         linewidth: 1,
                         gridcolor: "rgba(0,0,0,0.1)",
                       },
                       caxis: {
-                        title: { text: "美债 %" },
+                        title: { text: t("ternaryUSBond") },
                         min: 0,
                         linewidth: 1,
                         gridcolor: "rgba(0,0,0,0.1)",
@@ -262,19 +264,19 @@ export default function AllocationPage() {
             <Card>
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">
-                  全部配置结果（{result.results.length} 种）
+                  {t("allResultsTitle", { count: result.results.length })}
                 </CardTitle>
                 <DownloadButton
-                  label="下载 CSV"
+                  label={t("downloadCSV")}
                   onClick={() => {
                     const headers = [
-                      "美股%",
-                      "国际股%",
-                      "美债%",
-                      "成功率",
-                      "中位数终值",
-                      "均值终值",
-                      "P10耗尽年",
+                      t("colUSStock"),
+                      t("colIntlStock"),
+                      t("colUSBond"),
+                      t("colSuccessRate"),
+                      t("colMedianFinal"),
+                      t("colMeanFinal"),
+                      t("colP10Depletion"),
                     ];
                     const rows = sortedResults.map((r) => [
                       (r.us_stock * 100).toFixed(0),
@@ -283,9 +285,9 @@ export default function AllocationPage() {
                       (r.success_rate * 100).toFixed(1) + "%",
                       Math.round(r.median_final),
                       Math.round(r.mean_final),
-                      r.p10_depletion_year ?? "未耗尽",
+                      r.p10_depletion_year ?? tc("notDepleted"),
                     ]);
-                    downloadCSV("allocation_sweep.csv", headers, rows);
+                    downloadCSV("allocation_sweep", headers, rows);
                   }}
                 />
               </CardHeader>
@@ -295,13 +297,13 @@ export default function AllocationPage() {
                     <thead className="sticky top-0 bg-background border-b">
                       <tr>
                         {[
-                          { key: "us_stock", label: "美股 %" },
-                          { key: "intl_stock", label: "国际股 %" },
-                          { key: "us_bond", label: "美债 %" },
-                          { key: "success_rate", label: "成功率" },
-                          { key: "median_final", label: "中位数终值" },
-                          { key: "mean_final", label: "均值终值" },
-                          { key: "p10_depletion_year", label: "P10 耗尽年" },
+                          { key: "us_stock", label: t("colUSStock") },
+                          { key: "intl_stock", label: t("colIntlStock") },
+                          { key: "us_bond", label: t("colUSBond") },
+                          { key: "success_rate", label: t("colSuccessRate") },
+                          { key: "median_final", label: t("colMedianFinal") },
+                          { key: "mean_final", label: t("colMeanFinal") },
+                          { key: "p10_depletion_year", label: t("colP10Depletion") },
                         ].map((col) => (
                           <th
                             key={col.key}
@@ -341,8 +343,8 @@ export default function AllocationPage() {
                             <td className="px-2 py-1">{fmt(r.mean_final)}</td>
                             <td className="px-2 py-1">
                               {r.p10_depletion_year
-                                ? `第 ${r.p10_depletion_year} 年`
-                                : "未耗尽"}
+                                ? tc("yearN", { n: r.p10_depletion_year })
+                                : tc("notDepleted")}
                             </td>
                           </tr>
                         );

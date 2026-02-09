@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import PlotlyChart from "./plotly-chart";
 
 interface FanChartProps {
@@ -28,14 +29,17 @@ const BAND_OPACITIES = [0.15, 0.3];
 export function FanChart({
   trajectories,
   title,
-  yTitle = "金额 ($)",
+  yTitle,
   xLabels,
   extraTraces = [],
   height = 450,
   color = "59, 130, 246", // blue-500 RGB
 }: FanChartProps) {
+  const t = useTranslations();
   const n = trajectories["50"]?.length ?? 0;
   const x = xLabels ?? Array.from({ length: n }, (_, i) => i);
+
+  const resolvedYTitle = yTitle ?? t("common.amount");
 
   const traces: Plotly.Data[] = [];
 
@@ -66,7 +70,7 @@ export function FanChart({
         x: x as Plotly.Datum[],
         y: trajectories["50"],
         mode: "lines",
-        name: "P50 (中位数)",
+        name: t("common.median"),
         line: { color: `rgb(${color})`, width: 2.5 },
         type: "scatter",
         hovertemplate: `P50: %{y:$,.0f}<extra></extra>`,
@@ -92,8 +96,8 @@ export function FanChart({
       data={traces}
       layout={{
         title: { text: title, font: { size: 14 } },
-        xaxis: { title: xLabels ? undefined : { text: "年" } },
-        yaxis: { title: { text: yTitle }, tickformat: "$,.0f" },
+        xaxis: { title: xLabels ? undefined : { text: t("fanChart.yearAxis") } },
+        yaxis: { title: { text: resolvedYTitle }, tickformat: "$,.0f" },
         height,
         margin: { l: 80, r: 30, t: 80, b: 50 },
         legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },

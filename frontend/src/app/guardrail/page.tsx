@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -34,6 +35,9 @@ function pct(n: number): string {
 }
 
 export default function GuardrailPage() {
+  const t = useTranslations("guardrail");
+  const tc = useTranslations("common");
+
   const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
   const [withdrawal, setWithdrawal] = useState(40_000);
 
@@ -83,9 +87,9 @@ export default function GuardrailPage() {
     try {
       const res = await runGuardrail(guardrailReqBase());
       setMcResult(res);
-      setBtResult(null); // 重置回测
+      setBtResult(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "未知错误");
+      setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setLoading(false);
     }
@@ -103,7 +107,7 @@ export default function GuardrailPage() {
       });
       setBtResult(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "未知错误");
+      setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setBtLoading(false);
     }
@@ -115,11 +119,11 @@ export default function GuardrailPage() {
       <aside className="lg:w-[340px] shrink-0 space-y-4">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">🛡️ 风险护栏参数</CardTitle>
+            <CardTitle className="text-base">{t("title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <NumberField
-              label="年提取金额 ($)"
+              label={tc("annualWithdrawalAlt")}
               value={withdrawal}
               onChange={setWithdrawal}
               min={0}
@@ -132,17 +136,17 @@ export default function GuardrailPage() {
             >
               <Separator />
               <div>
-                <h3 className="text-sm font-semibold mb-2">🛡️ 护栏设置</h3>
+                <h3 className="text-sm font-semibold mb-2">{t("guardrailSettings")}</h3>
                 <div className="grid grid-cols-2 gap-2">
                   <NumberField
-                    label="目标成功率 %"
+                    label={t("targetSuccess")}
                     value={+(targetSuccess * 100).toFixed(0)}
                     onChange={(v) => setTargetSuccess(v / 100)}
                     min={1}
                     max={99}
                   />
                   <NumberField
-                    label="基准提取率 %"
+                    label={t("baselineRate")}
                     value={+(baselineRate * 100).toFixed(1)}
                     onChange={(v) => setBaselineRate(v / 100)}
                     min={0.1}
@@ -150,14 +154,14 @@ export default function GuardrailPage() {
                     step={0.1}
                   />
                   <NumberField
-                    label="上护栏 %"
+                    label={t("upperGuardrail")}
                     value={+(upperGuardrail * 100).toFixed(0)}
                     onChange={(v) => setUpperGuardrail(v / 100)}
                     min={1}
                     max={100}
                   />
                   <NumberField
-                    label="下护栏 %"
+                    label={t("lowerGuardrail")}
                     value={+(lowerGuardrail * 100).toFixed(0)}
                     onChange={(v) => setLowerGuardrail(v / 100)}
                     min={0}
@@ -167,7 +171,7 @@ export default function GuardrailPage() {
 
                 <div className="mt-2 space-y-2">
                   <div>
-                    <Label className="text-xs">调整模式</Label>
+                    <Label className="text-xs">{t("adjustmentMode")}</Label>
                     <Select
                       value={adjustmentMode}
                       onValueChange={(v) => setAdjustmentMode(v as "amount" | "success_rate")}
@@ -176,25 +180,25 @@ export default function GuardrailPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="amount">金额调整百分比</SelectItem>
-                        <SelectItem value="success_rate">成功率调整百分比</SelectItem>
+                        <SelectItem value="amount">{t("amountMode")}</SelectItem>
+                        <SelectItem value="success_rate">{t("successRateMode")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <NumberField
-                    label="调整百分比 %"
+                    label={t("adjustmentPct")}
                     value={+(adjustmentPct * 100).toFixed(0)}
                     onChange={(v) => setAdjustmentPct(v / 100)}
                     min={1}
                     max={100}
                     help={
                       adjustmentMode === "amount"
-                        ? "对目标金额差距的调整比例"
-                        : "对目标成功率差距的调整比例"
+                        ? t("amountModeHelp")
+                        : t("successRateModeHelp")
                     }
                   />
                   <NumberField
-                    label="最少剩余计算年限"
+                    label={t("minRemainingYears")}
                     value={minRemainingYears}
                     onChange={(v) => setMinRemainingYears(Math.round(v))}
                     min={1}
@@ -205,7 +209,7 @@ export default function GuardrailPage() {
             </SidebarForm>
 
             <Button onClick={handleRunMC} className="w-full" disabled={loading}>
-              {loading ? "运行中…" : "运行 Guardrail 模拟"}
+              {loading ? tc("running") : t("runSimulation")}
             </Button>
           </CardContent>
         </Card>
@@ -219,13 +223,13 @@ export default function GuardrailPage() {
           </div>
         )}
 
-        {loading && <LoadingOverlay message="Guardrail 模拟中…" />}
+        {loading && <LoadingOverlay message={t("guardrailLoading")} />}
 
         {mcResult && !loading && (
           <Tabs defaultValue="mc">
             <TabsList className="mb-4">
-              <TabsTrigger value="mc">Monte Carlo 分析</TabsTrigger>
-              <TabsTrigger value="backtest">历史回测</TabsTrigger>
+              <TabsTrigger value="mc">{t("mcTab")}</TabsTrigger>
+              <TabsTrigger value="backtest">{t("backtestTab")}</TabsTrigger>
             </TabsList>
 
             {/* ═══ MC Tab ═══ */}
@@ -233,21 +237,21 @@ export default function GuardrailPage() {
               {/* 下载按钮组 */}
               <div className="flex flex-wrap gap-2">
                 <DownloadButton
-                  label="下载资产轨迹"
+                  label={t("downloadPortfolioTrajectory")}
                   onClick={() =>
-                    downloadTrajectories("Guardrail_资产轨迹", mcResult.g_percentile_trajectories)
+                    downloadTrajectories("guardrail_portfolio", mcResult.g_percentile_trajectories)
                   }
                 />
                 <DownloadButton
-                  label="下载提取轨迹"
+                  label={t("downloadWithdrawalTrajectory")}
                   onClick={() =>
-                    downloadTrajectories("Guardrail_提取轨迹", mcResult.g_withdrawal_percentiles)
+                    downloadTrajectories("guardrail_withdrawal", mcResult.g_withdrawal_percentiles)
                   }
                 />
                 <DownloadButton
-                  label="下载基准轨迹"
+                  label={t("downloadBaselineTrajectory")}
                   onClick={() =>
-                    downloadTrajectories("基准_资产轨迹", mcResult.b_percentile_trajectories)
+                    downloadTrajectories("baseline_portfolio", mcResult.b_percentile_trajectories)
                   }
                 />
               </div>
@@ -255,21 +259,21 @@ export default function GuardrailPage() {
               {/* 指标卡片 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <MetricCard
-                  label="初始资产"
+                  label={t("initialPortfolio")}
                   value={fmt(mcResult.initial_portfolio)}
                 />
                 <MetricCard
-                  label="初始提取率"
+                  label={t("initialRate")}
                   value={pct(mcResult.initial_rate)}
                 />
                 <MetricCard
-                  label="Guardrail 成功率"
+                  label={t("guardrailSuccess")}
                   value={pct(mcResult.g_success_rate)}
                 />
                 <MetricCard
-                  label="基准成功率"
+                  label={t("baselineSuccess")}
                   value={pct(mcResult.b_success_rate)}
-                  sub={`提取率 ${(baselineRate * 100).toFixed(1)}%`}
+                  sub={t("baselineRateSub", { rate: (baselineRate * 100).toFixed(1) })}
                 />
               </div>
 
@@ -278,12 +282,12 @@ export default function GuardrailPage() {
                 <CardContent className="pt-4">
                   <FanChart
                     trajectories={mcResult.g_percentile_trajectories}
-                    title="资产组合轨迹对比"
+                    title={t("portfolioComparison")}
                     extraTraces={[
                       {
                         y: mcResult.b_percentile_trajectories["50"],
                         mode: "lines",
-                        name: "基准 P50",
+                        name: tc("baselineP50"),
                         line: { color: "rgb(234,88,12)", width: 2, dash: "dash" },
                         type: "scatter",
                       },
@@ -297,35 +301,34 @@ export default function GuardrailPage() {
                 <CardContent className="pt-4">
                   <FanChart
                     trajectories={mcResult.g_withdrawal_percentiles}
-                    title="Guardrail 年度提取金额"
-                    color="16, 185, 129" // green
+                    title={t("withdrawalTrajectory")}
+                    color="16, 185, 129"
                     extraTraces={[
                       {
                         y: mcResult.b_withdrawal_percentiles?.["50"] ?? Array(
                           mcResult.g_withdrawal_percentiles["50"]?.length ?? 0
                         ).fill(mcResult.baseline_annual_wd),
                         mode: "lines",
-                        name: `基准 P50 提取额`,
+                        name: t("baselineP50Withdrawal"),
                         line: { color: "rgb(234,88,12)", width: 2, dash: "dash" },
                         type: "scatter",
-                        hovertemplate: `基准: %{y:$,.0f}<extra></extra>`,
+                        hovertemplate: tc.raw("baselineHover"),
                       },
                       {
                         y: (() => {
                           const bP50 = mcResult.b_withdrawal_percentiles?.["50"];
                           const baseWd = mcResult.baseline_annual_wd;
                           if (bP50) {
-                            // 从基准 P50 提取现金流影响，叠加到初始提取额
                             return bP50.map((v) => withdrawal + (v - baseWd));
                           }
                           const n = mcResult.g_withdrawal_percentiles["50"]?.length ?? 0;
                           return Array(n).fill(withdrawal);
                         })(),
                         mode: "lines",
-                        name: `初始提取 ${fmt(withdrawal)}/年`,
+                        name: tc("initialWithdrawalLine", { amount: fmt(withdrawal) }),
                         line: { color: "gray", width: 1, dash: "dot" },
                         type: "scatter",
-                        hovertemplate: `初始提取: %{y:$,.0f}<extra></extra>`,
+                        hovertemplate: tc.raw("initialWithdrawalHover"),
                       },
                     ]}
                   />
@@ -335,10 +338,10 @@ export default function GuardrailPage() {
               {/* 指标对比表 */}
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">关键指标对比</CardTitle>
+                  <CardTitle className="text-sm">{t("metricsTitle")}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <StatsTable rows={mcResult.metrics} downloadName="Guardrail_指标对比" />
+                  <StatsTable rows={mcResult.metrics} downloadName="guardrail_metrics" />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -350,7 +353,7 @@ export default function GuardrailPage() {
                   <div className="flex items-end gap-3">
                     <div className="w-28">
                       <NumberField
-                        label="回测起始年"
+                        label={t("backtestStartYear")}
                         value={histStartYear}
                         onChange={(v) => setHistStartYear(Math.round(v))}
                         min={params.data_start_year}
@@ -362,32 +365,32 @@ export default function GuardrailPage() {
                       disabled={btLoading}
                       size="sm"
                     >
-                      {btLoading ? "回测中…" : "运行回测"}
+                      {btLoading ? t("backtesting") : t("runBacktest")}
                     </Button>
                   </div>
                   <p className="text-[10px] text-muted-foreground">
-                    初始资产 {fmt(mcResult.initial_portfolio)}（由 MC 阶段计算）
+                    {t("backtestPortfolioNote", { amount: fmt(mcResult.initial_portfolio) })}
                   </p>
                 </CardContent>
               </Card>
 
-              {btLoading && <LoadingOverlay message="历史回测中…" />}
+              {btLoading && <LoadingOverlay message={t("backtestLoading")} />}
 
               {btResult && !btLoading && (
                 <>
                   {/* 下载按钮 */}
                   <div className="flex flex-wrap gap-2">
                     <DownloadButton
-                      label="下载回测数据"
+                      label={t("downloadBacktestData")}
                       onClick={() => {
                         const n = btResult.years_simulated;
                         const headers = [
-                          "年份",
-                          "Guardrail_资产",
-                          "Guardrail_提取额",
-                          "Guardrail_成功率",
-                          "基准_资产",
-                          "基准_提取额",
+                          t("backtestHeaderYear"),
+                          t("backtestHeaderGAsset"),
+                          t("backtestHeaderGWithdrawal"),
+                          t("backtestHeaderGSuccess"),
+                          t("backtestHeaderBAsset"),
+                          t("backtestHeaderBWithdrawal"),
                         ];
                         const rows: (string | number)[][] = [];
                         for (let i = 0; i < n; i++) {
@@ -400,7 +403,6 @@ export default function GuardrailPage() {
                             Math.round(btResult.b_withdrawals[i]),
                           ]);
                         }
-                        // 追加最后一年末的资产值
                         if (btResult.g_portfolio.length > n) {
                           rows.push([
                             btResult.year_labels[n] ?? btResult.year_labels[n - 1] + 1,
@@ -411,26 +413,26 @@ export default function GuardrailPage() {
                             "",
                           ]);
                         }
-                        downloadCSV("历史回测数据", headers, rows);
+                        downloadCSV("backtest_data", headers, rows);
                       }}
                     />
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <MetricCard
-                      label="Guardrail 总消费"
+                      label={t("guardrailTotalConsumption")}
                       value={fmt(btResult.g_total_consumption)}
                     />
                     <MetricCard
-                      label="基准总消费"
+                      label={t("baselineTotalConsumption")}
                       value={fmt(btResult.b_total_consumption)}
                     />
                     <MetricCard
-                      label="Guardrail 最终资产"
+                      label={t("guardrailFinalPortfolio")}
                       value={fmt(btResult.g_portfolio[btResult.g_portfolio.length - 1])}
                     />
                     <MetricCard
-                      label="基准最终资产"
+                      label={t("baselineFinalPortfolio")}
                       value={fmt(btResult.b_portfolio[btResult.b_portfolio.length - 1])}
                     />
                   </div>
@@ -453,7 +455,7 @@ export default function GuardrailPage() {
                             y: btResult.b_portfolio,
                             type: "scatter",
                             mode: "lines",
-                            name: "基准",
+                            name: tc("baseline"),
                             line: {
                               color: "rgb(234,88,12)",
                               width: 2,
@@ -462,9 +464,9 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: { text: "历史资产轨迹对比", font: { size: 14 } },
-                          xaxis: { title: { text: "年份" } },
-                          yaxis: { title: { text: "资产 ($)" }, tickformat: "$,.0f" },
+                          title: { text: t("historicalPortfolioComparison"), font: { size: 14 } },
+                          xaxis: { title: { text: t("yearAxis") } },
+                          yaxis: { title: { text: t("assetAxis") }, tickformat: "$,.0f" },
                           height: 400,
                           margin: { l: 80, r: 30, t: 80, b: 50 },
                           legend: { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
@@ -491,7 +493,7 @@ export default function GuardrailPage() {
                             y: btResult.g_withdrawals,
                             type: "scatter",
                             mode: "lines",
-                            name: "Guardrail 提取额",
+                            name: t("guardrailWithdrawal"),
                             line: { color: "rgb(59,130,246)", width: 2 },
                             yaxis: "y",
                           },
@@ -500,7 +502,7 @@ export default function GuardrailPage() {
                             y: btResult.b_withdrawals,
                             type: "scatter",
                             mode: "lines",
-                            name: "基准提取额",
+                            name: t("baselineWithdrawal"),
                             line: {
                               color: "rgb(234,88,12)",
                               width: 2,
@@ -513,13 +515,12 @@ export default function GuardrailPage() {
                             y: btResult.g_success_rates.map((s) => s * 100),
                             type: "scatter",
                             mode: "lines",
-                            name: "成功率 (%)",
+                            name: t("successRateLine"),
                             line: { color: "rgba(100,100,100,0.5)", width: 1 },
                             fill: "tozeroy",
                             fillcolor: "rgba(100,100,100,0.08)",
                             yaxis: "y2",
                           },
-                          // 上下护栏参考线
                           {
                             x: btResult.year_labels.slice(0, btResult.years_simulated),
                             y: Array(btResult.years_simulated).fill(
@@ -527,7 +528,7 @@ export default function GuardrailPage() {
                             ),
                             type: "scatter",
                             mode: "lines",
-                            name: `上护栏 ${(upperGuardrail * 100).toFixed(0)}%`,
+                            name: t("upperGuardrailLine", { pct: (upperGuardrail * 100).toFixed(0) }),
                             line: {
                               color: "green",
                               width: 1,
@@ -542,7 +543,7 @@ export default function GuardrailPage() {
                             ),
                             type: "scatter",
                             mode: "lines",
-                            name: `下护栏 ${(lowerGuardrail * 100).toFixed(0)}%`,
+                            name: t("lowerGuardrailLine", { pct: (lowerGuardrail * 100).toFixed(0) }),
                             line: {
                               color: "red",
                               width: 1,
@@ -553,17 +554,17 @@ export default function GuardrailPage() {
                         ]}
                         layout={{
                           title: {
-                            text: "提取金额 & 成功率",
+                            text: t("withdrawalAmountAndSuccess"),
                             font: { size: 14 },
                           },
-                          xaxis: { title: { text: "年份" } },
+                          xaxis: { title: { text: t("yearAxis") } },
                           yaxis: {
-                            title: { text: "提取金额 ($)" },
+                            title: { text: t("withdrawalAmount") },
                             tickformat: "$,.0f",
                             side: "left",
                           },
                           yaxis2: {
-                            title: { text: "成功率 (%)" },
+                            title: { text: t("successRateAxis") },
                             overlaying: "y",
                             side: "right",
                             range: [0, 105],
@@ -589,12 +590,19 @@ export default function GuardrailPage() {
                     <Card>
                       <CardHeader className="pb-2 flex flex-row items-center justify-between">
                         <CardTitle className="text-sm">
-                          护栏调整记录（共 {btResult.adjustment_events.length} 次）
+                          {t("adjustmentLogTitle", { count: btResult.adjustment_events.length })}
                         </CardTitle>
                         <DownloadButton
-                          label="下载调整记录"
+                          label={t("downloadAdjustmentLog")}
                           onClick={() => {
-                            const headers = ["年份", "调整前提取额", "调整后提取额", "变动幅度", "调整前成功率", "调整后成功率"];
+                            const headers = [
+                              t("adjHeaderYear"),
+                              t("adjHeaderOldWithdrawal"),
+                              t("adjHeaderNewWithdrawal"),
+                              t("adjHeaderChange"),
+                              t("adjHeaderOldSuccess"),
+                              t("adjHeaderNewSuccess"),
+                            ];
                             const rows = btResult.adjustment_events.map((e) => [
                               btResult.year_labels[e.year],
                               `$${Math.round(e.old_wd).toLocaleString()}`,
@@ -603,7 +611,7 @@ export default function GuardrailPage() {
                               `${(e.success_before * 100).toFixed(1)}%`,
                               `${(e.success_after * 100).toFixed(1)}%`,
                             ]);
-                            downloadCSV("guardrail_adjustments.csv", headers, rows);
+                            downloadCSV("guardrail_adjustments", headers, rows);
                           }}
                         />
                       </CardHeader>
@@ -612,12 +620,12 @@ export default function GuardrailPage() {
                           <table className="w-full text-sm">
                             <thead className="sticky top-0 bg-background border-b">
                               <tr>
-                                <th className="text-left px-2 py-1.5">年份</th>
-                                <th className="text-right px-2 py-1.5">调整前提取额</th>
-                                <th className="text-right px-2 py-1.5">调整后提取额</th>
-                                <th className="text-right px-2 py-1.5">变动幅度</th>
-                                <th className="text-right px-2 py-1.5">调整前成功率</th>
-                                <th className="text-right px-2 py-1.5">调整后成功率</th>
+                                <th className="text-left px-2 py-1.5">{t("adjHeaderYear")}</th>
+                                <th className="text-right px-2 py-1.5">{t("adjHeaderOldWithdrawal")}</th>
+                                <th className="text-right px-2 py-1.5">{t("adjHeaderNewWithdrawal")}</th>
+                                <th className="text-right px-2 py-1.5">{t("adjHeaderChange")}</th>
+                                <th className="text-right px-2 py-1.5">{t("adjHeaderOldSuccess")}</th>
+                                <th className="text-right px-2 py-1.5">{t("adjHeaderNewSuccess")}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -648,7 +656,7 @@ export default function GuardrailPage() {
 
               {!btResult && !btLoading && (
                 <div className="flex items-center justify-center h-32 text-muted-foreground">
-                  选择起始年后点击「运行回测」
+                  {t("backtestPlaceholder")}
                 </div>
               )}
             </TabsContent>
@@ -657,7 +665,7 @@ export default function GuardrailPage() {
 
         {!mcResult && !loading && (
           <div className="flex items-center justify-center h-64 text-muted-foreground">
-            配置参数后点击「运行 Guardrail 模拟」查看结果
+            {t("placeholder")}
           </div>
         )}
       </main>

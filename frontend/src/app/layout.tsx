@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
 
@@ -14,22 +16,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FIRE 退休模拟器",
-  description: "基于蒙特卡洛模拟的退休规划工具",
+  title: "FIRE Retirement Simulator",
+  description: "Monte Carlo simulation-based retirement planning tool",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="zh-CN">
+    <html lang={locale}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background`}
       >
-        <Navbar />
-        <main>{children}</main>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Navbar />
+          <main>{children}</main>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

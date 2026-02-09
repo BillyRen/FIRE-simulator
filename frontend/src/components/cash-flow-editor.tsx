@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,8 +73,8 @@ function CfNumberInput({
 }
 
 export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
+  const t = useTranslations("cashFlow");
   const [items, setItems] = useState<CashFlowItem[]>(value);
-  // 独立追踪每个 item 的类型，避免 -0 >= 0 === true 的 bug
   const [types, setTypes] = useState<("income" | "expense")[]>(
     value.map((item) => (item.amount < 0 ? "expense" : "income"))
   );
@@ -88,7 +89,7 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
   };
 
   const add = () => {
-    const newItem = { ...NEW_ITEM, name: `现金流 ${items.length + 1}` };
+    const newItem = { ...NEW_ITEM, name: t("defaultName", { n: items.length + 1 }) };
     sync([...items, newItem], [...types, "expense"]);
   };
 
@@ -117,9 +118,9 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium">自定义现金流</Label>
+        <Label className="text-sm font-medium">{t("title")}</Label>
         <Button variant="outline" size="sm" onClick={add}>
-          + 添加
+          {t("add")}
         </Button>
       </div>
 
@@ -136,13 +137,13 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
               className="h-6 px-2 text-destructive"
               onClick={() => remove(i)}
             >
-              删除
+              {t("delete")}
             </Button>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label className="text-xs">名称</Label>
+              <Label className="text-xs">{t("name")}</Label>
               <Input
                 value={item.name}
                 onChange={(e) => update(i, { name: e.target.value })}
@@ -150,7 +151,7 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
               />
             </div>
             <div>
-              <Label className="text-xs">类型</Label>
+              <Label className="text-xs">{t("type")}</Label>
               <Select
                 value={types[i] ?? "income"}
                 onValueChange={(v) =>
@@ -161,8 +162,8 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="income">收入</SelectItem>
-                  <SelectItem value="expense">支出</SelectItem>
+                  <SelectItem value="income">{t("income")}</SelectItem>
+                  <SelectItem value="expense">{t("expense")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -170,18 +171,18 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
 
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <Label className="text-xs">金额 ($)</Label>
+              <Label className="text-xs">{t("amountLabel")}</Label>
               <CfNumberInput
                 value={Math.abs(item.amount)}
                 onChange={(abs) => {
-                  const t = types[i] ?? "income";
-                  update(i, { amount: t === "expense" ? -abs : abs });
+                  const tp = types[i] ?? "income";
+                  update(i, { amount: tp === "expense" ? -abs : abs });
                 }}
                 min={0}
               />
             </div>
             <div>
-              <Label className="text-xs">起始年</Label>
+              <Label className="text-xs">{t("startYear")}</Label>
               <CfNumberInput
                 value={item.start_year}
                 onChange={(v) => update(i, { start_year: Math.round(v) })}
@@ -189,7 +190,7 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
               />
             </div>
             <div>
-              <Label className="text-xs">持续年</Label>
+              <Label className="text-xs">{t("duration")}</Label>
               <CfNumberInput
                 value={item.duration}
                 onChange={(v) => update(i, { duration: Math.round(v) })}
@@ -205,14 +206,14 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
                 update(i, { inflation_adjusted: checked === true })
               }
             />
-            <Label className="text-xs cursor-pointer">通胀调整</Label>
+            <Label className="text-xs cursor-pointer">{t("inflationAdjusted")}</Label>
           </div>
         </div>
       ))}
 
       {items.length === 0 && (
         <p className="text-xs text-muted-foreground text-center py-2">
-          暂无自定义现金流
+          {t("empty")}
         </p>
       )}
     </div>
