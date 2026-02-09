@@ -2,6 +2,10 @@ __pycache__/
 *.pyc
 .DS_Store
 
+# iCloud conflict copies
+*\ 2.*
+*\ 2/
+
 # Node / Next.js
 node_modules/
 frontend/.next/

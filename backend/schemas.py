@@ -22,10 +22,10 @@ class ExpenseRatioSchema(BaseModel):
 
 
 class CashFlowSchema(BaseModel):
-    name: str = "自定义现金流"
+    name: str = Field("自定义现金流", max_length=100)
     amount: float = Field(..., description="正=收入, 负=支出 (year-0 美元)")
-    start_year: int = Field(1, ge=1, description="从退休第几年开始 (1-indexed)")
-    duration: int = Field(10, ge=1)
+    start_year: int = Field(1, ge=1, le=100, description="从退休第几年开始 (1-indexed)")
+    duration: int = Field(10, ge=1, le=100)
     inflation_adjusted: bool = True
 
 
@@ -42,13 +42,13 @@ class SimulationRequest(BaseModel):
     min_block: int = Field(5, ge=1, le=30)
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(10_000, ge=100, le=50_000)
-    data_start_year: int = Field(1926)
+    data_start_year: int = Field(1926, ge=1871, le=2100)
     withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
-    cash_flows: list[CashFlowSchema] = []
+    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class SimulationResponse(BaseModel):
@@ -78,7 +78,7 @@ class SweepRequest(BaseModel):
     min_block: int = Field(5, ge=1, le=30)
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(5_000, ge=100, le=50_000)
-    data_start_year: int = Field(1926)
+    data_start_year: int = Field(1926, ge=1871, le=2100)
     withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
@@ -86,7 +86,7 @@ class SweepRequest(BaseModel):
     rate_step: float = Field(0.001, gt=0, le=0.1)
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
-    cash_flows: list[CashFlowSchema] = []
+    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class TargetRateResult(BaseModel):
@@ -114,7 +114,7 @@ class GuardrailRequest(BaseModel):
     min_block: int = Field(5, ge=1, le=30)
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(5_000, ge=100, le=50_000)
-    data_start_year: int = Field(1926)
+    data_start_year: int = Field(1926, ge=1871, le=2100)
     target_success: float = Field(0.80, gt=0, lt=1)
     upper_guardrail: float = Field(0.99, gt=0, le=1)
     lower_guardrail: float = Field(0.50, ge=0, lt=1)
@@ -124,7 +124,7 @@ class GuardrailRequest(BaseModel):
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
-    cash_flows: list[CashFlowSchema] = []
+    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class GuardrailResponse(BaseModel):
@@ -156,7 +156,7 @@ class BacktestRequest(BaseModel):
     min_block: int = Field(5, ge=1, le=30)
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(5_000, ge=100, le=50_000)
-    data_start_year: int = Field(1926)
+    data_start_year: int = Field(1926, ge=1871, le=2100)
     target_success: float = Field(0.80, gt=0, lt=1)
     upper_guardrail: float = Field(0.99, gt=0, le=1)
     lower_guardrail: float = Field(0.50, ge=0, lt=1)
@@ -167,8 +167,8 @@ class BacktestRequest(BaseModel):
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     initial_portfolio: float = Field(..., gt=0, description="由 guardrail MC 阶段计算得出")
-    hist_start_year: int = Field(1990)
-    cash_flows: list[CashFlowSchema] = []
+    hist_start_year: int = Field(1990, ge=1871, le=2100)
+    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class AdjustmentEvent(BaseModel):
@@ -204,14 +204,14 @@ class AllocationSweepRequest(BaseModel):
     min_block: int = Field(5, ge=1, le=30)
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(5_000, ge=100, le=50_000)
-    data_start_year: int = Field(1926)
+    data_start_year: int = Field(1926, ge=1871, le=2100)
     withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     allocation_step: float = Field(0.1, ge=0.05, le=0.2)
-    cash_flows: list[CashFlowSchema] = []
+    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class AllocationResult(BaseModel):

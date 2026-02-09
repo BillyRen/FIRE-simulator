@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 # 确保 simulator 包可被导入（项目根目录）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -59,13 +63,20 @@ from schemas import (
 # App
 # ---------------------------------------------------------------------------
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="FIRE 退休模拟器 API", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS: 生产环境通过 ALLOWED_ORIGINS 环境变量限制，多域名用逗号分隔
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[o.strip() for o in _allowed_origins],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 # 全局缓存
@@ -112,7 +123,8 @@ def _expense_dict(e) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/simulate", response_model=SimulationResponse)
-def api_simulate(req: SimulationRequest):
+@limiter.limit("10/minute")
+def api_simulate(request: Request, req: SimulationRequest):
     filtered = _filter_df(req.data_start_year)
     if len(filtered) < 2:
         raise HTTPException(400, "可用数据不足")
@@ -173,7 +185,8 @@ def api_simulate(req: SimulationRequest):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/sweep", response_model=SweepResponse)
-def api_sweep(req: SweepRequest):
+@limiter.limit("10/minute")
+def api_sweep(request: Request, req: SweepRequest):
     filtered = _filter_df(req.data_start_year)
     if len(filtered) < 2:
         raise HTTPException(400, "可用数据不足")
@@ -236,7 +249,8 @@ def api_sweep(req: SweepRequest):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/guardrail", response_model=GuardrailResponse)
-def api_guardrail(req: GuardrailRequest):
+@limiter.limit("10/minute")
+def api_guardrail(request: Request, req: GuardrailRequest):
     filtered = _filter_df(req.data_start_year)
     if len(filtered) < 2:
         raise HTTPException(400, "可用数据不足")
@@ -339,7 +353,8 @@ def api_guardrail(req: GuardrailRequest):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/guardrail/backtest", response_model=BacktestResponse)
-def api_backtest(req: BacktestRequest):
+@limiter.limit("10/minute")
+def api_backtest(request: Request, req: BacktestRequest):
     filtered = _filter_df(req.data_start_year)
     if len(filtered) < 2:
         raise HTTPException(400, "可用数据不足")
@@ -413,7 +428,8 @@ def api_backtest(req: BacktestRequest):
 # ---------------------------------------------------------------------------
 
 @app.post("/api/allocation-sweep", response_model=AllocationSweepResponse)
-def api_allocation_sweep(req: AllocationSweepRequest):
+@limiter.limit("10/minute")
+def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
     filtered = _filter_df(req.data_start_year)
     if len(filtered) < 2:
         raise HTTPException(400, "可用数据不足")
