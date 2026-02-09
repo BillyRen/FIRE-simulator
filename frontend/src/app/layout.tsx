@@ -8,8 +8,43 @@ import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 
 export const metadata: Metadata = {
-  title: "FIRE Lab by Rens.AI",
-  description: "Monte Carlo simulation-based retirement planning tool | 基于蒙特卡洛模拟的退休规划工具",
+  title: {
+    default: "FIRE Lab by Rens.AI — Retirement Simulator",
+    template: "%s | FIRE Lab",
+  },
+  description:
+    "Free Monte Carlo simulation tool for retirement planning (FIRE). Analyze withdrawal strategies, asset allocation, and risk guardrails with historical data. 免费的蒙特卡洛退休模拟工具，支持提取策略分析、资产配置优化和风险护栏策略。",
+  keywords: [
+    "FIRE",
+    "retirement simulator",
+    "Monte Carlo simulation",
+    "withdrawal strategy",
+    "asset allocation",
+    "financial independence",
+    "retire early",
+    "退休模拟",
+    "蒙特卡洛模拟",
+    "提前退休",
+  ],
+  metadataBase: new URL("https://fire.rens.ai"),
+  openGraph: {
+    title: "FIRE Lab — Monte Carlo Retirement Simulator",
+    description:
+      "Free tool to simulate retirement scenarios with historical market data. Test withdrawal rates, dynamic spending, and risk guardrails.",
+    url: "https://fire.rens.ai",
+    siteName: "FIRE Lab",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "FIRE Lab — Monte Carlo Retirement Simulator",
+    description:
+      "Free tool to simulate retirement scenarios with historical market data.",
+  },
+  alternates: {
+    canonical: "https://fire.rens.ai",
+  },
 };
 
 export default async function RootLayout({
