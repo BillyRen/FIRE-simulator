@@ -246,7 +246,7 @@ export const DEFAULT_PARAMS: FormParams = {
   retirement_years: 65,
   min_block: 5,
   max_block: 15,
-  num_simulations: 10_000,
+  num_simulations: 2_000,
   data_start_year: 1926,
   withdrawal_strategy: "fixed",
   dynamic_ceiling: 0.05,

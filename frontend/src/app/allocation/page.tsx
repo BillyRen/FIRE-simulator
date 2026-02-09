@@ -34,7 +34,10 @@ export default function AllocationPage() {
   const t = useTranslations("allocation");
   const tc = useTranslations("common");
 
-  const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
+  const [params, setParams] = useState<FormParams>({
+    ...DEFAULT_PARAMS,
+    num_simulations: 1_000,
+  });
   const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
   const [withdrawal, setWithdrawal] = useState(DEFAULT_PARAMS.annual_withdrawal);
   const [allocStep, setAllocStep] = useState(0.1);
