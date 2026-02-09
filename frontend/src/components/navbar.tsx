@@ -26,7 +26,15 @@ export function Navbar() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-12 items-center px-3 sm:px-6 max-w-[1600px] mx-auto justify-between">
-        <nav className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-hide">
+          <Link
+            href="/"
+            className="text-sm sm:text-base font-bold whitespace-nowrap mr-1 sm:mr-2"
+          >
+            {t("brand")}
+          </Link>
+          <div className="w-px h-5 bg-border shrink-0" />
+          <nav className="flex items-center gap-0.5 sm:gap-1">
           {NAV_ITEMS.map(({ href, label }) => (
             <Link
               key={href}
@@ -41,7 +49,8 @@ export function Navbar() {
               {label}
             </Link>
           ))}
-        </nav>
+          </nav>
+        </div>
         <button
           onClick={switchLocale}
           className="px-2 py-1 rounded-md text-xs font-medium border hover:bg-accent transition-colors shrink-0 ml-2"

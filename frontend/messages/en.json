@@ -4,6 +4,7 @@
     "description": "Monte Carlo simulation-based retirement planning tool"
   },
   "nav": {
+    "brand": "FIRE Lab",
     "simulator": "🔥 Simulator",
     "sensitivity": "📈 Sensitivity",
     "guardrail": "🛡️ Guardrail",
@@ -248,5 +249,11 @@
     "P10 最低年度消费": "P10 Min Annual Spending",
     "P10 最低消费 vs 初始提取额": "P10 Min Spending vs Initial WD",
     "中位数最终年提取额": "Median Final Year WD"
+  },
+  "footer": {
+    "brand": "FIRE Lab",
+    "byLine": "by Rens.AI",
+    "copyright": "© 2025–2026 Rens.AI",
+    "disclaimer": "For educational and informational purposes only. Not financial advice. Past performance does not guarantee future results."
   }
 }

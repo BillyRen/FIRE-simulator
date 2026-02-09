@@ -4,6 +4,7 @@
     "description": "基于蒙特卡洛模拟的退休规划工具"
   },
   "nav": {
+    "brand": "FIRE Lab",
     "simulator": "🔥 退休模拟器",
     "sensitivity": "📈 敏感性分析",
     "guardrail": "🛡️ 风险护栏",
@@ -248,5 +249,11 @@
     "P10 最低年度消费": "P10 最低年度消费",
     "P10 最低消费 vs 初始提取额": "P10 最低消费 vs 初始提取额",
     "中位数最终年提取额": "中位数最终年提取额"
+  },
+  "footer": {
+    "brand": "FIRE Lab",
+    "byLine": "by Rens.AI",
+    "copyright": "© 2025–2026 Rens.AI",
+    "disclaimer": "本工具仅供教育和参考用途，不构成任何投资建议。历史回报不代表未来表现。"
   }
 }
