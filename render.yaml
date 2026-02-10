@@ -4,7 +4,7 @@ services:
     name: fire-simulator-api
     repo: https://github.com/BillyRen/FIRE-simulator.git
     branch: main
-    plan: free
+    plan: starter
     buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
