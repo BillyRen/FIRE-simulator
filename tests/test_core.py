@@ -1,6 +1,6 @@
 """Core simulation engine tests.
 
-Tests cover: bootstrap, portfolio returns, cash flow schedule,
+Tests cover: bootstrap (single + pooled), portfolio returns, cash flow schedule,
 Monte Carlo simulation, and AllocationSchema validation.
 """
 
@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from simulator.bootstrap import block_bootstrap
+from simulator.bootstrap import block_bootstrap, block_bootstrap_pooled
 from simulator.cashflow import CashFlowItem, build_cf_schedule
 from simulator.monte_carlo import run_simulation
 from simulator.portfolio import compute_real_portfolio_returns
@@ -25,21 +25,22 @@ def sample_returns_df() -> pd.DataFrame:
     n = 20
     return pd.DataFrame({
         "Year": np.arange(2000, 2000 + n),
-        "US Stock": rng.normal(0.10, 0.15, n),
-        "International Stock": rng.normal(0.08, 0.18, n),
-        "US Bond": rng.normal(0.04, 0.05, n),
-        "US Inflation": rng.normal(0.03, 0.01, n),
+        "Country": ["USA"] * n,
+        "Domestic_Stock": rng.normal(0.10, 0.15, n),
+        "Global_Stock": rng.normal(0.08, 0.18, n),
+        "Domestic_Bond": rng.normal(0.04, 0.05, n),
+        "Inflation": rng.normal(0.03, 0.01, n),
     })
 
 
 @pytest.fixture
 def default_allocation() -> dict[str, float]:
-    return {"us_stock": 0.4, "intl_stock": 0.4, "us_bond": 0.2}
+    return {"domestic_stock": 0.4, "global_stock": 0.4, "domestic_bond": 0.2}
 
 
 @pytest.fixture
 def default_expenses() -> dict[str, float]:
-    return {"us_stock": 0.005, "intl_stock": 0.005, "us_bond": 0.005}
+    return {"domestic_stock": 0.005, "global_stock": 0.005, "domestic_bond": 0.005}
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ class TestBlockBootstrap:
 
     def test_output_columns(self, sample_returns_df: pd.DataFrame):
         result = block_bootstrap(sample_returns_df, retirement_years=10, min_block=2, max_block=4)
-        expected = ["US Stock", "International Stock", "US Bond", "US Inflation"]
+        expected = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
         assert list(result.columns) == expected
 
     def test_reproducible_with_seed(self, sample_returns_df: pd.DataFrame):
@@ -78,6 +79,70 @@ class TestBlockBootstrap:
 
 
 # ---------------------------------------------------------------------------
+# Pooled Bootstrap Tests
+# ---------------------------------------------------------------------------
+
+class TestPooledBootstrap:
+
+    def test_output_shape(self, sample_returns_df: pd.DataFrame):
+        """Pooled bootstrap with two countries should produce correct shape."""
+        rng = np.random.default_rng(42)
+        n = 15
+        df2 = pd.DataFrame({
+            "Year": np.arange(2000, 2000 + n),
+            "Country": ["GBR"] * n,
+            "Domestic_Stock": rng.normal(0.09, 0.14, n),
+            "Global_Stock": rng.normal(0.07, 0.16, n),
+            "Domestic_Bond": rng.normal(0.03, 0.04, n),
+            "Inflation": rng.normal(0.025, 0.01, n),
+        })
+        country_dfs = {"USA": sample_returns_df, "GBR": df2}
+        result = block_bootstrap_pooled(country_dfs, 30, 3, 5, rng=np.random.default_rng(0))
+        assert result.shape == (30, 4)
+
+    def test_output_columns(self, sample_returns_df: pd.DataFrame):
+        country_dfs = {"USA": sample_returns_df}
+        result = block_bootstrap_pooled(country_dfs, 10, 2, 4)
+        expected = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
+        assert list(result.columns) == expected
+
+    def test_reproducible_with_seed(self, sample_returns_df: pd.DataFrame):
+        country_dfs = {"USA": sample_returns_df}
+        rng1 = np.random.default_rng(99)
+        rng2 = np.random.default_rng(99)
+        r1 = block_bootstrap_pooled(country_dfs, 15, 3, 5, rng=rng1)
+        r2 = block_bootstrap_pooled(country_dfs, 15, 3, 5, rng=rng2)
+        pd.testing.assert_frame_equal(r1, r2)
+
+    def test_values_from_correct_countries(self):
+        """Pooled bootstrap draws from multiple countries."""
+        rng = np.random.default_rng(42)
+        df_a = pd.DataFrame({
+            "Year": [2000, 2001, 2002],
+            "Country": ["A"] * 3,
+            "Domestic_Stock": [0.1, 0.2, 0.3],
+            "Global_Stock": [0.05, 0.15, 0.25],
+            "Domestic_Bond": [0.01, 0.02, 0.03],
+            "Inflation": [0.01, 0.02, 0.03],
+        })
+        df_b = pd.DataFrame({
+            "Year": [2000, 2001, 2002],
+            "Country": ["B"] * 3,
+            "Domestic_Stock": [0.9, 0.8, 0.7],
+            "Global_Stock": [0.85, 0.75, 0.65],
+            "Domestic_Bond": [0.04, 0.05, 0.06],
+            "Inflation": [0.04, 0.05, 0.06],
+        })
+        country_dfs = {"A": df_a, "B": df_b}
+        result = block_bootstrap_pooled(country_dfs, 20, 1, 2, rng=rng)
+        # Should contain values from both A and B
+        all_vals = set(result["Domestic_Stock"].values)
+        a_vals = set(df_a["Domestic_Stock"].values)
+        b_vals = set(df_b["Domestic_Stock"].values)
+        assert all_vals.intersection(a_vals) or all_vals.intersection(b_vals)
+
+
+# ---------------------------------------------------------------------------
 # Portfolio Return Tests
 # ---------------------------------------------------------------------------
 
@@ -91,13 +156,13 @@ class TestPortfolioReturns:
     def test_no_leverage_no_inflation(self):
         """When inflation is 0, real return ≈ nominal return."""
         df = pd.DataFrame({
-            "US Stock": [0.10, 0.05],
-            "International Stock": [0.08, 0.03],
-            "US Bond": [0.04, 0.02],
-            "US Inflation": [0.0, 0.0],
+            "Domestic_Stock": [0.10, 0.05],
+            "Global_Stock": [0.08, 0.03],
+            "Domestic_Bond": [0.04, 0.02],
+            "Inflation": [0.0, 0.0],
         })
-        alloc = {"us_stock": 0.5, "intl_stock": 0.3, "us_bond": 0.2}
-        expenses = {"us_stock": 0.0, "intl_stock": 0.0, "us_bond": 0.0}
+        alloc = {"domestic_stock": 0.5, "global_stock": 0.3, "domestic_bond": 0.2}
+        expenses = {"domestic_stock": 0.0, "global_stock": 0.0, "domestic_bond": 0.0}
         result = compute_real_portfolio_returns(df, alloc, expenses)
         # Expected: 0.5*0.10 + 0.3*0.08 + 0.2*0.04 = 0.082
         np.testing.assert_almost_equal(result[0], 0.082, decimal=6)
@@ -105,13 +170,13 @@ class TestPortfolioReturns:
     def test_with_leverage(self):
         """Leverage should amplify returns."""
         df = pd.DataFrame({
-            "US Stock": [0.10],
-            "International Stock": [0.08],
-            "US Bond": [0.04],
-            "US Inflation": [0.03],
+            "Domestic_Stock": [0.10],
+            "Global_Stock": [0.08],
+            "Domestic_Bond": [0.04],
+            "Inflation": [0.03],
         })
-        alloc = {"us_stock": 0.6, "intl_stock": 0.2, "us_bond": 0.2}
-        expenses = {"us_stock": 0.0, "intl_stock": 0.0, "us_bond": 0.0}
+        alloc = {"domestic_stock": 0.6, "global_stock": 0.2, "domestic_bond": 0.2}
+        expenses = {"domestic_stock": 0.0, "global_stock": 0.0, "domestic_bond": 0.0}
 
         r1 = compute_real_portfolio_returns(df, alloc, expenses, leverage=1.0)
         r2 = compute_real_portfolio_returns(df, alloc, expenses, leverage=2.0, borrowing_spread=0.01)
@@ -267,7 +332,6 @@ class TestMonteCarloSimulation:
             dynamic_floor=0.025,
         )
         # Dynamic strategy should have varying withdrawals across years
-        # Check at least one simulation has non-constant withdrawals
         has_variation = False
         for i in range(50):
             active = wd[i, wd[i] > 0]
@@ -306,6 +370,35 @@ class TestMonteCarloSimulation:
         # With income cash flow, final portfolio should generally be higher
         assert np.median(traj_with[:, -1]) > np.median(traj_without[:, -1])
 
+    def test_with_country_dfs_pooled(self, sample_returns_df, default_allocation, default_expenses):
+        """Test run_simulation with country_dfs for pooled bootstrap."""
+        rng = np.random.default_rng(42)
+        n = 15
+        df_gbr = pd.DataFrame({
+            "Year": np.arange(2000, 2000 + n),
+            "Country": ["GBR"] * n,
+            "Domestic_Stock": rng.normal(0.09, 0.14, n),
+            "Global_Stock": rng.normal(0.07, 0.16, n),
+            "Domestic_Bond": rng.normal(0.03, 0.04, n),
+            "Inflation": rng.normal(0.025, 0.01, n),
+        })
+        country_dfs = {"USA": sample_returns_df, "GBR": df_gbr}
+        traj, wd = run_simulation(
+            initial_portfolio=1_000_000,
+            annual_withdrawal=40_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=10,
+            min_block=2,
+            max_block=4,
+            num_simulations=20,
+            returns_df=sample_returns_df,
+            seed=42,
+            country_dfs=country_dfs,
+        )
+        assert traj.shape == (20, 11)
+        assert wd.shape == (20, 10)
+
 
 # ---------------------------------------------------------------------------
 # Pydantic Validation Tests
@@ -315,16 +408,16 @@ class TestAllocationValidation:
 
     def test_valid_allocation(self):
         from backend.schemas import AllocationSchema
-        a = AllocationSchema(us_stock=0.5, intl_stock=0.3, us_bond=0.2)
-        assert a.us_stock == 0.5
+        a = AllocationSchema(domestic_stock=0.5, global_stock=0.3, domestic_bond=0.2)
+        assert a.domestic_stock == 0.5
 
     def test_invalid_allocation_sum(self):
         from backend.schemas import AllocationSchema
         with pytest.raises(Exception, match="sum to 100%"):
-            AllocationSchema(us_stock=0.5, intl_stock=0.5, us_bond=0.5)
+            AllocationSchema(domestic_stock=0.5, global_stock=0.5, domestic_bond=0.5)
 
     def test_allocation_small_rounding(self):
         """Small floating-point deviations (< 1%) should be accepted."""
         from backend.schemas import AllocationSchema
-        a = AllocationSchema(us_stock=0.333, intl_stock=0.334, us_bond=0.333)
-        assert abs(a.us_stock + a.intl_stock + a.us_bond - 1.0) < 0.01
+        a = AllocationSchema(domestic_stock=0.333, global_stock=0.334, domestic_bond=0.333)
+        assert abs(a.domestic_stock + a.global_stock + a.domestic_bond - 1.0) < 0.01

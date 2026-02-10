@@ -1,15 +1,24 @@
 // TypeScript 类型定义 — 与 backend schemas 对应
 
 export interface Allocation {
-  us_stock: number;
-  intl_stock: number;
-  us_bond: number;
+  domestic_stock: number;
+  global_stock: number;
+  domestic_bond: number;
 }
 
 export interface ExpenseRatios {
-  us_stock: number;
-  intl_stock: number;
-  us_bond: number;
+  domestic_stock: number;
+  global_stock: number;
+  domestic_bond: number;
+}
+
+export interface CountryInfo {
+  iso: string;
+  name_en: string;
+  name_zh: string;
+  min_year: number;
+  max_year: number;
+  n_years: number;
 }
 
 export interface CashFlowItem {
@@ -34,6 +43,7 @@ export interface SimulationRequest {
   max_block: number;
   num_simulations: number;
   data_start_year: number;
+  country: string;
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -70,6 +80,7 @@ export interface SweepRequest {
   max_block: number;
   num_simulations: number;
   data_start_year: number;
+  country: string;
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -106,6 +117,7 @@ export interface GuardrailRequest {
   max_block: number;
   num_simulations: number;
   data_start_year: number;
+  country: string;
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -144,6 +156,7 @@ export interface BacktestRequest {
   max_block: number;
   num_simulations: number;
   data_start_year: number;
+  country: string;
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -180,6 +193,37 @@ export interface BacktestResponse {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. 退休模拟历史回测（简单版）
+// ---------------------------------------------------------------------------
+
+export interface SimBacktestRequest {
+  initial_portfolio: number;
+  annual_withdrawal: number;
+  allocation: Allocation;
+  expense_ratios: ExpenseRatios;
+  retirement_years: number;
+  data_start_year: number;
+  country: string;
+  withdrawal_strategy: "fixed" | "dynamic";
+  dynamic_ceiling: number;
+  dynamic_floor: number;
+  leverage: number;
+  borrowing_spread: number;
+  cash_flows: CashFlowItem[];
+  hist_start_year: number;
+}
+
+export interface SimBacktestResponse {
+  years_simulated: number;
+  year_labels: number[];
+  portfolio: number[];
+  withdrawals: number[];
+  survived: boolean;
+  final_portfolio: number;
+  total_consumption: number;
+}
+
+// ---------------------------------------------------------------------------
 // 5. 资产配置扫描
 // ---------------------------------------------------------------------------
 
@@ -192,6 +236,7 @@ export interface AllocationSweepRequest {
   max_block: number;
   num_simulations: number;
   data_start_year: number;
+  country: string;
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -202,9 +247,9 @@ export interface AllocationSweepRequest {
 }
 
 export interface AllocationResult {
-  us_stock: number;
-  intl_stock: number;
-  us_bond: number;
+  domestic_stock: number;
+  global_stock: number;
+  domestic_bond: number;
   success_rate: number;
   median_final: number;
   mean_final: number;
@@ -230,6 +275,7 @@ export interface FormParams {
   max_block: number;
   num_simulations: number;
   data_start_year: number;
+  country: string;
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -241,13 +287,14 @@ export interface FormParams {
 export const DEFAULT_PARAMS: FormParams = {
   initial_portfolio: 1_000_000,
   annual_withdrawal: 40_000,
-  allocation: { us_stock: 0.4, intl_stock: 0.4, us_bond: 0.2 },
-  expense_ratios: { us_stock: 0.005, intl_stock: 0.005, us_bond: 0.005 },
+  allocation: { domestic_stock: 0.4, global_stock: 0.4, domestic_bond: 0.2 },
+  expense_ratios: { domestic_stock: 0.005, global_stock: 0.005, domestic_bond: 0.005 },
   retirement_years: 65,
   min_block: 5,
   max_block: 15,
   num_simulations: 2_000,
   data_start_year: 1970,
+  country: "USA",
   withdrawal_strategy: "fixed",
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,

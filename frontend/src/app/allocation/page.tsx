@@ -163,7 +163,7 @@ export default function AllocationPage() {
               />
               <MetricCard
                 label={t("bestAllocation")}
-                value={`${(result.best_by_success.us_stock * 100).toFixed(0)}/${(result.best_by_success.intl_stock * 100).toFixed(0)}/${(result.best_by_success.us_bond * 100).toFixed(0)}`}
+                value={`${(result.best_by_success.domestic_stock * 100).toFixed(0)}/${(result.best_by_success.global_stock * 100).toFixed(0)}/${(result.best_by_success.domestic_bond * 100).toFixed(0)}`}
                 sub={t("allocationSub")}
               />
               <MetricCard
@@ -191,12 +191,12 @@ export default function AllocationPage() {
                     {
                       type: "scatterternary" as string,
                       mode: "markers",
-                      a: result.results.map((r) => r.us_stock * 100),
-                      b: result.results.map((r) => r.intl_stock * 100),
-                      c: result.results.map((r) => r.us_bond * 100),
+                      a: result.results.map((r) => r.domestic_stock * 100),
+                      b: result.results.map((r) => r.global_stock * 100),
+                      c: result.results.map((r) => r.domestic_bond * 100),
                       text: result.results.map(
                         (r) =>
-                          `${t("ternaryUSStock").replace(" %", "")}${(r.us_stock * 100).toFixed(0)}% ${t("ternaryIntlStock").replace(" %", "")}${(r.intl_stock * 100).toFixed(0)}% ${t("ternaryUSBond").replace(" %", "")}${(r.us_bond * 100).toFixed(0)}%<br>${tc("successRate")}: ${(r.success_rate * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`
+                          `${t("ternaryDomStock").replace(" %", "")}${(r.domestic_stock * 100).toFixed(0)}% ${t("ternaryGlobalStock").replace(" %", "")}${(r.global_stock * 100).toFixed(0)}% ${t("ternaryDomBond").replace(" %", "")}${(r.domestic_bond * 100).toFixed(0)}%<br>${tc("successRate")}: ${(r.success_rate * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`
                       ),
                       hoverinfo: "text",
                       marker: {
@@ -217,19 +217,19 @@ export default function AllocationPage() {
                     ternary: {
                       sum: 100,
                       aaxis: {
-                        title: { text: t("ternaryUSStock") },
+                        title: { text: t("ternaryDomStock") },
                         min: 0,
                         linewidth: 1,
                         gridcolor: "rgba(0,0,0,0.1)",
                       },
                       baxis: {
-                        title: { text: t("ternaryIntlStock") },
+                        title: { text: t("ternaryGlobalStock") },
                         min: 0,
                         linewidth: 1,
                         gridcolor: "rgba(0,0,0,0.1)",
                       },
                       caxis: {
-                        title: { text: t("ternaryUSBond") },
+                        title: { text: t("ternaryDomBond") },
                         min: 0,
                         linewidth: 1,
                         gridcolor: "rgba(0,0,0,0.1)",
@@ -268,18 +268,18 @@ export default function AllocationPage() {
                   label={t("downloadCSV")}
                   onClick={() => {
                     const headers = [
-                      t("colUSStock"),
-                      t("colIntlStock"),
-                      t("colUSBond"),
+                      t("colDomStock"),
+                      t("colGlobalStock"),
+                      t("colDomBond"),
                       t("colSuccessRate"),
                       t("colMedianFinal"),
                       t("colMeanFinal"),
                       t("colP10Depletion"),
                     ];
                     const rows = sortedResults.map((r) => [
-                      (r.us_stock * 100).toFixed(0),
-                      (r.intl_stock * 100).toFixed(0),
-                      (r.us_bond * 100).toFixed(0),
+                      (r.domestic_stock * 100).toFixed(0),
+                      (r.global_stock * 100).toFixed(0),
+                      (r.domestic_bond * 100).toFixed(0),
                       (r.success_rate * 100).toFixed(1) + "%",
                       Math.round(r.median_final),
                       Math.round(r.mean_final),
@@ -295,9 +295,9 @@ export default function AllocationPage() {
                     <thead className="sticky top-0 bg-background border-b">
                       <tr>
                         {[
-                          { key: "us_stock", label: t("colUSStock") },
-                          { key: "intl_stock", label: t("colIntlStock") },
-                          { key: "us_bond", label: t("colUSBond") },
+                          { key: "domestic_stock", label: t("colDomStock") },
+                          { key: "global_stock", label: t("colGlobalStock") },
+                          { key: "domestic_bond", label: t("colDomBond") },
                           { key: "success_rate", label: t("colSuccessRate") },
                           { key: "median_final", label: t("colMedianFinal") },
                           { key: "mean_final", label: t("colMeanFinal") },
@@ -319,22 +319,22 @@ export default function AllocationPage() {
                     <tbody>
                       {sortedResults.map((r, i) => {
                         const isBest =
-                          r.us_stock === result.best_by_success.us_stock &&
-                          r.intl_stock === result.best_by_success.intl_stock &&
-                          r.us_bond === result.best_by_success.us_bond;
+                          r.domestic_stock === result.best_by_success.domestic_stock &&
+                          r.global_stock === result.best_by_success.global_stock &&
+                          r.domestic_bond === result.best_by_success.domestic_bond;
                         return (
                           <tr
                             key={i}
                             className={`border-b ${isBest ? "bg-green-50 font-medium" : "hover:bg-accent/50"}`}
                           >
                             <td className="px-2 py-1">
-                              {(r.us_stock * 100).toFixed(0)}
+                              {(r.domestic_stock * 100).toFixed(0)}
                             </td>
                             <td className="px-2 py-1">
-                              {(r.intl_stock * 100).toFixed(0)}
+                              {(r.global_stock * 100).toFixed(0)}
                             </td>
                             <td className="px-2 py-1">
-                              {(r.us_bond * 100).toFixed(0)}
+                              {(r.domestic_bond * 100).toFixed(0)}
                             </td>
                             <td className="px-2 py-1">{pct(r.success_rate)}</td>
                             <td className="px-2 py-1">{fmt(r.median_final)}</td>

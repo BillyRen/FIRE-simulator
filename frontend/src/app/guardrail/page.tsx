@@ -63,6 +63,7 @@ export default function GuardrailPage() {
     max_block: params.max_block,
     num_simulations: params.num_simulations,
     data_start_year: params.data_start_year,
+    country: params.country,
     target_success: targetSuccess,
     upper_guardrail: upperGuardrail,
     lower_guardrail: lowerGuardrail,

@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .bootstrap import block_bootstrap
+from .bootstrap import block_bootstrap, block_bootstrap_pooled
 from .cashflow import CashFlowItem, build_cf_schedule
 from .portfolio import compute_real_portfolio_returns
 
@@ -25,6 +25,7 @@ def pregenerate_return_scenarios(
     seed: int | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
+    country_dfs: dict[str, pd.DataFrame] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """预生成实际组合回报矩阵和通胀矩阵。
 
@@ -61,14 +62,19 @@ def pregenerate_return_scenarios(
     inflation_matrix = np.zeros((num_simulations, retirement_years))
 
     for i in range(num_simulations):
-        sampled = block_bootstrap(
-            returns_df, retirement_years, min_block, max_block, rng=rng
-        )
+        if country_dfs is not None:
+            sampled = block_bootstrap_pooled(
+                country_dfs, retirement_years, min_block, max_block, rng=rng
+            )
+        else:
+            sampled = block_bootstrap(
+                returns_df, retirement_years, min_block, max_block, rng=rng
+            )
         scenarios[i] = compute_real_portfolio_returns(
             sampled, allocation, expense_ratios,
             leverage=leverage, borrowing_spread=borrowing_spread,
         )
-        inflation_matrix[i] = sampled["US Inflation"].values
+        inflation_matrix[i] = sampled["Inflation"].values
 
     return scenarios, inflation_matrix
 
@@ -232,6 +238,7 @@ def pregenerate_raw_scenarios(
     num_simulations: int,
     returns_df: pd.DataFrame,
     seed: int | None = None,
+    country_dfs: dict[str, pd.DataFrame] | None = None,
 ) -> dict[str, np.ndarray]:
     """预生成各资产类别的原始回报矩阵（已扣费用，未加权合成）。
 
@@ -242,35 +249,35 @@ def pregenerate_raw_scenarios(
     -------
     dict[str, np.ndarray]
         包含以下键，每个值 shape (num_simulations, retirement_years)：
-        - "us_stock": 美股回报（扣费后）
-        - "intl_stock": 国际股回报（扣费后）
-        - "us_bond": 美债回报（扣费后）
+        - "domestic_stock": 本国股票回报（扣费后）
+        - "global_stock": 全球股票回报（扣费后）
+        - "domestic_bond": 本国债券回报（扣费后）
         - "inflation": 通胀率
     """
-    ASSET_MAP = {
-        "us_stock": "US Stock",
-        "intl_stock": "International Stock",
-        "us_bond": "US Bond",
-    }
     rng = np.random.default_rng(seed)
-    us_stock = np.zeros((num_simulations, retirement_years))
-    intl_stock = np.zeros((num_simulations, retirement_years))
-    us_bond = np.zeros((num_simulations, retirement_years))
+    domestic_stock = np.zeros((num_simulations, retirement_years))
+    global_stock = np.zeros((num_simulations, retirement_years))
+    domestic_bond = np.zeros((num_simulations, retirement_years))
     inflation = np.zeros((num_simulations, retirement_years))
 
     for i in range(num_simulations):
-        sampled = block_bootstrap(
-            returns_df, retirement_years, min_block, max_block, rng=rng
-        )
-        us_stock[i] = sampled["US Stock"].values - expense_ratios.get("us_stock", 0.0)
-        intl_stock[i] = sampled["International Stock"].values - expense_ratios.get("intl_stock", 0.0)
-        us_bond[i] = sampled["US Bond"].values - expense_ratios.get("us_bond", 0.0)
-        inflation[i] = sampled["US Inflation"].values
+        if country_dfs is not None:
+            sampled = block_bootstrap_pooled(
+                country_dfs, retirement_years, min_block, max_block, rng=rng
+            )
+        else:
+            sampled = block_bootstrap(
+                returns_df, retirement_years, min_block, max_block, rng=rng
+            )
+        domestic_stock[i] = sampled["Domestic_Stock"].values - expense_ratios.get("domestic_stock", 0.0)
+        global_stock[i] = sampled["Global_Stock"].values - expense_ratios.get("global_stock", 0.0)
+        domestic_bond[i] = sampled["Domestic_Bond"].values - expense_ratios.get("domestic_bond", 0.0)
+        inflation[i] = sampled["Inflation"].values
 
     return {
-        "us_stock": us_stock,
-        "intl_stock": intl_stock,
-        "us_bond": us_bond,
+        "domestic_stock": domestic_stock,
+        "global_stock": global_stock,
+        "domestic_bond": domestic_bond,
         "inflation": inflation,
     }
 
@@ -316,9 +323,9 @@ def sweep_allocations(
         每个 dict 包含: us_stock, intl_stock, us_bond,
         success_rate, median_final, mean_final, p10_depletion_year。
     """
-    us_stock = raw_scenarios["us_stock"]
-    intl_stock = raw_scenarios["intl_stock"]
-    us_bond = raw_scenarios["us_bond"]
+    us_stock = raw_scenarios["domestic_stock"]
+    intl_stock = raw_scenarios["global_stock"]
+    us_bond = raw_scenarios["domestic_bond"]
     inflation = raw_scenarios["inflation"]
     num_sims, retirement_years = us_stock.shape
 
@@ -408,9 +415,9 @@ def sweep_allocations(
         p10_depletion_year = int(p10_dep) if p10_dep < retirement_years else None
 
         results.append({
-            "us_stock": round(w_us, 4),
-            "intl_stock": round(w_intl, 4),
-            "us_bond": round(w_bond, 4),
+            "domestic_stock": round(w_us, 4),
+            "global_stock": round(w_intl, 4),
+            "domestic_bond": round(w_bond, 4),
             "success_rate": success_rate,
             "median_final": median_final,
             "mean_final": mean_final,

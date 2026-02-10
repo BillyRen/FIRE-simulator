@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -13,7 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CashFlowEditor } from "./cash-flow-editor";
-import type { FormParams } from "@/lib/types";
+import { fetchCountries } from "@/lib/api";
+import type { FormParams, CountryInfo } from "@/lib/types";
 
 interface SidebarFormProps {
   params: FormParams;
@@ -93,28 +94,61 @@ export function SidebarForm({
   children,
 }: SidebarFormProps) {
   const t = useTranslations("sidebar");
+  const locale = useLocale();
   const p = params;
   const set = <K extends keyof FormParams>(key: K, val: FormParams[K]) =>
     onChange({ ...p, [key]: val });
+
+  // 加载国家列表
+  const [countries, setCountries] = useState<CountryInfo[]>([]);
+  useEffect(() => {
+    fetchCountries().then(setCountries).catch(() => {});
+  }, []);
+
+  const countryName = (c: CountryInfo) =>
+    locale === "zh" ? c.name_zh : c.name_en;
 
   return (
     <div className="space-y-4">
       {/* 数据范围 */}
       <div>
         <h3 className="text-sm font-semibold mb-2">{t("dataRange")}</h3>
+
+        <div className="mb-2">
+          <Label className="text-xs">{t("country")}</Label>
+          <Select
+            value={p.country}
+            onValueChange={(v) => {
+              set("country", v);
+              // 自动调整 data_start_year 到该国最小年份（如果当前值超出范围）
+              const info = countries.find((c) => c.iso === v);
+              if (info && p.data_start_year < info.min_year) {
+                onChange({ ...p, country: v, data_start_year: info.min_year });
+              }
+            }}
+          >
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">{t("allCountries")}</SelectItem>
+              {countries.map((c) => (
+                <SelectItem key={c.iso} value={c.iso}>
+                  {countryName(c)} ({c.iso})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <NumberField
           label={t("dataStartYear")}
           value={p.data_start_year}
           onChange={(v) => set("data_start_year", v)}
           min={1871}
-          max={2024}
+          max={2020}
           step={1}
         />
-        {p.data_start_year < 1970 && (
-          <p className="text-[10px] text-amber-600 mt-1">
-            {t("dataWarning")}
-          </p>
-        )}
       </div>
 
       <Separator />
@@ -128,35 +162,35 @@ export function SidebarForm({
           <>
             <div className="grid grid-cols-3 gap-2">
               <NumberField
-                label={t("usStock")}
-                value={Math.round(p.allocation.us_stock * 100)}
+                label={t("domesticStock")}
+                value={Math.round(p.allocation.domestic_stock * 100)}
                 onChange={(v) =>
-                  set("allocation", { ...p.allocation, us_stock: v / 100 })
+                  set("allocation", { ...p.allocation, domestic_stock: v / 100 })
                 }
                 min={0}
                 max={100}
               />
               <NumberField
-                label={t("intlStock")}
-                value={Math.round(p.allocation.intl_stock * 100)}
+                label={t("globalStock")}
+                value={Math.round(p.allocation.global_stock * 100)}
                 onChange={(v) =>
-                  set("allocation", { ...p.allocation, intl_stock: v / 100 })
+                  set("allocation", { ...p.allocation, global_stock: v / 100 })
                 }
                 min={0}
                 max={100}
               />
               <NumberField
-                label={t("usBond")}
-                value={Math.round(p.allocation.us_bond * 100)}
+                label={t("domesticBond")}
+                value={Math.round(p.allocation.domestic_bond * 100)}
                 onChange={(v) =>
-                  set("allocation", { ...p.allocation, us_bond: v / 100 })
+                  set("allocation", { ...p.allocation, domestic_bond: v / 100 })
                 }
                 min={0}
                 max={100}
               />
             </div>
             {Math.abs(
-              p.allocation.us_stock + p.allocation.intl_stock + p.allocation.us_bond - 1
+              p.allocation.domestic_stock + p.allocation.global_stock + p.allocation.domestic_bond - 1
             ) > 0.01 && (
               <p className="text-[10px] text-red-500 mt-1">{t("allocationWarning")}</p>
             )}
@@ -165,28 +199,28 @@ export function SidebarForm({
 
         <div className={`grid grid-cols-3 gap-2 ${showAllocation ? "mt-2" : ""}`}>
           <NumberField
-            label={t("usStockFee")}
-            value={+(p.expense_ratios.us_stock * 100).toFixed(2)}
+            label={t("domesticStockFee")}
+            value={+(p.expense_ratios.domestic_stock * 100).toFixed(2)}
             onChange={(v) =>
-              set("expense_ratios", { ...p.expense_ratios, us_stock: v / 100 })
+              set("expense_ratios", { ...p.expense_ratios, domestic_stock: v / 100 })
             }
             step={0.01}
             min={0}
           />
           <NumberField
-            label={t("intlStockFee")}
-            value={+(p.expense_ratios.intl_stock * 100).toFixed(2)}
+            label={t("globalStockFee")}
+            value={+(p.expense_ratios.global_stock * 100).toFixed(2)}
             onChange={(v) =>
-              set("expense_ratios", { ...p.expense_ratios, intl_stock: v / 100 })
+              set("expense_ratios", { ...p.expense_ratios, global_stock: v / 100 })
             }
             step={0.01}
             min={0}
           />
           <NumberField
-            label={t("usBondFee")}
-            value={+(p.expense_ratios.us_bond * 100).toFixed(2)}
+            label={t("domesticBondFee")}
+            value={+(p.expense_ratios.domestic_bond * 100).toFixed(2)}
             onChange={(v) =>
-              set("expense_ratios", { ...p.expense_ratios, us_bond: v / 100 })
+              set("expense_ratios", { ...p.expense_ratios, domestic_bond: v / 100 })
             }
             step={0.01}
             min={0}

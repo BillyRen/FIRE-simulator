@@ -1,19 +1,10 @@
 """全局常量与默认配置。"""
 
 # ---------------------------------------------------------------------------
-# 数据相关
+# 数据相关（JST 多国数据）
 # ---------------------------------------------------------------------------
-# 1970 年起有真实国际股票数据，之前由美股数据模拟
-INTL_STOCK_DATA_START_YEAR = 1970
 DEFAULT_DATA_START_YEAR = 1970
-DATA_WARNING_MSG = (
-    "⚠️ 1970 年之前的国际股票数据由美股数据模拟，"
-    "可能影响包含国际股票配置的模拟结果准确性。"
-)
-DATA_HELP_MSG = (
-    "1970 年起有真实国际股票数据。"
-    "1970 年之前的国际股票数据由美股数据模拟。"
-)
+DEFAULT_COUNTRY = "USA"
 
 # ---------------------------------------------------------------------------
 # 图表常量
@@ -39,8 +30,8 @@ TARGET_SUCCESS_RATES = [
 # ---------------------------------------------------------------------------
 # 默认 UI 参数
 # ---------------------------------------------------------------------------
-DEFAULT_ALLOCATION = {"us_stock": 40, "intl_stock": 40, "us_bond": 20}
-DEFAULT_EXPENSE_RATIOS = {"us_stock": 0.50, "intl_stock": 0.50, "us_bond": 0.50}
+DEFAULT_ALLOCATION = {"domestic_stock": 40, "global_stock": 40, "domestic_bond": 20}
+DEFAULT_EXPENSE_RATIOS = {"domestic_stock": 0.50, "global_stock": 0.50, "domestic_bond": 0.50}
 DEFAULT_MIN_BLOCK = 5
 DEFAULT_MAX_BLOCK = 15
 DEFAULT_RETIREMENT_YEARS = 65

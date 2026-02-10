@@ -1,0 +1,130 @@
+[
+  {
+    "iso": "AUS",
+    "name_en": "Australia",
+    "name_zh": "澳大利亚",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "BEL",
+    "name_en": "Belgium",
+    "name_zh": "比利时",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "CHE",
+    "name_en": "Switzerland",
+    "name_zh": "瑞士",
+    "min_year": 1900,
+    "max_year": 2020,
+    "n_years": 121
+  },
+  {
+    "iso": "DEU",
+    "name_en": "Germany",
+    "name_zh": "德国",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "DNK",
+    "name_en": "Denmark",
+    "name_zh": "丹麦",
+    "min_year": 1873,
+    "max_year": 2020,
+    "n_years": 148
+  },
+  {
+    "iso": "ESP",
+    "name_en": "Spain",
+    "name_zh": "西班牙",
+    "min_year": 1900,
+    "max_year": 2020,
+    "n_years": 121
+  },
+  {
+    "iso": "FIN",
+    "name_en": "Finland",
+    "name_zh": "芬兰",
+    "min_year": 1896,
+    "max_year": 2020,
+    "n_years": 125
+  },
+  {
+    "iso": "FRA",
+    "name_en": "France",
+    "name_zh": "法国",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "GBR",
+    "name_en": "United Kingdom",
+    "name_zh": "英国",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "ITA",
+    "name_en": "Italy",
+    "name_zh": "意大利",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "JPN",
+    "name_en": "Japan",
+    "name_zh": "日本",
+    "min_year": 1886,
+    "max_year": 2020,
+    "n_years": 135
+  },
+  {
+    "iso": "NLD",
+    "name_en": "Netherlands",
+    "name_zh": "荷兰",
+    "min_year": 1900,
+    "max_year": 2020,
+    "n_years": 121
+  },
+  {
+    "iso": "NOR",
+    "name_en": "Norway",
+    "name_zh": "挪威",
+    "min_year": 1881,
+    "max_year": 2020,
+    "n_years": 140
+  },
+  {
+    "iso": "PRT",
+    "name_en": "Portugal",
+    "name_zh": "葡萄牙",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "SWE",
+    "name_en": "Sweden",
+    "name_zh": "瑞典",
+    "min_year": 1871,
+    "max_year": 2020,
+    "n_years": 150
+  },
+  {
+    "iso": "USA",
+    "name_en": "United States",
+    "name_zh": "美国",
+    "min_year": 1872,
+    "max_year": 2020,
+    "n_years": 149
+  }
+]

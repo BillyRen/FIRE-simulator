@@ -1,7 +1,12 @@
 """Block Bootstrap 循环采样模块。"""
 
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
+
+
+RETURN_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
 
 
 def block_bootstrap(
@@ -23,7 +28,7 @@ def block_bootstrap(
     Parameters
     ----------
     returns_df : pd.DataFrame
-        历史回报数据，必须包含 US Stock, International Stock, US Bond, US Inflation 列。
+        历史回报数据，必须包含 Domestic_Stock, Global_Stock, Domestic_Bond, Inflation 列。
     retirement_years : int
         退休年限（需要生成的回报序列长度）。
     min_block : int
@@ -37,32 +42,86 @@ def block_bootstrap(
     -------
     pd.DataFrame
         shape 为 (retirement_years, 4) 的 DataFrame，
-        列为 US Stock, International Stock, US Bond, US Inflation。
+        列为 Domestic_Stock, Global_Stock, Domestic_Bond, Inflation。
     """
     if rng is None:
         rng = np.random.default_rng()
 
-    return_cols = ["US Stock", "International Stock", "US Bond", "US Inflation"]
-    data = returns_df[return_cols].values  # shape: (n, 4)
+    data = returns_df[RETURN_COLS].values  # shape: (n, 4)
     n = len(data)
 
     sampled_rows: list[np.ndarray] = []
     total_sampled = 0
 
     while total_sampled < retirement_years:
-        # 随机选择 block 大小
-        block_size = rng.integers(min_block, max_block + 1)  # 包含 max_block
-        # 随机选择起始索引
+        block_size = rng.integers(min_block, max_block + 1)
         start = rng.integers(0, n)
+        indices = np.arange(start, start + block_size) % n
+        block = data[indices]
+        sampled_rows.append(block)
+        total_sampled += block_size
 
-        # 环形采样：取 block_size 行数据
+    all_rows = np.concatenate(sampled_rows, axis=0)[:retirement_years]
+    return pd.DataFrame(all_rows, columns=RETURN_COLS)
+
+
+def block_bootstrap_pooled(
+    country_dfs: dict[str, pd.DataFrame],
+    retirement_years: int,
+    min_block: int,
+    max_block: int,
+    rng: np.random.Generator | None = None,
+) -> pd.DataFrame:
+    """池化多国 block bootstrap。
+
+    每个 block：
+    1) 等概率随机选国家（1/N，不受数据长度影响）
+    2) 该国内环形采样
+
+    Parameters
+    ----------
+    country_dfs : dict[str, pd.DataFrame]
+        {iso: country_df}，每个 df 必须包含 RETURN_COLS 列。
+    retirement_years : int
+        需要生成的总年数。
+    min_block, max_block : int
+        Block 大小范围。
+    rng : np.random.Generator or None
+        随机数生成器。
+
+    Returns
+    -------
+    pd.DataFrame
+        shape (retirement_years, 4) 的 DataFrame，列为 RETURN_COLS。
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    # 预转换为 numpy 数组
+    country_list = list(country_dfs.keys())
+    country_arrays = {
+        iso: df[RETURN_COLS].values for iso, df in country_dfs.items()
+    }
+    n_countries = len(country_list)
+
+    sampled_rows: list[np.ndarray] = []
+    total_sampled = 0
+
+    while total_sampled < retirement_years:
+        # 1. 等概率随机选国家
+        country_idx = rng.integers(0, n_countries)
+        iso = country_list[country_idx]
+        data = country_arrays[iso]
+        n = len(data)
+
+        # 2. 该国内环形采样
+        block_size = rng.integers(min_block, max_block + 1)
+        start = rng.integers(0, n)
         indices = np.arange(start, start + block_size) % n
         block = data[indices]
 
         sampled_rows.append(block)
         total_sampled += block_size
 
-    # 拼接并截断到 retirement_years
     all_rows = np.concatenate(sampled_rows, axis=0)[:retirement_years]
-
-    return pd.DataFrame(all_rows, columns=return_cols)
+    return pd.DataFrame(all_rows, columns=RETURN_COLS)

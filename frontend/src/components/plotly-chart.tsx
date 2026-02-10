@@ -10,7 +10,7 @@ const Plot = dynamic(
       const Plotly = require("plotly.js/lib/core");
       // Only register the trace types we actually use
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      Plotly.register([require("plotly.js/lib/scatter"), require("plotly.js/lib/scatterternary")]);
+      Plotly.register([require("plotly.js/lib/scatter"), require("plotly.js/lib/scatterternary"), require("plotly.js/lib/bar")]);
       return factory.default(Plotly);
     }),
   { ssr: false }

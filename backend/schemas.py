@@ -10,22 +10,22 @@ from pydantic import BaseModel, Field, model_validator
 # ---------------------------------------------------------------------------
 
 class AllocationSchema(BaseModel):
-    us_stock: float = Field(0.4, ge=0, le=1)
-    intl_stock: float = Field(0.4, ge=0, le=1)
-    us_bond: float = Field(0.2, ge=0, le=1)
+    domestic_stock: float = Field(0.4, ge=0, le=1)
+    global_stock: float = Field(0.4, ge=0, le=1)
+    domestic_bond: float = Field(0.2, ge=0, le=1)
 
     @model_validator(mode="after")
     def check_sum(self) -> "AllocationSchema":
-        total = self.us_stock + self.intl_stock + self.us_bond
+        total = self.domestic_stock + self.global_stock + self.domestic_bond
         if abs(total - 1.0) > 0.01:
             raise ValueError(f"Asset allocation must sum to 100% (got {total * 100:.1f}%)")
         return self
 
 
 class ExpenseRatioSchema(BaseModel):
-    us_stock: float = Field(0.005, ge=0, le=0.1)
-    intl_stock: float = Field(0.005, ge=0, le=0.1)
-    us_bond: float = Field(0.005, ge=0, le=0.1)
+    domestic_stock: float = Field(0.005, ge=0, le=0.1)
+    global_stock: float = Field(0.005, ge=0, le=0.1)
+    domestic_bond: float = Field(0.005, ge=0, le=0.1)
 
 
 class CashFlowSchema(BaseModel):
@@ -49,6 +49,7 @@ class BaseSimulationParams(BaseModel):
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(2_000, ge=100, le=50_000)
     data_start_year: int = Field(1970, ge=1871, le=2100)
+    country: str = Field("USA", description="ISO country code or 'ALL'")
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
@@ -178,6 +179,30 @@ class BacktestResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 4b. 退休模拟历史回测（简单版，无 guardrail）
+# ---------------------------------------------------------------------------
+
+class SimBacktestRequest(BaseSimulationParams):
+    """用户选择国家+起始年，用真实历史回报模拟退休路径。"""
+    initial_portfolio: float = Field(1_000_000, gt=0)
+    annual_withdrawal: float = Field(40_000, ge=0)
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    dynamic_ceiling: float = Field(0.05, ge=0, le=1)
+    dynamic_floor: float = Field(0.025, ge=0, le=1)
+    hist_start_year: int = Field(1990, ge=1871, le=2100)
+
+
+class SimBacktestResponse(BaseModel):
+    years_simulated: int
+    year_labels: list[int]
+    portfolio: list[float]
+    withdrawals: list[float]
+    survived: bool
+    final_portfolio: float
+    total_consumption: float
+
+
+# ---------------------------------------------------------------------------
 # 5. 资产配置扫描
 # ---------------------------------------------------------------------------
 
@@ -192,9 +217,9 @@ class AllocationSweepRequest(BaseSimulationParams):
 
 
 class AllocationResult(BaseModel):
-    us_stock: float
-    intl_stock: float
-    us_bond: float
+    domestic_stock: float
+    global_stock: float
+    domestic_bond: float
     success_rate: float
     median_final: float
     mean_final: float
@@ -210,9 +235,22 @@ class AllocationSweepResponse(BaseModel):
 # 6. 历史数据
 # ---------------------------------------------------------------------------
 
+class CountryInfo(BaseModel):
+    iso: str
+    name_en: str
+    name_zh: str
+    min_year: int
+    max_year: int
+    n_years: int
+
+
+class CountriesResponse(BaseModel):
+    countries: list[CountryInfo]
+
+
 class ReturnsResponse(BaseModel):
     years: list[int]
-    us_stock: list[float]
-    intl_stock: list[float]
-    us_bond: list[float]
-    us_inflation: list[float]
+    domestic_stock: list[float]
+    global_stock: list[float]
+    domestic_bond: list[float]
+    inflation: list[float]

@@ -17,6 +17,9 @@ export function Footer() {
         <p className="text-[11px] text-muted-foreground/70 max-w-xl mx-auto leading-relaxed">
           {t("disclaimer")}
         </p>
+        <p className="text-[10px] text-muted-foreground/50 max-w-xl mx-auto leading-relaxed">
+          {t("dataAttribution")}
+        </p>
       </div>
     </footer>
   );

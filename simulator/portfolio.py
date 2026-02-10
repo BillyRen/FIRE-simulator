@@ -22,9 +22,9 @@ def compute_real_portfolio_returns(
     ----------
     sampled_returns : pd.DataFrame
         由 block_bootstrap 生成的回报序列，
-        包含 US Stock, International Stock, US Bond, US Inflation 列。
+        包含 Domestic_Stock, Global_Stock, Domestic_Bond, Inflation 列。
     allocation : dict
-        资产配置比例，键为 "us_stock", "intl_stock", "us_bond"，值之和应为 1.0。
+        资产配置比例，键为 "domestic_stock", "global_stock", "domestic_bond"，值之和应为 1.0。
     expense_ratios : dict
         各资产对应的费用率，键同 allocation。
     leverage : float
@@ -39,9 +39,9 @@ def compute_real_portfolio_returns(
     """
     # 将 dict 键映射到 DataFrame 列名
     asset_map = {
-        "us_stock": "US Stock",
-        "intl_stock": "International Stock",
-        "us_bond": "US Bond",
+        "domestic_stock": "Domestic_Stock",
+        "global_stock": "Global_Stock",
+        "domestic_bond": "Domestic_Bond",
     }
 
     # 计算名义加权回报（扣除各资产费用）
@@ -52,7 +52,7 @@ def compute_real_portfolio_returns(
         nominal_return += weight * (sampled_returns[col_name].values - expense)
 
     # 杠杆计算
-    inflation = sampled_returns["US Inflation"].values
+    inflation = sampled_returns["Inflation"].values
     if leverage != 1.0:
         borrowing_cost = inflation + borrowing_spread
         nominal_return = leverage * nominal_return - (leverage - 1.0) * borrowing_cost

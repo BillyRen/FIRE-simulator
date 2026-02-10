@@ -3,6 +3,10 @@ import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
+// 根据环境动态构建 connect-src，确保开发和生产都能连接后端 API
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+const connectSrcExtra = apiUrl && !apiUrl.startsWith("/") ? ` ${apiUrl}` : "";
+
 const nextConfig: NextConfig = {
   devIndicators: false,
   async headers() {
@@ -30,7 +34,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob:",
               "font-src 'self'",
-              "connect-src 'self' https://fire-simulator-api.onrender.com https://va.vercel-scripts.com https://vitals.vercel-insights.com",
+              `connect-src 'self' https://fire-simulator-api.onrender.com https://va.vercel-scripts.com https://vitals.vercel-insights.com${connectSrcExtra}`,
               "frame-ancestors 'none'",
             ].join("; "),
           },

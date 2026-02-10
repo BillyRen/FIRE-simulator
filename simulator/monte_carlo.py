@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .bootstrap import block_bootstrap
+from .bootstrap import block_bootstrap, block_bootstrap_pooled
 from .cashflow import CashFlowItem, build_cf_schedule
 from .portfolio import compute_real_portfolio_returns
 
@@ -27,6 +27,7 @@ def run_simulation(
     cash_flows: list[CashFlowItem] | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
+    country_dfs: dict[str, pd.DataFrame] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """运行蒙特卡洛退休模拟。
 
@@ -47,7 +48,7 @@ def run_simulation(
     annual_withdrawal : float
         每年提取的实际金额（今日购买力）。
     allocation : dict
-        资产配置比例，如 {"us_stock": 0.6, "intl_stock": 0.1, "us_bond": 0.3}。
+        资产配置比例，如 {"domestic_stock": 0.6, "global_stock": 0.1, "domestic_bond": 0.3}。
     expense_ratios : dict
         各资产的费用率，键同 allocation。
     retirement_years : int
@@ -104,9 +105,14 @@ def run_simulation(
 
     for i in range(num_simulations):
         # 1. 生成 bootstrap 回报序列
-        sampled = block_bootstrap(
-            returns_df, retirement_years, min_block, max_block, rng=rng
-        )
+        if country_dfs is not None:
+            sampled = block_bootstrap_pooled(
+                country_dfs, retirement_years, min_block, max_block, rng=rng
+            )
+        else:
+            sampled = block_bootstrap(
+                returns_df, retirement_years, min_block, max_block, rng=rng
+            )
 
         # 2. 计算组合实际回报
         real_returns = compute_real_portfolio_returns(
@@ -117,7 +123,7 @@ def run_simulation(
         # 3. 计算该路径的现金流 schedule
         if has_cf:
             if has_nominal:
-                inflation_series = sampled["US Inflation"].values
+                inflation_series = sampled["Inflation"].values
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_series
                 )
@@ -159,3 +165,101 @@ def run_simulation(
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals
+
+
+def run_simple_historical_backtest(
+    real_returns: np.ndarray,
+    initial_portfolio: float,
+    annual_withdrawal: float,
+    retirement_years: int,
+    withdrawal_strategy: str = "fixed",
+    dynamic_ceiling: float = 0.05,
+    dynamic_floor: float = 0.025,
+    cash_flows: list[CashFlowItem] | None = None,
+    inflation_series: np.ndarray | None = None,
+) -> dict:
+    """在单条历史回报路径上运行退休模拟（无 bootstrap）。
+
+    Parameters
+    ----------
+    real_returns : np.ndarray
+        实际（扣通胀）组合回报率序列，长度 >= retirement_years。
+    initial_portfolio : float
+        初始资产。
+    annual_withdrawal : float
+        每年提取金额（实际购买力）。
+    retirement_years : int
+        模拟年数。
+    withdrawal_strategy : str
+        "fixed" 或 "dynamic"。
+    dynamic_ceiling / dynamic_floor : float
+        动态提取的上下限比例。
+    cash_flows : list[CashFlowItem] or None
+        自定义现金流。
+    inflation_series : np.ndarray or None
+        通胀序列（用于非通胀调整的现金流换算），长度 >= retirement_years。
+
+    Returns
+    -------
+    dict
+        years_simulated, portfolio (list), withdrawals (list), survived (bool).
+    """
+    n_years = min(retirement_years, len(real_returns))
+
+    initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
+
+    # 现金流 schedule
+    has_cf = cash_flows is not None and len(cash_flows) > 0
+    if has_cf:
+        adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
+        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
+        fixed_cf_schedule = build_cf_schedule(adj_cfs, n_years)
+        if nominal_cfs and inflation_series is not None:
+            nominal_schedule = build_cf_schedule(nominal_cfs, n_years, inflation_series[:n_years])
+            cf_schedule = fixed_cf_schedule + nominal_schedule
+        else:
+            cf_schedule = fixed_cf_schedule
+    else:
+        cf_schedule = None
+
+    portfolio = [initial_portfolio]
+    withdrawals_out: list[float] = []
+    value = initial_portfolio
+    prev_wd = annual_withdrawal
+    survived = True
+
+    for year in range(n_years):
+        # 确定提取金额
+        if withdrawal_strategy == "dynamic" and year > 0 and value > 0:
+            target = value * initial_rate
+            upper = prev_wd * (1.0 + dynamic_ceiling)
+            lower = prev_wd * (1.0 - dynamic_floor)
+            wd = max(lower, min(target, upper))
+        else:
+            wd = annual_withdrawal
+
+        withdrawals_out.append(wd)
+        prev_wd = wd
+
+        value = value * (1.0 + real_returns[year]) - wd
+
+        if cf_schedule is not None:
+            value += cf_schedule[year]
+
+        if value <= 0:
+            value = 0.0
+            survived = False
+            portfolio.append(0.0)
+            # 后续年份补零
+            for _ in range(year + 1, n_years):
+                portfolio.append(0.0)
+                withdrawals_out.append(0.0)
+            break
+        portfolio.append(value)
+
+    return {
+        "years_simulated": n_years,
+        "portfolio": portfolio,
+        "withdrawals": withdrawals_out,
+        "survived": survived,
+    }

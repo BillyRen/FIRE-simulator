@@ -9,8 +9,11 @@ import type {
   GuardrailResponse,
   BacktestRequest,
   BacktestResponse,
+  SimBacktestRequest,
+  SimBacktestResponse,
   AllocationSweepRequest,
   AllocationSweepResponse,
+  CountryInfo,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
@@ -56,6 +59,28 @@ export async function runBacktest(req: BacktestRequest): Promise<BacktestRespons
   return post<BacktestRequest, BacktestResponse>("/api/guardrail/backtest", req);
 }
 
+export async function runSimBacktest(req: SimBacktestRequest): Promise<SimBacktestResponse> {
+  return post<SimBacktestRequest, SimBacktestResponse>("/api/simulate/backtest", req);
+}
+
 export async function runAllocationSweep(req: AllocationSweepRequest): Promise<AllocationSweepResponse> {
   return post<AllocationSweepRequest, AllocationSweepResponse>("/api/allocation-sweep", req);
+}
+
+export async function fetchCountries(): Promise<CountryInfo[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}/api/countries`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    return data.countries;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
