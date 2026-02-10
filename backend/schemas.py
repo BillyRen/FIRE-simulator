@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -13,6 +13,13 @@ class AllocationSchema(BaseModel):
     us_stock: float = Field(0.4, ge=0, le=1)
     intl_stock: float = Field(0.4, ge=0, le=1)
     us_bond: float = Field(0.2, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def check_sum(self) -> "AllocationSchema":
+        total = self.us_stock + self.intl_stock + self.us_bond
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(f"Asset allocation must sum to 100% (got {total * 100:.1f}%)")
+        return self
 
 
 class ExpenseRatioSchema(BaseModel):
@@ -30,12 +37,11 @@ class CashFlowSchema(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 1. 蒙特卡洛模拟
+# 共享基类
 # ---------------------------------------------------------------------------
 
-class SimulationRequest(BaseModel):
-    initial_portfolio: float = Field(1_000_000, gt=0)
-    annual_withdrawal: float = Field(40_000, ge=0)
+class BaseSimulationParams(BaseModel):
+    """Fields shared by all simulation request schemas."""
     allocation: AllocationSchema = AllocationSchema()
     expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
     retirement_years: int = Field(65, ge=1, le=100)
@@ -43,12 +49,21 @@ class SimulationRequest(BaseModel):
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(2_000, ge=100, le=50_000)
     data_start_year: int = Field(1970, ge=1871, le=2100)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
-    dynamic_ceiling: float = Field(0.05, ge=0, le=1)
-    dynamic_floor: float = Field(0.025, ge=0, le=1)
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
+
+
+# ---------------------------------------------------------------------------
+# 1. 蒙特卡洛模拟
+# ---------------------------------------------------------------------------
+
+class SimulationRequest(BaseSimulationParams):
+    initial_portfolio: float = Field(1_000_000, gt=0)
+    annual_withdrawal: float = Field(40_000, ge=0)
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    dynamic_ceiling: float = Field(0.05, ge=0, le=1)
+    dynamic_floor: float = Field(0.025, ge=0, le=1)
 
 
 class SimulationResponse(BaseModel):
@@ -69,24 +84,14 @@ class SimulationResponse(BaseModel):
 # 2. 敏感性分析（扫描）
 # ---------------------------------------------------------------------------
 
-class SweepRequest(BaseModel):
+class SweepRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    allocation: AllocationSchema = AllocationSchema()
-    expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
-    retirement_years: int = Field(65, ge=1, le=100)
-    min_block: int = Field(5, ge=1, le=30)
-    max_block: int = Field(15, ge=1, le=55)
-    num_simulations: int = Field(2_000, ge=100, le=50_000)
-    data_start_year: int = Field(1970, ge=1871, le=2100)
     withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     rate_max: float = Field(0.12, gt=0, le=0.5)
     rate_step: float = Field(0.001, gt=0, le=0.1)
-    leverage: float = Field(1.0, ge=1.0, le=5.0)
-    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
-    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class TargetRateResult(BaseModel):
@@ -106,15 +111,8 @@ class SweepResponse(BaseModel):
 # 3. Guardrail 策略
 # ---------------------------------------------------------------------------
 
-class GuardrailRequest(BaseModel):
+class GuardrailRequest(BaseSimulationParams):
     annual_withdrawal: float = Field(40_000, ge=0)
-    allocation: AllocationSchema = AllocationSchema()
-    expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
-    retirement_years: int = Field(65, ge=1, le=100)
-    min_block: int = Field(5, ge=1, le=30)
-    max_block: int = Field(15, ge=1, le=55)
-    num_simulations: int = Field(2_000, ge=100, le=50_000)
-    data_start_year: int = Field(1970, ge=1871, le=2100)
     target_success: float = Field(0.80, gt=0, lt=1)
     upper_guardrail: float = Field(0.99, gt=0, le=1)
     lower_guardrail: float = Field(0.50, ge=0, lt=1)
@@ -122,9 +120,6 @@ class GuardrailRequest(BaseModel):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(10, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
-    leverage: float = Field(1.0, ge=1.0, le=5.0)
-    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
-    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class GuardrailResponse(BaseModel):
@@ -147,16 +142,9 @@ class GuardrailResponse(BaseModel):
 # 4. 历史回测
 # ---------------------------------------------------------------------------
 
-class BacktestRequest(BaseModel):
+class BacktestRequest(BaseSimulationParams):
     """复用 GuardrailRequest 的大部分字段，额外加回测起始年。"""
     annual_withdrawal: float = Field(40_000, ge=0)
-    allocation: AllocationSchema = AllocationSchema()
-    expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
-    retirement_years: int = Field(65, ge=1, le=100)
-    min_block: int = Field(5, ge=1, le=30)
-    max_block: int = Field(15, ge=1, le=55)
-    num_simulations: int = Field(2_000, ge=100, le=50_000)
-    data_start_year: int = Field(1970, ge=1871, le=2100)
     target_success: float = Field(0.80, gt=0, lt=1)
     upper_guardrail: float = Field(0.99, gt=0, le=1)
     lower_guardrail: float = Field(0.50, ge=0, lt=1)
@@ -164,11 +152,8 @@ class BacktestRequest(BaseModel):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(10, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
-    leverage: float = Field(1.0, ge=1.0, le=5.0)
-    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     initial_portfolio: float = Field(..., gt=0, description="由 guardrail MC 阶段计算得出")
     hist_start_year: int = Field(1990, ge=1871, le=2100)
-    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class AdjustmentEvent(BaseModel):
@@ -196,22 +181,14 @@ class BacktestResponse(BaseModel):
 # 5. 资产配置扫描
 # ---------------------------------------------------------------------------
 
-class AllocationSweepRequest(BaseModel):
+class AllocationSweepRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
-    retirement_years: int = Field(65, ge=1, le=100)
-    min_block: int = Field(5, ge=1, le=30)
-    max_block: int = Field(15, ge=1, le=55)
-    num_simulations: int = Field(1_000, ge=100, le=50_000)
-    data_start_year: int = Field(1970, ge=1871, le=2100)
+    num_simulations: int = Field(1_000, ge=100, le=50_000)  # override: lower default for sweep
     withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
-    leverage: float = Field(1.0, ge=1.0, le=5.0)
-    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     allocation_step: float = Field(0.1, ge=0.05, le=0.2)
-    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
 
 
 class AllocationResult(BaseModel):

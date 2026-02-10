@@ -9,6 +9,6 @@ services:
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ALLOWED_ORIGINS
-        value: https://frontend-six-nu-41.vercel.app
+        value: https://fire.rens.ai
       - key: PYTHON_VERSION
         value: "3.12.0"

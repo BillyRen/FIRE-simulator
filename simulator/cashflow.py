@@ -93,7 +93,8 @@ def build_cf_schedule(
         else:
             # 名义固定值，需折算为实际购买力
             # 实际值 = 名义值 / 累计通胀因子
-            assert cumulative_inflation is not None
+            if cumulative_inflation is None:
+                raise ValueError("inflation_series is required for nominal (non-inflation-adjusted) cash flows")
             for t in range(start_idx, end_idx):
                 schedule[t] += cf.amount / cumulative_inflation[t]
 

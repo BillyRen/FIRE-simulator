@@ -119,6 +119,15 @@ def _expense_dict(e) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
 # 1. POST /api/simulate
 # ---------------------------------------------------------------------------
 
@@ -327,8 +336,8 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         {"指标": "中位数最终资产", "Guardrail": f"${np.median(traj_g[:, -1]):,.0f}", "基准固定": f"${np.median(traj_b[:, -1]):,.0f}"},
         {"指标": "P10 最低年度消费", "Guardrail": f"${g_p10_min:,.0f}", "基准固定": f"${b_p10_min:,.0f}"},
         {"指标": "P10 最低消费 vs 初始提取额",
-         "Guardrail": f"{(g_p10_min / req.annual_withdrawal - 1) * 100:+.1f}%",
-         "基准固定": f"{(b_p10_min / baseline_wd - 1) * 100:+.1f}%" if b_p10_min > 0 else "N/A"},
+         "Guardrail": f"{(g_p10_min / req.annual_withdrawal - 1) * 100:+.1f}%" if req.annual_withdrawal > 0 else "N/A",
+         "基准固定": f"{(b_p10_min / baseline_wd - 1) * 100:+.1f}%" if baseline_wd > 0 else "N/A"},
         {"指标": "中位数最终年提取额",
          "Guardrail": f"${np.median(wd_g[:, -1]):,.0f}",
          "基准固定": f"${baseline_wd:,.0f}"},

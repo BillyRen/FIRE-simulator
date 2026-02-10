@@ -36,7 +36,7 @@ export function downloadCSV(
 export function downloadTrajectories(
   filename: string,
   trajectories: Record<string, number[]>,
-  xHeader = "年",
+  xHeader = "Year",
   xLabels?: (number | string)[]
 ) {
   const keys = Object.keys(trajectories).sort(

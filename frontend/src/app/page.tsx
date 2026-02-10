@@ -14,14 +14,7 @@ import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, SimulationResponse } from "@/lib/types";
-
-function fmt(n: number): string {
-  return `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-}
-
-function pct(n: number): string {
-  return `${(n * 100).toFixed(1)}%`;
-}
+import { fmt, pct } from "@/lib/utils";
 
 export default function SimulatorPage() {
   const t = useTranslations("simulator");

@@ -9,8 +9,16 @@ export function useIsMobile(breakpoint = 640) {
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < breakpoint);
     check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+    let timer: ReturnType<typeof setTimeout>;
+    const debouncedCheck = () => {
+      clearTimeout(timer);
+      timer = setTimeout(check, 150);
+    };
+    window.addEventListener("resize", debouncedCheck);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", debouncedCheck);
+    };
   }, [breakpoint]);
   return isMobile;
 }
