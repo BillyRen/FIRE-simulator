@@ -506,13 +506,20 @@ def api_backtest(request: Request, req: BacktestRequest):
         scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
     )
 
-    # 历史数据 — 回测只能在单国模式下进行
-    if req.country == "ALL":
-        raise HTTPException(400, "历史回测不支持 'ALL' 模式，请选择具体国家")
+    # 历史数据 — 回测需要具体国家的真实历史路径
+    bt_country = req.backtest_country or req.country
+    if bt_country == "ALL":
+        raise HTTPException(400, "历史回测必须指定具体国家")
 
-    hist_df = filtered[filtered["Year"] >= req.hist_start_year].reset_index(drop=True)
+    # 如果回测国家与 MC 国家不同（如 MC 用 ALL，回测用 USA），单独获取该国数据
+    if bt_country != req.country or req.country == "ALL":
+        hist_filtered = _filter_df(bt_country, req.data_start_year)
+    else:
+        hist_filtered = filtered
+
+    hist_df = hist_filtered[hist_filtered["Year"] >= req.hist_start_year].reset_index(drop=True)
     if len(hist_df) < 1:
-        raise HTTPException(400, f"从 {req.hist_start_year} 年开始无可用数据")
+        raise HTTPException(400, f"{bt_country} 从 {req.hist_start_year} 年开始无可用数据")
 
     hist_returns = compute_real_portfolio_returns(
         hist_df, _alloc_dict(req.allocation), _expense_dict(req.expense_ratios),

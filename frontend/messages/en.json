@@ -161,6 +161,8 @@
     "downloadWithdrawalTrajectory": "Download Withdrawals",
     "downloadBaselineTrajectory": "Download Baseline",
     "backtestStartYear": "Backtest Start Year",
+    "backtestCountry": "Backtest Country",
+    "backtestCountryHint": "Guardrail rules from pooled data; historical path from selected country",
     "runBacktest": "Run Backtest",
     "backtesting": "Backtesting…",
     "backtestPortfolioNote": "Initial portfolio {amount} (from MC phase)",

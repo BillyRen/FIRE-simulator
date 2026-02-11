@@ -155,6 +155,7 @@ class BacktestRequest(BaseSimulationParams):
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     initial_portfolio: float = Field(..., gt=0, description="由 guardrail MC 阶段计算得出")
     hist_start_year: int = Field(1990, ge=1871, le=2100)
+    backtest_country: str | None = Field(None, description="回测用的具体国家 ISO（当 country=ALL 时必填）")
 
 
 class AdjustmentEvent(BaseModel):

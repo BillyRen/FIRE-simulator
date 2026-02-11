@@ -169,6 +169,7 @@ export interface BacktestRequest {
   initial_portfolio: number;
   hist_start_year: number;
   cash_flows: CashFlowItem[];
+  backtest_country?: string;
 }
 
 export interface AdjustmentEvent {

@@ -161,6 +161,8 @@
     "downloadWithdrawalTrajectory": "下载提取轨迹",
     "downloadBaselineTrajectory": "下载基准轨迹",
     "backtestStartYear": "回测起始年",
+    "backtestCountry": "回测国家",
+    "backtestCountryHint": "护栏规则基于池化数据，历史路径取自所选国家",
     "runBacktest": "运行回测",
     "backtesting": "回测中…",
     "backtestPortfolioNote": "初始资产 {amount}（由 MC 阶段计算）",

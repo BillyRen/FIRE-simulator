@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useState, useEffect } from "react";
+import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -20,16 +20,17 @@ import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
-import { runGuardrail, runBacktest } from "@/lib/api";
+import { runGuardrail, runBacktest, fetchCountries } from "@/lib/api";
 import { downloadCSV, downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { DEFAULT_PARAMS } from "@/lib/types";
-import type { FormParams, GuardrailResponse, BacktestResponse } from "@/lib/types";
+import type { FormParams, GuardrailResponse, BacktestResponse, CountryInfo } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
 
 export default function GuardrailPage() {
   const t = useTranslations("guardrail");
   const tc = useTranslations("common");
+  const locale = useLocale();
   const isMobile = useIsMobile();
 
   const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
@@ -46,6 +47,13 @@ export default function GuardrailPage() {
 
   // Backtest
   const [histStartYear, setHistStartYear] = useState(1990);
+  const [btCountry, setBtCountry] = useState("USA");
+  const [countries, setCountries] = useState<CountryInfo[]>([]);
+
+  // Fetch countries for backtest country selector
+  useEffect(() => {
+    fetchCountries().then(setCountries).catch(() => {});
+  }, []);
 
   // Results
   const [mcResult, setMcResult] = useState<GuardrailResponse | null>(null);
@@ -99,6 +107,7 @@ export default function GuardrailPage() {
         ...guardrailReqBase(),
         initial_portfolio: mcResult.initial_portfolio,
         hist_start_year: histStartYear,
+        backtest_country: params.country === "ALL" ? btCountry : undefined,
       });
       setBtResult(res);
     } catch (e) {
@@ -345,7 +354,26 @@ export default function GuardrailPage() {
             <TabsContent value="backtest" className="space-y-6">
               <Card>
                 <CardContent className="pt-4 space-y-3">
-                  <div className="flex items-end gap-3">
+                  <div className="flex items-end gap-3 flex-wrap">
+                    {params.country === "ALL" && (
+                      <div className="w-40">
+                        <Label className="text-xs">{t("backtestCountry")}</Label>
+                        <Select value={btCountry} onValueChange={setBtCountry}>
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {countries
+                              .filter((c) => c.iso !== "ALL")
+                              .map((c) => (
+                                <SelectItem key={c.iso} value={c.iso}>
+                                  {locale === "zh" ? c.name_zh : c.name_en}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="w-28">
                       <NumberField
                         label={t("backtestStartYear")}
@@ -363,6 +391,11 @@ export default function GuardrailPage() {
                       {btLoading ? t("backtesting") : t("runBacktest")}
                     </Button>
                   </div>
+                  {params.country === "ALL" && (
+                    <p className="text-[10px] text-muted-foreground italic">
+                      {t("backtestCountryHint")}
+                    </p>
+                  )}
                   <p className="text-[10px] text-muted-foreground">
                     {t("backtestPortfolioNote", { amount: fmt(mcResult.initial_portfolio) })}
                   </p>
