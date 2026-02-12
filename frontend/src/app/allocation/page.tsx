@@ -40,7 +40,7 @@ export default function AllocationPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [sortKey, setSortKey] = useState<string>("success_rate");
+  const [sortKey, setSortKey] = useState<string>("funded_ratio");
   const [sortAsc, setSortAsc] = useState(false);
 
   const STEP_OPTIONS = [
@@ -156,27 +156,27 @@ export default function AllocationPage() {
         {result && (
           <>
             {/* 最优配置指标 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <MetricCard
-                label={t("bestSuccessRate")}
-                value={pct(result.best_by_success.success_rate)}
+                label={t("bestFundedRatio")}
+                value={pct(result.best.funded_ratio)}
               />
               <MetricCard
                 label={t("bestAllocation")}
-                value={`${(result.best_by_success.domestic_stock * 100).toFixed(0)}/${(result.best_by_success.global_stock * 100).toFixed(0)}/${(result.best_by_success.domestic_bond * 100).toFixed(0)}`}
+                value={`${(result.best.domestic_stock * 100).toFixed(0)}/${(result.best.global_stock * 100).toFixed(0)}/${(result.best.domestic_bond * 100).toFixed(0)}`}
                 sub={t("allocationSub")}
               />
               <MetricCard
-                label={t("medianFinalPortfolio")}
-                value={fmt(result.best_by_success.median_final)}
+                label={t("bestSuccessRate")}
+                value={pct(result.best.success_rate)}
               />
               <MetricCard
-                label={t("p10DepletionYear")}
-                value={
-                  result.best_by_success.p10_depletion_year
-                    ? tc("yearN", { n: result.best_by_success.p10_depletion_year })
-                    : tc("notDepleted")
-                }
+                label={t("medianFinalPortfolio")}
+                value={fmt(result.best.median_final)}
+              />
+              <MetricCard
+                label={t("colCvar10")}
+                value={fmt(result.best.cvar_10)}
               />
             </div>
 
@@ -196,15 +196,15 @@ export default function AllocationPage() {
                       c: result.results.map((r) => r.domestic_bond * 100),
                       text: result.results.map(
                         (r) =>
-                          `${t("ternaryDomStock").replace(" %", "")}${(r.domestic_stock * 100).toFixed(0)}% ${t("ternaryGlobalStock").replace(" %", "")}${(r.global_stock * 100).toFixed(0)}% ${t("ternaryDomBond").replace(" %", "")}${(r.domestic_bond * 100).toFixed(0)}%<br>${tc("successRate")}: ${(r.success_rate * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`
+                          `${t("ternaryDomStock").replace(" %", "")}${(r.domestic_stock * 100).toFixed(0)}% ${t("ternaryGlobalStock").replace(" %", "")}${(r.global_stock * 100).toFixed(0)}% ${t("ternaryDomBond").replace(" %", "")}${(r.domestic_bond * 100).toFixed(0)}%<br>${t("colFundedRatio")}: ${(r.funded_ratio * 100).toFixed(1)}%<br>${tc("successRate")}: ${(r.success_rate * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`
                       ),
                       hoverinfo: "text",
                       marker: {
                         size: allocStep <= 0.05 ? 8 : allocStep <= 0.1 ? 14 : 20,
-                        color: result.results.map((r) => r.success_rate * 100),
+                        color: result.results.map((r) => r.funded_ratio * 100),
                         colorscale: "RdYlGn",
-                        cmin: Math.min(...result.results.map((r) => r.success_rate * 100)),
-                        cmax: Math.max(...result.results.map((r) => r.success_rate * 100)),
+                        cmin: Math.min(...result.results.map((r) => r.funded_ratio * 100)),
+                        cmax: Math.max(...result.results.map((r) => r.funded_ratio * 100)),
                         colorbar: {
                           title: { text: t("ternaryColorbar") },
                           ticksuffix: "%",
@@ -271,8 +271,11 @@ export default function AllocationPage() {
                       t("colDomStock"),
                       t("colGlobalStock"),
                       t("colDomBond"),
+                      t("colFundedRatio"),
                       t("colSuccessRate"),
+                      t("colCvar10"),
                       t("colMedianFinal"),
+                      t("colP90Final"),
                       t("colMeanFinal"),
                       t("colP10Depletion"),
                     ];
@@ -280,8 +283,11 @@ export default function AllocationPage() {
                       (r.domestic_stock * 100).toFixed(0),
                       (r.global_stock * 100).toFixed(0),
                       (r.domestic_bond * 100).toFixed(0),
+                      (r.funded_ratio * 100).toFixed(1) + "%",
                       (r.success_rate * 100).toFixed(1) + "%",
+                      Math.round(r.cvar_10),
                       Math.round(r.median_final),
+                      Math.round(r.p90_final),
                       Math.round(r.mean_final),
                       r.p10_depletion_year ?? tc("notDepleted"),
                     ]);
@@ -298,8 +304,11 @@ export default function AllocationPage() {
                           { key: "domestic_stock", label: t("colDomStock") },
                           { key: "global_stock", label: t("colGlobalStock") },
                           { key: "domestic_bond", label: t("colDomBond") },
+                          { key: "funded_ratio", label: t("colFundedRatio") },
                           { key: "success_rate", label: t("colSuccessRate") },
+                          { key: "cvar_10", label: t("colCvar10") },
                           { key: "median_final", label: t("colMedianFinal") },
+                          { key: "p90_final", label: t("colP90Final") },
                           { key: "mean_final", label: t("colMeanFinal") },
                           { key: "p10_depletion_year", label: t("colP10Depletion") },
                         ].map((col) => (
@@ -319,9 +328,9 @@ export default function AllocationPage() {
                     <tbody>
                       {sortedResults.map((r, i) => {
                         const isBest =
-                          r.domestic_stock === result.best_by_success.domestic_stock &&
-                          r.global_stock === result.best_by_success.global_stock &&
-                          r.domestic_bond === result.best_by_success.domestic_bond;
+                          r.domestic_stock === result.best.domestic_stock &&
+                          r.global_stock === result.best.global_stock &&
+                          r.domestic_bond === result.best.domestic_bond;
                         return (
                           <tr
                             key={i}
@@ -336,8 +345,11 @@ export default function AllocationPage() {
                             <td className="px-2 py-1">
                               {(r.domestic_bond * 100).toFixed(0)}
                             </td>
+                            <td className="px-2 py-1 font-medium">{pct(r.funded_ratio)}</td>
                             <td className="px-2 py-1">{pct(r.success_rate)}</td>
+                            <td className="px-2 py-1">{fmt(r.cvar_10)}</td>
                             <td className="px-2 py-1">{fmt(r.median_final)}</td>
+                            <td className="px-2 py-1">{fmt(r.p90_final)}</td>
                             <td className="px-2 py-1">{fmt(r.mean_final)}</td>
                             <td className="px-2 py-1">
                               {r.p10_depletion_year

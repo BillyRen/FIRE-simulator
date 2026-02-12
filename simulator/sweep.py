@@ -414,6 +414,17 @@ def sweep_allocations(
         p10_dep = float(np.percentile(depletion_years, 10))
         p10_depletion_year = int(p10_dep) if p10_dep < retirement_years else None
 
+        # Funded Ratio（资金覆盖率）：平均能覆盖多少退休年限
+        funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
+
+        # CVaR₁₀：最差 10% 场景的平均终值
+        sorted_finals = np.sort(final_values)
+        n10 = max(1, int(0.1 * num_sims))
+        cvar_10 = float(np.mean(sorted_finals[:n10]))
+
+        # P90 终值：最好 10% 场景的门槛
+        p90_final = float(np.percentile(final_values, 90))
+
         results.append({
             "domestic_stock": round(w_us, 4),
             "global_stock": round(w_intl, 4),
@@ -422,6 +433,9 @@ def sweep_allocations(
             "median_final": median_final,
             "mean_final": mean_final,
             "p10_depletion_year": p10_depletion_year,
+            "funded_ratio": funded_ratio,
+            "cvar_10": cvar_10,
+            "p90_final": p90_final,
         })
 
     return results

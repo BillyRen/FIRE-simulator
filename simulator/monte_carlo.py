@@ -28,7 +28,7 @@ def run_simulation(
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
     country_dfs: dict[str, pd.DataFrame] | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """运行蒙特卡洛退休模拟。
 
     对每次模拟：
@@ -74,12 +74,14 @@ def run_simulation(
 
     Returns
     -------
-    tuple[np.ndarray, np.ndarray]
-        (trajectories, withdrawals)
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        (trajectories, withdrawals, real_returns_matrix, inflation_matrix)
         - trajectories: shape (num_simulations, retirement_years + 1) 的资产轨迹矩阵。
           第 0 列为初始值，第 k 列为第 k 年末的资产值。
         - withdrawals: shape (num_simulations, retirement_years) 的提取金额矩阵。
           第 k 列为第 k+1 年的实际提取金额。
+        - real_returns_matrix: shape (num_simulations, retirement_years) 的实际组合回报矩阵。
+        - inflation_matrix: shape (num_simulations, retirement_years) 的通胀率矩阵。
     """
     rng = np.random.default_rng(seed)
 
@@ -92,6 +94,10 @@ def run_simulation(
 
     # 提取金额矩阵：(num_simulations, retirement_years)
     withdrawals = np.zeros((num_simulations, retirement_years))
+
+    # 回报与通胀矩阵（用于绩效指标计算）
+    real_returns_matrix = np.zeros((num_simulations, retirement_years))
+    inflation_matrix = np.zeros((num_simulations, retirement_years))
 
     has_cf = cash_flows is not None and len(cash_flows) > 0
     # 预计算通胀调整部分的固定 schedule（仅当有现金流时）
@@ -119,6 +125,8 @@ def run_simulation(
             sampled, allocation, expense_ratios,
             leverage=leverage, borrowing_spread=borrowing_spread,
         )
+        real_returns_matrix[i] = real_returns
+        inflation_matrix[i] = sampled["Inflation"].values
 
         # 3. 计算该路径的现金流 schedule
         if has_cf:
@@ -164,7 +172,7 @@ def run_simulation(
                 break
             trajectories[i, year + 1] = value
 
-    return trajectories, withdrawals
+    return trajectories, withdrawals, real_returns_matrix, inflation_matrix
 
 
 def run_simple_historical_backtest(

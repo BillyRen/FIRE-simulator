@@ -39,7 +39,13 @@ from simulator.guardrail import (
 )
 from simulator.monte_carlo import run_simulation, run_simple_historical_backtest
 from simulator.portfolio import compute_real_portfolio_returns
-from simulator.statistics import PERCENTILES, compute_statistics, final_values_summary_table
+from simulator.statistics import (
+    PERCENTILES,
+    compute_portfolio_metrics,
+    compute_single_path_metrics,
+    compute_statistics,
+    final_values_summary_table,
+)
 from simulator.sweep import (
     interpolate_targets,
     pregenerate_raw_scenarios,
@@ -199,7 +205,7 @@ def api_simulate(request: Request, req: SimulationRequest):
     if len(filtered) < 2 and country_dfs is None:
         raise HTTPException(400, "可用数据不足")
 
-    trajectories, withdrawals = run_simulation(
+    trajectories, withdrawals, real_ret_mat, infl_mat = run_simulation(
         initial_portfolio=req.initial_portfolio,
         annual_withdrawal=req.annual_withdrawal,
         allocation=_alloc_dict(req.allocation),
@@ -220,6 +226,7 @@ def api_simulate(request: Request, req: SimulationRequest):
 
     results = compute_statistics(trajectories, req.retirement_years, withdrawals)
     summary_df = final_values_summary_table(results)
+    port_metrics = compute_portfolio_metrics(real_ret_mat, infl_mat)
 
     # 序列化
     pct_traj = {str(k): v.tolist() for k, v in results.percentile_trajectories.items()}
@@ -248,6 +255,7 @@ def api_simulate(request: Request, req: SimulationRequest):
         initial_withdrawal_rate=(
             req.annual_withdrawal / req.initial_portfolio if req.initial_portfolio > 0 else 0
         ),
+        portfolio_metrics=port_metrics,
     )
 
 
@@ -297,6 +305,12 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
         inflation_series=inflation_series,
     )
 
+    # 单路径绩效指标
+    path_metrics = compute_single_path_metrics(
+        real_returns[:n_years],
+        inflation_series[:n_years] if inflation_series is not None else np.zeros(n_years),
+    )
+
     return SimBacktestResponse(
         years_simulated=result["years_simulated"],
         year_labels=year_labels,
@@ -305,6 +319,7 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
         survived=result["survived"],
         final_portfolio=result["portfolio"][-1],
         total_consumption=sum(result["withdrawals"]),
+        path_metrics=path_metrics,
     )
 
 
@@ -464,6 +479,9 @@ def api_guardrail(request: Request, req: GuardrailRequest):
          "基准固定": f"${baseline_wd:,.0f}"},
     ]
 
+    # 投资组合绩效指标（底层回报序列相同，guardrail/baseline 共用）
+    port_metrics = compute_portfolio_metrics(scenarios, inflation_matrix)
+
     return GuardrailResponse(
         initial_portfolio=init_portfolio,
         initial_rate=initial_rate,
@@ -475,6 +493,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         b_withdrawal_percentiles=b_wd_pcts,
         baseline_annual_wd=baseline_wd,
         metrics=metrics,
+        portfolio_metrics=port_metrics,
     )
 
 
@@ -550,6 +569,11 @@ def api_backtest(request: Request, req: BacktestRequest):
     n = result["years_simulated"]
     year_labels = [int(req.hist_start_year + i) for i in range(n + 1)]
 
+    # 单路径绩效指标
+    path_metrics = compute_single_path_metrics(
+        hist_returns[:n], hist_inflation[:n],
+    )
+
     return BacktestResponse(
         years_simulated=n,
         year_labels=year_labels,
@@ -561,6 +585,7 @@ def api_backtest(request: Request, req: BacktestRequest):
         g_total_consumption=result["g_total_consumption"],
         b_total_consumption=result["b_total_consumption"],
         adjustment_events=result.get("adjustment_events", []),
+        path_metrics=path_metrics,
     )
 
 
@@ -601,11 +626,11 @@ def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
     )
 
     alloc_results = [AllocationResult(**r) for r in raw_results]
-    best = max(alloc_results, key=lambda x: x.success_rate)
+    best = max(alloc_results, key=lambda x: x.funded_ratio)
 
     return AllocationSweepResponse(
         results=alloc_results,
-        best_by_success=best,
+        best=best,
     )
 
 

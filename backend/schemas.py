@@ -79,6 +79,7 @@ class SimulationResponse(BaseModel):
     withdrawal_mean_trajectory: list[float] | None = None
     final_values_summary: list[dict[str, str]]
     initial_withdrawal_rate: float
+    portfolio_metrics: list[dict[str, str]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +138,8 @@ class GuardrailResponse(BaseModel):
     baseline_annual_wd: float
     # 关键指标
     metrics: list[dict[str, str]]
+    # 投资组合绩效指标（底层回报序列相同，guardrail/baseline 共用）
+    portfolio_metrics: list[dict[str, str]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +180,7 @@ class BacktestResponse(BaseModel):
     g_total_consumption: float
     b_total_consumption: float
     adjustment_events: list[AdjustmentEvent] = []
+    path_metrics: list[dict[str, str]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +205,7 @@ class SimBacktestResponse(BaseModel):
     survived: bool
     final_portfolio: float
     total_consumption: float
+    path_metrics: list[dict[str, str]] = []
 
 
 # ---------------------------------------------------------------------------
@@ -225,11 +230,14 @@ class AllocationResult(BaseModel):
     median_final: float
     mean_final: float
     p10_depletion_year: int | None = None
+    funded_ratio: float = 0.0
+    cvar_10: float = 0.0
+    p90_final: float = 0.0
 
 
 class AllocationSweepResponse(BaseModel):
     results: list[AllocationResult]
-    best_by_success: AllocationResult
+    best: AllocationResult
 
 
 # ---------------------------------------------------------------------------

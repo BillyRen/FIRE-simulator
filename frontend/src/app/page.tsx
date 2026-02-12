@@ -208,6 +208,18 @@ export default function SimulatorPage() {
                     <StatsTable rows={result.final_values_summary} downloadName="stats_summary" />
                   </CardContent>
                 </Card>
+
+                {/* 投资组合绩效指标 */}
+                {result.portfolio_metrics && result.portfolio_metrics.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">{t("portfolioMetrics")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <StatsTable rows={result.portfolio_metrics} downloadName="portfolio_metrics" />
+                    </CardContent>
+                  </Card>
+                )}
               </>
             )}
 
@@ -361,6 +373,18 @@ export default function SimulatorPage() {
                         />
                       </CardContent>
                     </Card>
+
+                    {/* 路径绩效指标 */}
+                    {btResult.path_metrics && btResult.path_metrics.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">{t("pathMetrics")}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <StatsTable rows={btResult.path_metrics} downloadName="backtest_path_metrics" />
+                        </CardContent>
+                      </Card>
+                    )}
                   </>
                 )}
 

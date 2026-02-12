@@ -107,7 +107,9 @@
     "downloadBacktestData": "Download Backtest Data",
     "backtestHeaderYear": "Year",
     "backtestHeaderPortfolio": "Portfolio",
-    "backtestHeaderWithdrawal": "Withdrawal"
+    "backtestHeaderWithdrawal": "Withdrawal",
+    "portfolioMetrics": "Portfolio Performance Metrics (Percentiles)",
+    "pathMetrics": "Portfolio Performance Metrics"
   },
   "sensitivity": {
     "title": "📈 Sensitivity Analysis",
@@ -199,7 +201,9 @@
     "adjHeaderOldSuccess": "Old Success Rate",
     "adjHeaderNewSuccess": "New Success Rate",
     "backtestPlaceholder": "Select start year and click \"Run Backtest\"",
-    "placeholder": "Configure parameters and click \"Run Guardrail Simulation\" to see results"
+    "placeholder": "Configure parameters and click \"Run Guardrail Simulation\" to see results",
+    "portfolioMetrics": "Portfolio Performance Metrics (Percentiles)",
+    "pathMetrics": "Portfolio Performance Metrics"
   },
   "allocation": {
     "title": "🎯 Allocation Optimizer",
@@ -211,26 +215,30 @@
     "stepOption20": "20% (~21 combinations)",
     "startScan": "Start Scan",
     "scanning": "Scanning...",
-    "bestSuccessRate": "Best Success Rate",
+    "bestFundedRatio": "Best Funded Ratio",
+    "bestSuccessRate": "Success Rate",
     "bestAllocation": "Best Allocation",
     "allocationSub": "Dom/Global/Bond",
     "medianFinalPortfolio": "Median Final Portfolio",
     "p10DepletionYear": "P10 Depletion Year",
-    "heatmapTitle": "Asset Allocation — Success Rate Heatmap",
+    "heatmapTitle": "Asset Allocation — Funded Ratio Heatmap",
     "ternaryDomStock": "Dom. Stock %",
     "ternaryGlobalStock": "Global Stock %",
     "ternaryDomBond": "Dom. Bond %",
-    "ternaryColorbar": "Success Rate (%)",
-    "ternaryHover": "Dom{us}% Global{intl}% Bond{bond}%<br>Success: {success}%<br>Median Final: {median}",
+    "ternaryColorbar": "Funded Ratio (%)",
+    "ternaryHover": "Dom{us}% Global{intl}% Bond{bond}%<br>Funded Ratio: {funded}%<br>Success: {success}%<br>Median Final: {median}",
     "allResultsTitle": "All Results ({count} combinations)",
     "downloadCSV": "Download CSV",
     "colDomStock": "Dom. Stock %",
     "colGlobalStock": "Global Stock %",
     "colDomBond": "Dom. Bond %",
+    "colFundedRatio": "Funded Ratio",
     "colSuccessRate": "Success Rate",
+    "colCvar10": "Tail Value",
     "colMedianFinal": "Median Final",
+    "colP90Final": "P90 Final",
     "colMeanFinal": "Mean Final",
-    "colP10Depletion": "P10 Depletion Year"
+    "colP10Depletion": "P10 Depl. Year"
   },
   "loading": {
     "default": "Running simulation…"
@@ -270,7 +278,14 @@
     "中位数最终资产": "Median Final Portfolio",
     "P10 最低年度消费": "P10 Min Annual Spending",
     "P10 最低消费 vs 初始提取额": "P10 Min Spending vs Initial WD",
-    "中位数最终年提取额": "Median Final Year WD"
+    "中位数最终年提取额": "Median Final Year WD",
+    "metric": "Metric",
+    "ann_nominal_return": "Ann. Nominal Return",
+    "ann_real_return": "Ann. Real Return",
+    "ann_inflation": "Ann. Inflation",
+    "ann_volatility": "Ann. Volatility",
+    "max_real_drawdown": "Max Real Drawdown",
+    "value": "Value"
   },
   "footer": {
     "brand": "FIRE Lab",

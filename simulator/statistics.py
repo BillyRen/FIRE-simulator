@@ -138,3 +138,121 @@ def final_values_summary_table(results: SimulationResults) -> pd.DataFrame:
             })
 
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# 投资组合绩效指标（分位数表格）
+# ---------------------------------------------------------------------------
+
+METRIC_PERCENTILES = [10, 25, 50, 75, 90]
+
+
+def compute_portfolio_metrics(
+    real_returns_matrix: np.ndarray,
+    inflation_matrix: np.ndarray,
+) -> list[dict[str, str]]:
+    """根据每条路径的实际回报和通胀，计算投资组合绩效指标的分位数表。
+
+    计算 5 个指标（每条路径一个标量），然后取 P10/P25/P50/P75/P90。
+
+    Parameters
+    ----------
+    real_returns_matrix : np.ndarray
+        shape (num_simulations, retirement_years) 的实际组合回报率矩阵。
+    inflation_matrix : np.ndarray
+        shape (num_simulations, retirement_years) 的通胀率矩阵。
+
+    Returns
+    -------
+    list[dict[str, str]]
+        每行一个指标，包含 "metric", "P10", "P25", "P50", "P75", "P90" 键。
+    """
+    num_sims, n_years = real_returns_matrix.shape
+
+    # 名义回报 = (1 + real) * (1 + inflation) - 1
+    nominal_returns_matrix = (
+        (1.0 + real_returns_matrix) * (1.0 + inflation_matrix) - 1.0
+    )
+
+    # --- 每条路径的标量指标 ---
+
+    # 1. 年化名义回报（几何平均）
+    ann_nominal = np.prod(1.0 + nominal_returns_matrix, axis=1) ** (1.0 / n_years) - 1.0
+
+    # 2. 年化实际回报（几何平均）
+    ann_real = np.prod(1.0 + real_returns_matrix, axis=1) ** (1.0 / n_years) - 1.0
+
+    # 3. 年化通胀（几何平均）
+    ann_inflation = np.prod(1.0 + inflation_matrix, axis=1) ** (1.0 / n_years) - 1.0
+
+    # 4. 年化波动率（实际回报的样本标准差）
+    ann_volatility = np.std(real_returns_matrix, axis=1, ddof=1)
+
+    # 5. 最大实际回撤（基于累积实际回报指数，纯投资表现）
+    cum_real = np.cumprod(1.0 + real_returns_matrix, axis=1)  # (num_sims, n_years)
+    running_max = np.maximum.accumulate(cum_real, axis=1)
+    drawdowns = (cum_real - running_max) / running_max  # 负值
+    max_drawdown = np.min(drawdowns, axis=1)  # 每条路径的最大回撤（负值）
+
+    # --- 汇总为分位数表 ---
+    metrics_data = [
+        ("ann_nominal_return", ann_nominal),
+        ("ann_real_return", ann_real),
+        ("ann_inflation", ann_inflation),
+        ("ann_volatility", ann_volatility),
+        ("max_real_drawdown", max_drawdown),
+    ]
+
+    rows: list[dict[str, str]] = []
+    for metric_key, values in metrics_data:
+        row: dict[str, str] = {"metric": metric_key}
+        for p in METRIC_PERCENTILES:
+            row[f"P{p}"] = f"{float(np.percentile(values, p)):.2%}"
+        rows.append(row)
+
+    return rows
+
+
+def compute_single_path_metrics(
+    real_returns: np.ndarray,
+    inflation: np.ndarray,
+) -> list[dict[str, str]]:
+    """计算单条历史路径的投资组合绩效指标。
+
+    Parameters
+    ----------
+    real_returns : np.ndarray
+        1-D 实际组合回报率序列，长度 n_years。
+    inflation : np.ndarray
+        1-D 通胀率序列，长度 n_years。
+
+    Returns
+    -------
+    list[dict[str, str]]
+        每行一个指标，包含 "metric" 和 "value" 键。
+    """
+    n = len(real_returns)
+    if n == 0:
+        return []
+
+    # 名义回报
+    nominal_returns = (1.0 + real_returns) * (1.0 + inflation) - 1.0
+
+    ann_nominal = float(np.prod(1.0 + nominal_returns) ** (1.0 / n) - 1.0)
+    ann_real = float(np.prod(1.0 + real_returns) ** (1.0 / n) - 1.0)
+    ann_infl = float(np.prod(1.0 + inflation) ** (1.0 / n) - 1.0)
+    vol = float(np.std(real_returns, ddof=1)) if n > 1 else 0.0
+
+    # 最大实际回撤
+    cum = np.cumprod(1.0 + real_returns)
+    running_max = np.maximum.accumulate(cum)
+    dd = (cum - running_max) / running_max
+    max_dd = float(np.min(dd))
+
+    return [
+        {"metric": "ann_nominal_return", "value": f"{ann_nominal:.2%}"},
+        {"metric": "ann_real_return", "value": f"{ann_real:.2%}"},
+        {"metric": "ann_inflation", "value": f"{ann_infl:.2%}"},
+        {"metric": "ann_volatility", "value": f"{vol:.2%}"},
+        {"metric": "max_real_drawdown", "value": f"{max_dd:.2%}"},
+    ]

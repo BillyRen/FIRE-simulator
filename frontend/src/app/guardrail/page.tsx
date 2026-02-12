@@ -348,6 +348,18 @@ export default function GuardrailPage() {
                   <StatsTable rows={mcResult.metrics} downloadName="guardrail_metrics" />
                 </CardContent>
               </Card>
+
+              {/* 投资组合绩效指标 */}
+              {mcResult.portfolio_metrics && mcResult.portfolio_metrics.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">{t("portfolioMetrics")}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <StatsTable rows={mcResult.portfolio_metrics} downloadName="portfolio_metrics" />
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
 
             {/* ═══ 回测 Tab ═══ */}
@@ -617,6 +629,18 @@ export default function GuardrailPage() {
                       />
                     </CardContent>
                   </Card>
+
+                  {/* 路径绩效指标 */}
+                  {btResult.path_metrics && btResult.path_metrics.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">{t("pathMetrics")}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <StatsTable rows={btResult.path_metrics} downloadName="backtest_path_metrics" />
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {/* 护栏调整明细表 */}
                   {btResult.adjustment_events && btResult.adjustment_events.length > 0 && (

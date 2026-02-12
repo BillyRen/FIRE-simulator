@@ -64,6 +64,7 @@ export interface SimulationResponse {
   withdrawal_mean_trajectory: number[] | null;
   final_values_summary: Array<Record<string, string>>;
   initial_withdrawal_rate: number;
+  portfolio_metrics: Array<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +142,7 @@ export interface GuardrailResponse {
   b_withdrawal_percentiles: Record<string, number[]>;
   baseline_annual_wd: number;
   metrics: Array<Record<string, string>>;
+  portfolio_metrics: Array<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +193,7 @@ export interface BacktestResponse {
   g_total_consumption: number;
   b_total_consumption: number;
   adjustment_events: AdjustmentEvent[];
+  path_metrics: Array<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +225,7 @@ export interface SimBacktestResponse {
   survived: boolean;
   final_portfolio: number;
   total_consumption: number;
+  path_metrics: Array<Record<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,11 +259,14 @@ export interface AllocationResult {
   median_final: number;
   mean_final: number;
   p10_depletion_year: number | null;
+  funded_ratio: number;
+  cvar_10: number;
+  p90_final: number;
 }
 
 export interface AllocationSweepResponse {
   results: AllocationResult[];
-  best_by_success: AllocationResult;
+  best: AllocationResult;
 }
 
 // ---------------------------------------------------------------------------

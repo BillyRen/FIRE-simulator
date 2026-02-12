@@ -107,7 +107,9 @@
     "downloadBacktestData": "下载回测数据",
     "backtestHeaderYear": "年份",
     "backtestHeaderPortfolio": "资产",
-    "backtestHeaderWithdrawal": "提取额"
+    "backtestHeaderWithdrawal": "提取额",
+    "portfolioMetrics": "投资组合绩效指标（分位数）",
+    "pathMetrics": "投资组合绩效指标"
   },
   "sensitivity": {
     "title": "📈 敏感性分析参数",
@@ -199,7 +201,9 @@
     "adjHeaderOldSuccess": "调整前成功率",
     "adjHeaderNewSuccess": "调整后成功率",
     "backtestPlaceholder": "选择起始年后点击「运行回测」",
-    "placeholder": "配置参数后点击「运行 Guardrail 模拟」查看结果"
+    "placeholder": "配置参数后点击「运行 Guardrail 模拟」查看结果",
+    "portfolioMetrics": "投资组合绩效指标（分位数）",
+    "pathMetrics": "投资组合绩效指标"
   },
   "allocation": {
     "title": "🎯 资产配置优化",
@@ -211,24 +215,28 @@
     "stepOption20": "20%（约 21 种组合）",
     "startScan": "开始扫描",
     "scanning": "扫描中...",
-    "bestSuccessRate": "最优成功率",
+    "bestFundedRatio": "最优覆盖率",
+    "bestSuccessRate": "成功率",
     "bestAllocation": "最优配置",
     "allocationSub": "本国股/全球股/债券",
     "medianFinalPortfolio": "中位数最终资产",
     "p10DepletionYear": "P10 耗尽年",
-    "heatmapTitle": "资产配置 — 成功率热力图",
+    "heatmapTitle": "资产配置 — 覆盖率热力图",
     "ternaryDomStock": "本国股票 %",
     "ternaryGlobalStock": "全球股票 %",
     "ternaryDomBond": "本国债券 %",
-    "ternaryColorbar": "成功率 (%)",
-    "ternaryHover": "本国股{us}% 全球股{intl}% 债券{bond}%<br>成功率: {success}%<br>中位数终值: {median}",
+    "ternaryColorbar": "覆盖率 (%)",
+    "ternaryHover": "本国股{us}% 全球股{intl}% 债券{bond}%<br>覆盖率: {funded}%<br>成功率: {success}%<br>中位数终值: {median}",
     "allResultsTitle": "全部配置结果（{count} 种）",
     "downloadCSV": "下载 CSV",
     "colDomStock": "本国股票 %",
     "colGlobalStock": "全球股票 %",
     "colDomBond": "本国债券 %",
+    "colFundedRatio": "覆盖率",
     "colSuccessRate": "成功率",
-    "colMedianFinal": "中位数终值",
+    "colCvar10": "尾部均值",
+    "colMedianFinal": "中位终值",
+    "colP90Final": "P90 终值",
     "colMeanFinal": "均值终值",
     "colP10Depletion": "P10 耗尽年"
   },
@@ -270,7 +278,14 @@
     "中位数最终资产": "中位数最终资产",
     "P10 最低年度消费": "P10 最低年度消费",
     "P10 最低消费 vs 初始提取额": "P10 最低消费 vs 初始提取额",
-    "中位数最终年提取额": "中位数最终年提取额"
+    "中位数最终年提取额": "中位数最终年提取额",
+    "metric": "指标",
+    "ann_nominal_return": "年化名义回报",
+    "ann_real_return": "年化实际回报",
+    "ann_inflation": "年化通胀",
+    "ann_volatility": "年化波动率",
+    "max_real_drawdown": "最大实际回撤",
+    "value": "值"
   },
   "footer": {
     "brand": "FIRE Lab",
