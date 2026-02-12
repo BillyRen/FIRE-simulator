@@ -54,6 +54,7 @@ export interface SimulationRequest {
 
 export interface SimulationResponse {
   success_rate: number;
+  funded_ratio: number;
   final_median: number;
   final_mean: number;
   final_min: number;
@@ -102,7 +103,9 @@ export interface TargetRateResult {
 export interface SweepResponse {
   rates: number[];
   success_rates: number[];
+  funded_ratios: number[];
   target_results: TargetRateResult[];
+  target_results_funded: TargetRateResult[];
 }
 
 // ---------------------------------------------------------------------------
@@ -135,9 +138,11 @@ export interface GuardrailResponse {
   initial_portfolio: number;
   initial_rate: number;
   g_success_rate: number;
+  g_funded_ratio: number;
   g_percentile_trajectories: Record<string, number[]>;
   g_withdrawal_percentiles: Record<string, number[]>;
   b_success_rate: number;
+  b_funded_ratio: number;
   b_percentile_trajectories: Record<string, number[]>;
   b_withdrawal_percentiles: Record<string, number[]>;
   baseline_annual_wd: number;

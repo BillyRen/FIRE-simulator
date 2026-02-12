@@ -61,6 +61,8 @@ export default function GuardrailPage() {
   const [loading, setLoading] = useState(false);
   const [btLoading, setBtLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [btLogScale, setBtLogScale] = useState(false);
+  const [btWdLogScale, setBtWdLogScale] = useState(false);
 
   const guardrailReqBase = () => ({
     annual_withdrawal: withdrawal,
@@ -261,7 +263,7 @@ export default function GuardrailPage() {
               </div>
 
               {/* 指标卡片 */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <MetricCard
                   label={t("initialPortfolio")}
                   value={fmt(mcResult.initial_portfolio)}
@@ -275,9 +277,17 @@ export default function GuardrailPage() {
                   value={pct(mcResult.g_success_rate)}
                 />
                 <MetricCard
+                  label={t("guardrailFundedRatio")}
+                  value={pct(mcResult.g_funded_ratio)}
+                />
+                <MetricCard
                   label={t("baselineSuccess")}
                   value={pct(mcResult.b_success_rate)}
                   sub={t("baselineRateSub", { rate: (baselineRate * 100).toFixed(1) })}
+                />
+                <MetricCard
+                  label={t("baselineFundedRatio")}
+                  value={pct(mcResult.b_funded_ratio)}
                 />
               </div>
 
@@ -287,6 +297,7 @@ export default function GuardrailPage() {
                   <FanChart
                     trajectories={mcResult.g_percentile_trajectories}
                     title={t("portfolioComparison")}
+                    showLogToggle
                     extraTraces={[
                       {
                         y: mcResult.b_percentile_trajectories["50"],
@@ -307,6 +318,7 @@ export default function GuardrailPage() {
                     trajectories={mcResult.g_withdrawal_percentiles}
                     title={t("withdrawalTrajectory")}
                     color="16, 185, 129"
+                    showLogToggle
                     extraTraces={[
                       {
                         y: mcResult.b_withdrawal_percentiles?.["50"] ?? Array(
@@ -480,7 +492,17 @@ export default function GuardrailPage() {
                   {/* 资产轨迹 */}
                   <Card>
                     <CardContent className="pt-4">
-                      <MobileChartTitle title={t("historicalPortfolioComparison")} isMobile={isMobile} />
+                      <div className="flex items-center justify-between">
+                        <MobileChartTitle title={t("historicalPortfolioComparison")} isMobile={isMobile} />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-xs mb-1"
+                          onClick={() => setBtLogScale((v) => !v)}
+                        >
+                          {btLogScale ? tc("linearScale") : tc("logScale")}
+                        </Button>
+                      </div>
                       <PlotlyChart
                         data={[
                           {
@@ -507,7 +529,12 @@ export default function GuardrailPage() {
                         layout={{
                           title: isMobile ? undefined : { text: t("historicalPortfolioComparison"), font: { size: 14 } },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
-                          yaxis: { title: isMobile ? undefined : { text: t("assetAxis") }, tickformat: isMobile ? "$~s" : "$,.0f", tickfont: { size: isMobile ? 9 : 12 } },
+                          yaxis: {
+                            title: isMobile ? undefined : { text: t("assetAxis") },
+                            type: btLogScale ? "log" : "linear",
+                            tickformat: btLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
+                            tickfont: { size: isMobile ? 9 : 12 },
+                          },
                           height: isMobile ? 280 : 400,
                           margin: isMobile ? { l: 45, r: 10, t: 10, b: 30 } : { l: 80, r: 30, t: 80, b: 50 },
                           legend: isMobile
@@ -529,7 +556,17 @@ export default function GuardrailPage() {
                   {/* 提取金额 + 成功率 */}
                   <Card>
                     <CardContent className="pt-4">
-                      <MobileChartTitle title={t("withdrawalAmountAndSuccess")} isMobile={isMobile} />
+                      <div className="flex items-center justify-between">
+                        <MobileChartTitle title={t("withdrawalAmountAndSuccess")} isMobile={isMobile} />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-xs mb-1"
+                          onClick={() => setBtWdLogScale((v) => !v)}
+                        >
+                          {btWdLogScale ? tc("linearScale") : tc("logScale")}
+                        </Button>
+                      </div>
                       <PlotlyChart
                         data={[
                           {
@@ -601,7 +638,8 @@ export default function GuardrailPage() {
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: {
                             title: isMobile ? undefined : { text: t("withdrawalAmount") },
-                            tickformat: isMobile ? "$~s" : "$,.0f",
+                            type: btWdLogScale ? "log" : "linear",
+                            tickformat: btWdLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
                             tickfont: { size: isMobile ? 9 : 12 },
                             side: "left",
                           },

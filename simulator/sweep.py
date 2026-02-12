@@ -79,7 +79,7 @@ def pregenerate_return_scenarios(
     return scenarios, inflation_matrix
 
 
-def _simulate_success_rate(
+def _simulate_success_and_funded(
     real_returns_matrix: np.ndarray,
     initial_portfolio: float,
     annual_withdrawal: float,
@@ -88,8 +88,8 @@ def _simulate_success_rate(
     dynamic_floor: float,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_matrix: np.ndarray | None = None,
-) -> float:
-    """给定预生成回报矩阵和参数，快速计算成功率。
+) -> tuple[float, float]:
+    """给定预生成回报矩阵和参数，快速计算成功率和资金覆盖率。
 
     Parameters
     ----------
@@ -111,8 +111,8 @@ def _simulate_success_rate(
 
     Returns
     -------
-    float
-        成功率 (0-1)。
+    tuple[float, float]
+        (success_rate, funded_ratio)，均为 0-1 之间的浮点数。
     """
     num_sims, retirement_years = real_returns_matrix.shape
     initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
@@ -129,6 +129,8 @@ def _simulate_success_rate(
         fixed_schedule = None
 
     survived = 0
+    depletion_years = np.full(num_sims, float(retirement_years))
+
     for i in range(num_sims):
         value = initial_portfolio
         prev_wd = annual_withdrawal
@@ -164,13 +166,16 @@ def _simulate_success_rate(
                 value += cf_schedule[year]
 
             if value <= 0:
+                depletion_years[i] = float(year + 1)
                 failed = True
                 break
 
         if not failed:
             survived += 1
 
-    return survived / num_sims
+    success_rate = survived / num_sims
+    funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
+    return success_rate, funded_ratio
 
 
 def sweep_withdrawal_rates(
@@ -184,8 +189,8 @@ def sweep_withdrawal_rates(
     dynamic_floor: float = 0.025,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_matrix: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """扫描提取率范围，计算每个提取率对应的成功率。
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """扫描提取率范围，计算每个提取率对应的成功率和资金覆盖率。
 
     Parameters
     ----------
@@ -208,15 +213,16 @@ def sweep_withdrawal_rates(
 
     Returns
     -------
-    tuple[np.ndarray, np.ndarray]
-        (rates, success_rates) — 两个等长的一维数组。
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        (rates, success_rates, funded_ratios) — 三个等长的一维数组。
     """
     rates = np.arange(rate_min, rate_max + rate_step / 2, rate_step)
     success_rates = np.empty(len(rates))
+    funded_ratios = np.empty(len(rates))
 
     for idx, rate in enumerate(rates):
         annual_wd = initial_portfolio * rate
-        success_rates[idx] = _simulate_success_rate(
+        sr, fr = _simulate_success_and_funded(
             real_returns_matrix,
             initial_portfolio,
             annual_wd,
@@ -226,8 +232,10 @@ def sweep_withdrawal_rates(
             cash_flows=cash_flows,
             inflation_matrix=inflation_matrix,
         )
+        success_rates[idx] = sr
+        funded_ratios[idx] = fr
 
-    return rates, success_rates
+    return rates, success_rates, funded_ratios
 
 
 def pregenerate_raw_scenarios(

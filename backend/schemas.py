@@ -69,6 +69,7 @@ class SimulationRequest(BaseSimulationParams):
 
 class SimulationResponse(BaseModel):
     success_rate: float
+    funded_ratio: float
     final_median: float
     final_mean: float
     final_min: float
@@ -106,7 +107,9 @@ class TargetRateResult(BaseModel):
 class SweepResponse(BaseModel):
     rates: list[float]
     success_rates: list[float]
+    funded_ratios: list[float]
     target_results: list[TargetRateResult]
+    target_results_funded: list[TargetRateResult]
 
 
 # ---------------------------------------------------------------------------
@@ -129,10 +132,12 @@ class GuardrailResponse(BaseModel):
     initial_rate: float
     # Guardrail MC
     g_success_rate: float
+    g_funded_ratio: float
     g_percentile_trajectories: dict[str, list[float]]
     g_withdrawal_percentiles: dict[str, list[float]]
     # Baseline MC
     b_success_rate: float
+    b_funded_ratio: float
     b_percentile_trajectories: dict[str, list[float]]
     b_withdrawal_percentiles: dict[str, list[float]]
     baseline_annual_wd: float

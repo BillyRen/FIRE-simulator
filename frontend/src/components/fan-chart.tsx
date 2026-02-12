@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
+import { Button } from "./ui/button";
 import PlotlyChart from "./plotly-chart";
 
 export function useIsMobile(breakpoint = 640) {
@@ -58,6 +59,8 @@ interface FanChartProps {
   height?: number;
   /** 主色 */
   color?: string;
+  /** 是否显示线性/对数切换按钮 */
+  showLogToggle?: boolean;
 }
 
 const BAND_PAIRS: [string, string][] = [
@@ -74,9 +77,11 @@ export function FanChart({
   extraTraces = [],
   height = 450,
   color = "59, 130, 246", // blue-500 RGB
+  showLogToggle = false,
 }: FanChartProps) {
   const t = useTranslations();
   const isMobile = useIsMobile();
+  const [logScale, setLogScale] = useState(false);
   const n = trajectories["50"]?.length ?? 0;
   const x = xLabels ?? Array.from({ length: n }, (_, i) => i);
 
@@ -136,7 +141,19 @@ export function FanChart({
 
   return (
     <div>
-      <MobileChartTitle title={title} isMobile={isMobile} />
+      <div className="flex items-center justify-between">
+        <MobileChartTitle title={title} isMobile={isMobile} />
+        {showLogToggle && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs mb-1"
+            onClick={() => setLogScale((v) => !v)}
+          >
+            {logScale ? t("common.linearScale") : t("common.logScale")}
+          </Button>
+        )}
+      </div>
       <PlotlyChart
         data={traces}
         layout={{
@@ -147,7 +164,8 @@ export function FanChart({
           },
           yaxis: {
             title: isMobile ? undefined : { text: resolvedYTitle },
-            tickformat: isMobile ? "$~s" : "$,.0f",
+            type: logScale ? "log" : "linear",
+            tickformat: logScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
             tickfont: { size: isMobile ? 9 : 12 },
           },
           height: chartHeight,

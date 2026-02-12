@@ -38,6 +38,8 @@ export default function SimulatorPage() {
   const [btResult, setBtResult] = useState<SimBacktestResponse | null>(null);
   const [btLoading, setBtLoading] = useState(false);
   const [btError, setBtError] = useState<string | null>(null);
+  const [btLogScale, setBtLogScale] = useState(false);
+  const [btWdLogScale, setBtWdLogScale] = useState(false);
 
   const handleRun = async () => {
     setLoading(true);
@@ -166,8 +168,9 @@ export default function SimulatorPage() {
                 </div>
 
                 {/* 指标卡片 */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <MetricCard label={t("successRate")} value={pct(result.success_rate)} />
+                  <MetricCard label={t("fundedRatio")} value={pct(result.funded_ratio)} />
                   <MetricCard label={t("medianFinalPortfolio")} value={fmt(result.final_median)} />
                   <MetricCard label={t("meanFinalPortfolio")} value={fmt(result.final_mean)} />
                   <MetricCard
@@ -182,6 +185,7 @@ export default function SimulatorPage() {
                     <FanChart
                       trajectories={result.percentile_trajectories}
                       title={t("portfolioTrajectory")}
+                      showLogToggle
                     />
                   </CardContent>
                 </Card>
@@ -194,6 +198,7 @@ export default function SimulatorPage() {
                         trajectories={result.withdrawal_percentile_trajectories}
                         title={t("withdrawalTrajectory")}
                         color="234, 88, 12" // orange
+                        showLogToggle
                       />
                     </CardContent>
                   </Card>
@@ -312,7 +317,17 @@ export default function SimulatorPage() {
                     {/* 资产轨迹 */}
                     <Card>
                       <CardContent className="pt-4">
-                        <MobileChartTitle title={t("portfolioHistory")} isMobile={isMobile} />
+                        <div className="flex items-center justify-between">
+                          <MobileChartTitle title={t("portfolioHistory")} isMobile={isMobile} />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-xs mb-1"
+                            onClick={() => setBtLogScale((v) => !v)}
+                          >
+                            {btLogScale ? tc("linearScale") : tc("logScale")}
+                          </Button>
+                        </div>
                         <PlotlyChart
                           data={[
                             {
@@ -332,7 +347,11 @@ export default function SimulatorPage() {
                           layout={{
                             title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
                             xaxis: { title: { text: tc("year") } },
-                            yaxis: { title: { text: tc("amount") }, tickformat: "$,.0f" },
+                            yaxis: {
+                              title: { text: tc("amount") },
+                              type: btLogScale ? "log" : "linear",
+                              tickformat: btLogScale ? "$~s" : "$,.0f",
+                            },
                             margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
                             height: isMobile ? 260 : 380,
                             hovermode: "x unified",
@@ -347,7 +366,17 @@ export default function SimulatorPage() {
                     {/* 提取金额轨迹 */}
                     <Card>
                       <CardContent className="pt-4">
-                        <MobileChartTitle title={t("withdrawalHistory")} isMobile={isMobile} />
+                        <div className="flex items-center justify-between">
+                          <MobileChartTitle title={t("withdrawalHistory")} isMobile={isMobile} />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-xs mb-1"
+                            onClick={() => setBtWdLogScale((v) => !v)}
+                          >
+                            {btWdLogScale ? tc("linearScale") : tc("logScale")}
+                          </Button>
+                        </div>
                         <PlotlyChart
                           data={[
                             {
@@ -362,7 +391,11 @@ export default function SimulatorPage() {
                           layout={{
                             title: isMobile ? undefined : { text: t("withdrawalHistory"), font: { size: 14 } },
                             xaxis: { title: { text: tc("year") } },
-                            yaxis: { title: { text: tc("amount") }, tickformat: "$,.0f" },
+                            yaxis: {
+                              title: { text: tc("amount") },
+                              type: btWdLogScale ? "log" : "linear",
+                              tickformat: btWdLogScale ? "$~s" : "$,.0f",
+                            },
                             margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
                             height: isMobile ? 260 : 380,
                             hovermode: "x unified",

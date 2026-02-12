@@ -41,6 +41,7 @@ from simulator.monte_carlo import run_simulation, run_simple_historical_backtest
 from simulator.portfolio import compute_real_portfolio_returns
 from simulator.statistics import (
     PERCENTILES,
+    compute_funded_ratio,
     compute_portfolio_metrics,
     compute_single_path_metrics,
     compute_statistics,
@@ -243,6 +244,7 @@ def api_simulate(request: Request, req: SimulationRequest):
 
     return SimulationResponse(
         success_rate=results.success_rate,
+        funded_ratio=results.funded_ratio,
         final_median=results.final_median,
         final_mean=results.final_mean,
         final_min=results.final_min,
@@ -349,7 +351,7 @@ def api_sweep(request: Request, req: SweepRequest):
 
     cash_flows = _to_cash_flows(req.cash_flows)
 
-    rates, success_rates = sweep_withdrawal_rates(
+    rates, success_rates, funded_ratios = sweep_withdrawal_rates(
         real_returns_matrix=scenarios,
         initial_portfolio=req.initial_portfolio,
         rate_min=0.0,
@@ -362,6 +364,7 @@ def api_sweep(request: Request, req: SweepRequest):
         inflation_matrix=inflation_matrix,
     )
 
+    # 成功率目标插值
     target_rates = interpolate_targets(rates, success_rates, TARGET_SUCCESS_RATES)
 
     target_results = []
@@ -381,10 +384,32 @@ def api_sweep(request: Request, req: SweepRequest):
                 needed_portfolio=None,
             ))
 
+    # 覆盖率目标插值（复用同一目标阈值）
+    target_rates_funded = interpolate_targets(rates, funded_ratios, TARGET_SUCCESS_RATES)
+
+    target_results_funded = []
+    for t, r in zip(TARGET_SUCCESS_RATES, target_rates_funded):
+        if r is not None and r > 0:
+            target_results_funded.append(TargetRateResult(
+                target_success=f"{t:.0%}",
+                rate=f"{r * 100:.2f}%",
+                annual_withdrawal=f"${req.initial_portfolio * r:,.0f}",
+                needed_portfolio=f"${req.annual_withdrawal / r:,.0f}",
+            ))
+        else:
+            target_results_funded.append(TargetRateResult(
+                target_success=f"{t:.0%}",
+                rate=None,
+                annual_withdrawal=None,
+                needed_portfolio=None,
+            ))
+
     return SweepResponse(
         rates=rates.tolist(),
         success_rates=success_rates.tolist(),
+        funded_ratios=funded_ratios.tolist(),
         target_results=target_results,
+        target_results_funded=target_results_funded,
     )
 
 
@@ -441,6 +466,8 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 
     g_success = float(np.mean(traj_g[:, -1] > 0))
     b_success = float(np.mean(traj_b[:, -1] > 0))
+    g_fr = compute_funded_ratio(traj_g, req.retirement_years)
+    b_fr = compute_funded_ratio(traj_b, req.retirement_years)
     initial_rate = req.annual_withdrawal / init_portfolio if init_portfolio > 0 else 0
     baseline_wd = init_portfolio * req.baseline_rate
 
@@ -486,9 +513,11 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         initial_portfolio=init_portfolio,
         initial_rate=initial_rate,
         g_success_rate=g_success,
+        g_funded_ratio=g_fr,
         g_percentile_trajectories=g_pct_traj,
         g_withdrawal_percentiles=g_wd_pcts,
         b_success_rate=b_success,
+        b_funded_ratio=b_fr,
         b_percentile_trajectories=b_pct_traj,
         b_withdrawal_percentiles=b_wd_pcts,
         baseline_annual_wd=baseline_wd,

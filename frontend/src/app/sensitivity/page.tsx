@@ -4,6 +4,14 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
@@ -28,6 +36,7 @@ export default function SensitivityPage() {
   const [result, setResult] = useState<SweepResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [metric, setMetric] = useState<"success_rate" | "funded_ratio">("success_rate");
 
   const handleRun = async () => {
     setLoading(true);
@@ -48,16 +57,25 @@ export default function SensitivityPage() {
     }
   };
 
+  // 当前选中的指标数据
+  const metricValues = result
+    ? metric === "success_rate" ? result.success_rates : result.funded_ratios
+    : [];
+  const metricLabel = metric === "success_rate" ? t("metricSuccessRate") : t("metricFundedRatio");
+  const targetRows = result
+    ? metric === "success_rate" ? result.target_results : result.target_results_funded
+    : [];
+
   // 计算分析 2 的数据
   const analysis2Data = result
     ? (() => {
         const portfolioNeeded = result.rates
           .filter((r) => r > 0)
-          .map((r, i) => ({
+          .map((r) => ({
             portfolio: withdrawal / r,
-            success: result.success_rates[result.rates.indexOf(r)] ?? result.success_rates[i],
+            metricVal: metricValues[result.rates.indexOf(r)],
           }));
-        const highSr = portfolioNeeded.filter((d) => d.success >= 0.995);
+        const highSr = portfolioNeeded.filter((d) => d.metricVal >= 0.995);
         const xMax = highSr.length > 0
           ? Math.min(...highSr.map((d) => d.portfolio)) * 2
           : Math.max(...portfolioNeeded.map((d) => d.portfolio));
@@ -133,28 +151,44 @@ export default function SensitivityPage() {
 
         {result && !loading && (
           <>
-            {/* 下载按钮组 */}
-            <div className="flex flex-wrap gap-2">
+            {/* 指标选择 + 下载按钮 */}
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("metricLabel")}</Label>
+                <Select
+                  value={metric}
+                  onValueChange={(v) => setMetric(v as "success_rate" | "funded_ratio")}
+                >
+                  <SelectTrigger className="h-8 text-sm w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="success_rate">{t("metricSuccessRate")}</SelectItem>
+                    <SelectItem value="funded_ratio">{t("metricFundedRatio")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <DownloadButton
                 label={t("downloadScanData")}
                 onClick={() =>
                   downloadCSV(
                     "sensitivity_scan",
-                    [t("scanHeaderRate"), t("scanHeaderSuccess")],
+                    [t("scanHeaderRate"), t("scanHeaderSuccess"), t("scanHeaderFunded")],
                     result.rates.map((r, i) => [
                       `${(r * 100).toFixed(2)}%`,
                       `${(result.success_rates[i] * 100).toFixed(1)}%`,
+                      `${(result.funded_ratios[i] * 100).toFixed(1)}%`,
                     ])
                   )
                 }
               />
             </div>
 
-            {/* 分析 1: 成功率 vs 提取率 */}
+            {/* 分析 1: 指标 vs 提取率 */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">
-                  {t("analysis1Title", { amount: portfolio.toLocaleString() })}
+                  {t("analysis1Title", { amount: portfolio.toLocaleString(), metric: metricLabel })}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -162,17 +196,17 @@ export default function SensitivityPage() {
                   data={[
                     {
                       x: result.rates.map((r) => r * 100),
-                      y: result.success_rates.map((s) => s * 100),
+                      y: metricValues.map((s) => s * 100),
                       type: "scatter",
                       mode: "lines+markers",
                       marker: { size: 4 },
                       line: { color: "rgb(59,130,246)", width: 2 },
-                      name: tc("successRate"),
+                      name: metricLabel,
                     },
                   ]}
                   layout={{
                     xaxis: { title: { text: t("analysis1XAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
-                    yaxis: { title: isMobile ? undefined : { text: t("analysis1YAxis") }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
+                    yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
                     height: isMobile ? 280 : 400,
                     margin: isMobile ? { l: 35, r: 10, t: 20, b: 40 } : { l: 60, r: 30, t: 30, b: 50 },
                     hovermode: "x unified",
@@ -188,32 +222,32 @@ export default function SensitivityPage() {
               </CardContent>
             </Card>
 
-            {/* 目标成功率表格 */}
+            {/* 目标阈值表格 */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">
-                  {t("targetSuccessTitle")}
+                  {t("targetTitle", { metric: metricLabel })}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <StatsTable
-                  rows={result.target_results.map((r) => ({
-                    [t("targetSuccess")]: r.target_success,
+                  rows={targetRows.map((r) => ({
+                    [t("targetThreshold")]: r.target_success,
                     [t("rate")]: r.rate ?? "N/A",
                     [t("annualWithdrawalAmount")]: r.annual_withdrawal ?? "N/A",
                     [t("neededPortfolio")]: r.needed_portfolio ?? "N/A",
                   }))}
-                  downloadName="target_success_summary"
+                  downloadName="target_summary"
                 />
               </CardContent>
             </Card>
 
-            {/* 分析 2: 成功率 vs 所需资产 */}
+            {/* 分析 2: 指标 vs 所需资产 */}
             {analysis2Data && (
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">
-                    {t("analysis2Title", { amount: withdrawal.toLocaleString() })}
+                    {t("analysis2Title", { amount: withdrawal.toLocaleString(), metric: metricLabel })}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -221,12 +255,12 @@ export default function SensitivityPage() {
                     data={[
                       {
                         x: analysis2Data.portfolioNeeded.map((d) => d.portfolio),
-                        y: analysis2Data.portfolioNeeded.map((d) => d.success * 100),
+                        y: analysis2Data.portfolioNeeded.map((d) => d.metricVal * 100),
                         type: "scatter",
                         mode: "lines+markers",
                         marker: { size: 4 },
                         line: { color: "rgb(16,185,129)", width: 2 },
-                        name: tc("successRate"),
+                        name: metricLabel,
                       },
                     ]}
                     layout={{
@@ -236,7 +270,7 @@ export default function SensitivityPage() {
                         range: [0, analysis2Data.xMax],
                         tickfont: { size: isMobile ? 9 : 12 },
                       },
-                      yaxis: { title: isMobile ? undefined : { text: t("analysis1YAxis") }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
+                      yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
                       height: isMobile ? 280 : 400,
                       margin: isMobile ? { l: 35, r: 10, t: 20, b: 40 } : { l: 60, r: 30, t: 30, b: 50 },
                       hovermode: "x unified",

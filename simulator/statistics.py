@@ -29,9 +29,46 @@ class SimulationResults:
     final_min: float
     final_max: float
 
+    # Funded Ratio（资金覆盖率）
+    funded_ratio: float = 0.0
+
     # 提取金额统计（动态策略时各模拟路径不同，固定策略时全部相同）
     withdrawal_percentile_trajectories: dict[int, np.ndarray] | None = None
     withdrawal_mean_trajectory: np.ndarray | None = None
+
+
+def compute_funded_ratio(
+    trajectories: np.ndarray,
+    retirement_years: int,
+) -> float:
+    """从轨迹矩阵计算 Funded Ratio（资金覆盖率）。
+
+    对每条模拟路径，找到资产首次 <= 0 的年份（depletion year），
+    然后计算 mean(min(depletion_year / retirement_years, 1.0))。
+
+    Parameters
+    ----------
+    trajectories : np.ndarray
+        shape (num_simulations, retirement_years + 1) 的资产轨迹矩阵。
+    retirement_years : int
+        退休年限。
+
+    Returns
+    -------
+    float
+        Funded Ratio，范围 [0, 1]。
+    """
+    num_sims = trajectories.shape[0]
+    # 跳过第 0 列（初始资产），从第 1 列开始检测
+    depleted = trajectories[:, 1:] <= 0  # shape (num_sims, retirement_years)
+
+    depletion_years = np.full(num_sims, float(retirement_years))
+    for i in range(num_sims):
+        idx = np.where(depleted[i])[0]
+        if len(idx) > 0:
+            depletion_years[i] = float(idx[0])  # 第几年首次 <= 0
+
+    return float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
 
 
 def compute_statistics(
@@ -62,6 +99,9 @@ def compute_statistics(
 
     # 成功率：最终资产 > 0
     success_rate = float(np.mean(final_values > 0))
+
+    # Funded Ratio
+    funded_ratio = compute_funded_ratio(trajectories, retirement_years)
 
     # 逐年分位数轨迹
     percentile_trajectories: dict[int, np.ndarray] = {}
@@ -94,6 +134,7 @@ def compute_statistics(
         final_percentiles=final_percentiles,
         final_min=float(np.min(final_values)),
         final_max=float(np.max(final_values)),
+        funded_ratio=funded_ratio,
         withdrawal_percentile_trajectories=withdrawal_pct_traj,
         withdrawal_mean_trajectory=withdrawal_mean_traj,
     )
