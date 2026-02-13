@@ -44,6 +44,7 @@ export interface SimulationRequest {
   num_simulations: number;
   data_start_year: number;
   country: string;
+  pooling_method: "equal" | "gdp_sqrt";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -83,6 +84,7 @@ export interface SweepRequest {
   num_simulations: number;
   data_start_year: number;
   country: string;
+  pooling_method: "equal" | "gdp_sqrt";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -122,6 +124,7 @@ export interface GuardrailRequest {
   num_simulations: number;
   data_start_year: number;
   country: string;
+  pooling_method: "equal" | "gdp_sqrt";
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -164,6 +167,7 @@ export interface BacktestRequest {
   num_simulations: number;
   data_start_year: number;
   country: string;
+  pooling_method: "equal" | "gdp_sqrt";
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -213,6 +217,7 @@ export interface SimBacktestRequest {
   retirement_years: number;
   data_start_year: number;
   country: string;
+  pooling_method: "equal" | "gdp_sqrt";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -247,6 +252,7 @@ export interface AllocationSweepRequest {
   num_simulations: number;
   data_start_year: number;
   country: string;
+  pooling_method: "equal" | "gdp_sqrt";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -289,6 +295,7 @@ export interface FormParams {
   num_simulations: number;
   data_start_year: number;
   country: string;
+  pooling_method: "equal" | "gdp_sqrt";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -308,6 +315,7 @@ export const DEFAULT_PARAMS: FormParams = {
   num_simulations: 2_000,
   data_start_year: 1970,
   country: "USA",
+  pooling_method: "equal",
   withdrawal_strategy: "fixed",
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,

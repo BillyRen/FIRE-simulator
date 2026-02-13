@@ -24,6 +24,7 @@ from simulator.config import (
     GUARDRAIL_RATE_MIN,
     GUARDRAIL_RATE_STEP,
     TARGET_SUCCESS_RATES,
+    get_gdp_weights,
 )
 from simulator.data_loader import (
     filter_by_country,
@@ -173,6 +174,22 @@ def _resolve_data(req):
         return filtered, None
 
 
+def _resolve_country_weights(
+    req, country_dfs: dict | None,
+) -> dict[str, float] | None:
+    """根据 pooling_method 和可用国家计算采样权重。
+
+    仅在 country=ALL 且 country_dfs 非空时有效；
+    单国模式下返回 None（不使用池化）。
+    """
+    if country_dfs is None:
+        return None
+    if req.pooling_method == "gdp_sqrt":
+        return get_gdp_weights(list(country_dfs.keys()))
+    # "equal" — 返回 None 让 bootstrap 使用默认等概率
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
@@ -206,6 +223,8 @@ def api_simulate(request: Request, req: SimulationRequest):
     if len(filtered) < 2 and country_dfs is None:
         raise HTTPException(400, "可用数据不足")
 
+    country_weights = _resolve_country_weights(req, country_dfs)
+
     trajectories, withdrawals, real_ret_mat, infl_mat = run_simulation(
         initial_portfolio=req.initial_portfolio,
         annual_withdrawal=req.annual_withdrawal,
@@ -223,6 +242,7 @@ def api_simulate(request: Request, req: SimulationRequest):
         leverage=req.leverage,
         borrowing_spread=req.borrowing_spread,
         country_dfs=country_dfs,
+        country_weights=country_weights,
     )
 
     results = compute_statistics(trajectories, req.retirement_years, withdrawals)
@@ -336,6 +356,8 @@ def api_sweep(request: Request, req: SweepRequest):
     if len(filtered) < 2 and country_dfs is None:
         raise HTTPException(400, "可用数据不足")
 
+    country_weights = _resolve_country_weights(req, country_dfs)
+
     scenarios, inflation_matrix = pregenerate_return_scenarios(
         allocation=_alloc_dict(req.allocation),
         expense_ratios=_expense_dict(req.expense_ratios),
@@ -347,6 +369,7 @@ def api_sweep(request: Request, req: SweepRequest):
         leverage=req.leverage,
         borrowing_spread=req.borrowing_spread,
         country_dfs=country_dfs,
+        country_weights=country_weights,
     )
 
     cash_flows = _to_cash_flows(req.cash_flows)
@@ -424,6 +447,8 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     if len(filtered) < 2 and country_dfs is None:
         raise HTTPException(400, "可用数据不足")
 
+    country_weights = _resolve_country_weights(req, country_dfs)
+
     scenarios, inflation_matrix = pregenerate_return_scenarios(
         allocation=_alloc_dict(req.allocation),
         expense_ratios=_expense_dict(req.expense_ratios),
@@ -435,6 +460,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         leverage=req.leverage,
         borrowing_spread=req.borrowing_spread,
         country_dfs=country_dfs,
+        country_weights=country_weights,
     )
 
     rate_grid, table = build_success_rate_table(
@@ -537,6 +563,8 @@ def api_backtest(request: Request, req: BacktestRequest):
     if len(filtered) < 2 and country_dfs is None:
         raise HTTPException(400, "可用数据不足")
 
+    country_weights = _resolve_country_weights(req, country_dfs)
+
     # 构建查找表
     scenarios, _ = pregenerate_return_scenarios(
         allocation=_alloc_dict(req.allocation),
@@ -549,6 +577,7 @@ def api_backtest(request: Request, req: BacktestRequest):
         leverage=req.leverage,
         borrowing_spread=req.borrowing_spread,
         country_dfs=country_dfs,
+        country_weights=country_weights,
     )
     rate_grid, table = build_success_rate_table(
         scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
@@ -629,6 +658,8 @@ def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
     if len(filtered) < 2 and country_dfs is None:
         raise HTTPException(400, "可用数据不足")
 
+    country_weights = _resolve_country_weights(req, country_dfs)
+
     raw = pregenerate_raw_scenarios(
         expense_ratios=_expense_dict(req.expense_ratios),
         retirement_years=req.retirement_years,
@@ -637,6 +668,7 @@ def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
         num_simulations=req.num_simulations,
         returns_df=filtered,
         country_dfs=country_dfs,
+        country_weights=country_weights,
     )
 
     cash_flows = _to_cash_flows(req.cash_flows)

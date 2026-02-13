@@ -28,6 +28,7 @@ def run_simulation(
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
     country_dfs: dict[str, pd.DataFrame] | None = None,
+    country_weights: dict[str, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """运行蒙特卡洛退休模拟。
 
@@ -113,7 +114,8 @@ def run_simulation(
         # 1. 生成 bootstrap 回报序列
         if country_dfs is not None:
             sampled = block_bootstrap_pooled(
-                country_dfs, retirement_years, min_block, max_block, rng=rng
+                country_dfs, retirement_years, min_block, max_block, rng=rng,
+                country_weights=country_weights,
             )
         else:
             sampled = block_bootstrap(

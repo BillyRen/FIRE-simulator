@@ -70,6 +70,7 @@ export default function SimulatorPage() {
         retirement_years: params.retirement_years,
         data_start_year: params.data_start_year,
         country: params.country,
+        pooling_method: params.pooling_method,
         withdrawal_strategy: params.withdrawal_strategy,
         dynamic_ceiling: params.dynamic_ceiling,
         dynamic_floor: params.dynamic_floor,

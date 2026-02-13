@@ -74,6 +74,7 @@ export default function GuardrailPage() {
     num_simulations: params.num_simulations,
     data_start_year: params.data_start_year,
     country: params.country,
+    pooling_method: params.pooling_method,
     target_success: targetSuccess,
     upper_guardrail: upperGuardrail,
     lower_guardrail: lowerGuardrail,

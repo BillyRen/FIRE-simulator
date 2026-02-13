@@ -26,6 +26,7 @@ def pregenerate_return_scenarios(
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
     country_dfs: dict[str, pd.DataFrame] | None = None,
+    country_weights: dict[str, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """预生成实际组合回报矩阵和通胀矩阵。
 
@@ -64,7 +65,8 @@ def pregenerate_return_scenarios(
     for i in range(num_simulations):
         if country_dfs is not None:
             sampled = block_bootstrap_pooled(
-                country_dfs, retirement_years, min_block, max_block, rng=rng
+                country_dfs, retirement_years, min_block, max_block, rng=rng,
+                country_weights=country_weights,
             )
         else:
             sampled = block_bootstrap(
@@ -247,6 +249,7 @@ def pregenerate_raw_scenarios(
     returns_df: pd.DataFrame,
     seed: int | None = None,
     country_dfs: dict[str, pd.DataFrame] | None = None,
+    country_weights: dict[str, float] | None = None,
 ) -> dict[str, np.ndarray]:
     """预生成各资产类别的原始回报矩阵（已扣费用，未加权合成）。
 
@@ -271,7 +274,8 @@ def pregenerate_raw_scenarios(
     for i in range(num_simulations):
         if country_dfs is not None:
             sampled = block_bootstrap_pooled(
-                country_dfs, retirement_years, min_block, max_block, rng=rng
+                country_dfs, retirement_years, min_block, max_block, rng=rng,
+                country_weights=country_weights,
             )
         else:
             sampled = block_bootstrap(

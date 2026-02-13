@@ -71,11 +71,12 @@ def block_bootstrap_pooled(
     min_block: int,
     max_block: int,
     rng: np.random.Generator | None = None,
+    country_weights: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """池化多国 block bootstrap。
 
     每个 block：
-    1) 等概率随机选国家（1/N，不受数据长度影响）
+    1) 随机选国家（等概率或按 country_weights 加权）
     2) 该国内环形采样
 
     Parameters
@@ -88,6 +89,9 @@ def block_bootstrap_pooled(
         Block 大小范围。
     rng : np.random.Generator or None
         随机数生成器。
+    country_weights : dict[str, float] or None
+        {iso: weight} 各国采样权重（需已归一化，和为 1）。
+        为 None 时使用等概率 1/N。
 
     Returns
     -------
@@ -104,12 +108,26 @@ def block_bootstrap_pooled(
     }
     n_countries = len(country_list)
 
+    # 构建采样概率数组
+    if country_weights is not None:
+        probs = np.array([country_weights.get(iso, 0.0) for iso in country_list])
+        prob_sum = probs.sum()
+        if prob_sum > 0:
+            probs = probs / prob_sum  # 安全归一化
+        else:
+            probs = np.ones(n_countries) / n_countries
+    else:
+        probs = None  # 等概率
+
     sampled_rows: list[np.ndarray] = []
     total_sampled = 0
 
     while total_sampled < retirement_years:
-        # 1. 等概率随机选国家
-        country_idx = rng.integers(0, n_countries)
+        # 1. 随机选国家
+        if probs is not None:
+            country_idx = rng.choice(n_countries, p=probs)
+        else:
+            country_idx = rng.integers(0, n_countries)
         iso = country_list[country_idx]
         data = country_arrays[iso]
         n = len(data)

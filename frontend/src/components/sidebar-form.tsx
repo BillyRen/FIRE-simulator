@@ -141,6 +141,29 @@ export function SidebarForm({
           </Select>
         </div>
 
+        {p.country === "ALL" && (
+          <div className="mb-2">
+            <Label className="text-xs">{t("poolingMethod")}</Label>
+            <Select
+              value={p.pooling_method}
+              onValueChange={(v) =>
+                set("pooling_method", v as "equal" | "gdp_sqrt")
+              }
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="equal">{t("poolingEqual")}</SelectItem>
+                <SelectItem value="gdp_sqrt">{t("poolingGdpSqrt")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {p.pooling_method === "gdp_sqrt" ? t("poolingGdpSqrtHelp") : t("poolingEqualHelp")}
+            </p>
+          </div>
+        )}
+
         <NumberField
           label={t("dataStartYear")}
           value={p.data_start_year}
