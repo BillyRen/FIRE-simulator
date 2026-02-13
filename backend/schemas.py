@@ -219,6 +219,98 @@ class SimBacktestResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 4c. 批量历史回测（遍历所有国家/起始年）
+# ---------------------------------------------------------------------------
+
+class SimBatchBacktestRequest(BaseSimulationParams):
+    """批量历史回测 — 自动遍历所有有效 (国家, 起始年) 组合。"""
+    initial_portfolio: float = Field(1_000_000, gt=0)
+    annual_withdrawal: float = Field(40_000, ge=0)
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    dynamic_ceiling: float = Field(0.05, ge=0, le=1)
+    dynamic_floor: float = Field(0.025, ge=0, le=1)
+
+
+class SimBatchPathSummary(BaseModel):
+    country: str
+    start_year: int
+    years_simulated: int
+    is_complete: bool
+    survived: bool
+    final_portfolio: float
+    total_consumption: float
+    year_labels: list[int]
+    portfolio: list[float]
+    withdrawals: list[float]
+    path_metrics: list[dict[str, str]] = []
+
+
+class SimBatchBacktestResponse(BaseModel):
+    num_paths: int
+    num_complete: int
+    success_rate: float
+    funded_ratio: float
+    percentile_trajectories: dict[str, list[float]]
+    withdrawal_percentile_trajectories: dict[str, list[float]] | None = None
+    final_values_summary: list[dict[str, str]] = []
+    portfolio_metrics: list[dict[str, str]] = []
+    paths: list[SimBatchPathSummary] = []
+
+
+# ---------------------------------------------------------------------------
+# 4d. Guardrail 批量历史回测
+# ---------------------------------------------------------------------------
+
+class GuardrailBatchBacktestRequest(BaseSimulationParams):
+    """Guardrail 批量历史回测 — 遍历所有有效 (国家, 起始年)。"""
+    annual_withdrawal: float = Field(40_000, ge=0)
+    target_success: float = Field(0.80, gt=0, lt=1)
+    upper_guardrail: float = Field(0.99, gt=0, le=1)
+    lower_guardrail: float = Field(0.50, ge=0, lt=1)
+    adjustment_pct: float = Field(0.50, gt=0, le=1)
+    adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
+    min_remaining_years: int = Field(10, ge=1, le=30)
+    baseline_rate: float = Field(0.033, gt=0, le=0.5)
+    initial_portfolio: float = Field(..., gt=0, description="由 guardrail MC 阶段计算得出")
+
+
+class GuardrailBatchPathSummary(BaseModel):
+    country: str
+    start_year: int
+    years_simulated: int
+    is_complete: bool
+    g_survived: bool
+    b_survived: bool
+    g_final_portfolio: float
+    b_final_portfolio: float
+    g_total_consumption: float
+    b_total_consumption: float
+    num_adjustments: int
+    year_labels: list[int]
+    g_portfolio: list[float]
+    g_withdrawals: list[float]
+    g_success_rates: list[float]
+    b_portfolio: list[float]
+    b_withdrawals: list[float]
+    adjustment_events: list[AdjustmentEvent] = []
+    path_metrics: list[dict[str, str]] = []
+
+
+class GuardrailBatchBacktestResponse(BaseModel):
+    num_paths: int
+    num_complete: int
+    g_success_rate: float
+    g_funded_ratio: float
+    b_success_rate: float
+    b_funded_ratio: float
+    g_percentile_trajectories: dict[str, list[float]]
+    b_percentile_trajectories: dict[str, list[float]]
+    g_withdrawal_percentiles: dict[str, list[float]]
+    b_withdrawal_percentiles: dict[str, list[float]]
+    paths: list[GuardrailBatchPathSummary] = []
+
+
+# ---------------------------------------------------------------------------
 # 5. 资产配置扫描
 # ---------------------------------------------------------------------------
 

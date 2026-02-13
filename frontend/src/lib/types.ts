@@ -239,6 +239,76 @@ export interface SimBacktestResponse {
 }
 
 // ---------------------------------------------------------------------------
+// 4c. 批量历史回测（主模拟页）
+// ---------------------------------------------------------------------------
+
+export interface SimBatchPathSummary {
+  country: string;
+  start_year: number;
+  years_simulated: number;
+  is_complete: boolean;
+  survived: boolean;
+  final_portfolio: number;
+  total_consumption: number;
+  year_labels: number[];
+  portfolio: number[];
+  withdrawals: number[];
+  path_metrics: Array<Record<string, string>>;
+}
+
+export interface SimBatchBacktestResponse {
+  num_paths: number;
+  num_complete: number;
+  success_rate: number;
+  funded_ratio: number;
+  percentile_trajectories: Record<string, number[]>;
+  withdrawal_percentile_trajectories: Record<string, number[]> | null;
+  final_values_summary: Array<Record<string, string>>;
+  portfolio_metrics: Array<Record<string, string>>;
+  paths: SimBatchPathSummary[];
+}
+
+// ---------------------------------------------------------------------------
+// 4d. Guardrail 批量历史回测
+// ---------------------------------------------------------------------------
+
+export interface GuardrailBatchPathSummary {
+  country: string;
+  start_year: number;
+  years_simulated: number;
+  is_complete: boolean;
+  g_survived: boolean;
+  b_survived: boolean;
+  g_final_portfolio: number;
+  b_final_portfolio: number;
+  g_total_consumption: number;
+  b_total_consumption: number;
+  num_adjustments: number;
+  year_labels: number[];
+  g_portfolio: number[];
+  g_withdrawals: number[];
+  g_success_rates: number[];
+  b_portfolio: number[];
+  b_withdrawals: number[];
+  adjustment_events: AdjustmentEvent[];
+  path_metrics: Array<Record<string, string>>;
+}
+
+export interface GuardrailBatchBacktestResponse {
+  num_paths: number;
+  num_complete: number;
+  g_success_rate: number;
+  g_funded_ratio: number;
+  b_success_rate: number;
+  b_funded_ratio: number;
+  g_percentile_trajectories: Record<string, number[]>;
+  b_percentile_trajectories: Record<string, number[]>;
+  g_withdrawal_percentiles: Record<string, number[]>;
+  b_withdrawal_percentiles: Record<string, number[]>;
+  paths: GuardrailBatchPathSummary[];
+}
+
+// ---------------------------------------------------------------------------
 // 5. 资产配置扫描
 // ---------------------------------------------------------------------------
 

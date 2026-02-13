@@ -48,6 +48,10 @@ from simulator.statistics import (
     compute_statistics,
     final_values_summary_table,
 )
+from simulator.backtest_batch import (
+    run_guardrail_batch_backtest,
+    run_sim_batch_backtest,
+)
 from simulator.sweep import (
     interpolate_targets,
     pregenerate_raw_scenarios,
@@ -57,6 +61,7 @@ from simulator.sweep import (
 )
 
 from schemas import (
+    AdjustmentEvent,
     AllocationResult,
     AllocationSweepRequest,
     AllocationSweepResponse,
@@ -64,9 +69,15 @@ from schemas import (
     BacktestResponse,
     CountriesResponse,
     CountryInfo,
+    GuardrailBatchBacktestRequest,
+    GuardrailBatchBacktestResponse,
+    GuardrailBatchPathSummary,
     GuardrailRequest,
     GuardrailResponse,
     ReturnsResponse,
+    SimBatchBacktestRequest,
+    SimBatchBacktestResponse,
+    SimBatchPathSummary,
     SimBacktestRequest,
     SimBacktestResponse,
     SimulationRequest,
@@ -342,6 +353,47 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
         final_portfolio=result["portfolio"][-1],
         total_consumption=sum(result["withdrawals"]),
         path_metrics=path_metrics,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 1c. POST /api/simulate/backtest-batch  — 批量历史回测
+# ---------------------------------------------------------------------------
+
+@app.post("/api/simulate/backtest-batch", response_model=SimBatchBacktestResponse)
+@limiter.limit("5/minute")
+def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
+    """遍历所有有效 (国家, 起始年) 组合进行历史回测。"""
+    filtered, country_dfs = _resolve_data(req)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
+
+    result = run_sim_batch_backtest(
+        country_dfs=country_dfs,
+        filtered_df=filtered if country_dfs is None else None,
+        allocation=_alloc_dict(req.allocation),
+        expense_ratios=_expense_dict(req.expense_ratios),
+        initial_portfolio=req.initial_portfolio,
+        annual_withdrawal=req.annual_withdrawal,
+        retirement_years=req.retirement_years,
+        withdrawal_strategy=req.withdrawal_strategy,
+        dynamic_ceiling=req.dynamic_ceiling,
+        dynamic_floor=req.dynamic_floor,
+        cash_flows=_to_cash_flows(req.cash_flows),
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+    )
+
+    return SimBatchBacktestResponse(
+        num_paths=result["num_paths"],
+        num_complete=result["num_complete"],
+        success_rate=result["success_rate"],
+        funded_ratio=result["funded_ratio"],
+        percentile_trajectories=result["percentile_trajectories"],
+        withdrawal_percentile_trajectories=result["withdrawal_percentile_trajectories"],
+        final_values_summary=result["final_values_summary"],
+        portfolio_metrics=result["portfolio_metrics"],
+        paths=[SimBatchPathSummary(**p) for p in result["paths"]],
     )
 
 
@@ -644,6 +696,108 @@ def api_backtest(request: Request, req: BacktestRequest):
         b_total_consumption=result["b_total_consumption"],
         adjustment_events=result.get("adjustment_events", []),
         path_metrics=path_metrics,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4b. POST /api/guardrail/backtest-batch  — 批量历史回测
+# ---------------------------------------------------------------------------
+
+@app.post("/api/guardrail/backtest-batch", response_model=GuardrailBatchBacktestResponse)
+@limiter.limit("5/minute")
+def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRequest):
+    """遍历所有有效 (国家, 起始年) 进行 guardrail 历史回测。"""
+    filtered, country_dfs = _resolve_data(req)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
+
+    country_weights = _resolve_country_weights(req, country_dfs)
+
+    # 构建成功率查找表（需要 MC 场景）
+    scenarios, _ = pregenerate_return_scenarios(
+        allocation=_alloc_dict(req.allocation),
+        expense_ratios=_expense_dict(req.expense_ratios),
+        retirement_years=req.retirement_years,
+        min_block=req.min_block,
+        max_block=req.max_block,
+        num_simulations=req.num_simulations,
+        returns_df=filtered,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+        country_dfs=country_dfs,
+        country_weights=country_weights,
+    )
+    rate_grid, table = build_success_rate_table(
+        scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
+    )
+
+    # 确定回测用的国家数据
+    if country_dfs is not None:
+        bt_country_dfs = country_dfs
+        bt_filtered = None
+    else:
+        bt_country_dfs = None
+        bt_filtered = filtered
+
+    result = run_guardrail_batch_backtest(
+        country_dfs=bt_country_dfs,
+        filtered_df=bt_filtered,
+        allocation=_alloc_dict(req.allocation),
+        expense_ratios=_expense_dict(req.expense_ratios),
+        initial_portfolio=req.initial_portfolio,
+        annual_withdrawal=req.annual_withdrawal,
+        retirement_years=req.retirement_years,
+        target_success=req.target_success,
+        upper_guardrail=req.upper_guardrail,
+        lower_guardrail=req.lower_guardrail,
+        adjustment_pct=req.adjustment_pct,
+        adjustment_mode=req.adjustment_mode,
+        min_remaining_years=req.min_remaining_years,
+        baseline_rate=req.baseline_rate,
+        table=table,
+        rate_grid=rate_grid,
+        cash_flows=_to_cash_flows(req.cash_flows),
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+    )
+
+    # 构建路径摘要
+    path_summaries = []
+    for p in result["paths"]:
+        path_summaries.append(GuardrailBatchPathSummary(
+            country=p["country"],
+            start_year=p["start_year"],
+            years_simulated=p["years_simulated"],
+            is_complete=p["is_complete"],
+            g_survived=p["g_survived"],
+            b_survived=p["b_survived"],
+            g_final_portfolio=p["g_final_portfolio"],
+            b_final_portfolio=p["b_final_portfolio"],
+            g_total_consumption=p["g_total_consumption"],
+            b_total_consumption=p["b_total_consumption"],
+            num_adjustments=p["num_adjustments"],
+            year_labels=p["year_labels"],
+            g_portfolio=p["g_portfolio"],
+            g_withdrawals=p["g_withdrawals"],
+            g_success_rates=p["g_success_rates"],
+            b_portfolio=p["b_portfolio"],
+            b_withdrawals=p["b_withdrawals"],
+            adjustment_events=[AdjustmentEvent(**e) for e in p["adjustment_events"]],
+            path_metrics=p["path_metrics"],
+        ))
+
+    return GuardrailBatchBacktestResponse(
+        num_paths=result["num_paths"],
+        num_complete=result["num_complete"],
+        g_success_rate=result["g_success_rate"],
+        g_funded_ratio=result["g_funded_ratio"],
+        b_success_rate=result["b_success_rate"],
+        b_funded_ratio=result["b_funded_ratio"],
+        g_percentile_trajectories=result["g_percentile_trajectories"],
+        b_percentile_trajectories=result["b_percentile_trajectories"],
+        g_withdrawal_percentiles=result["g_withdrawal_percentiles"],
+        b_withdrawal_percentiles=result["b_withdrawal_percentiles"],
+        paths=path_summaries,
     )
 
 

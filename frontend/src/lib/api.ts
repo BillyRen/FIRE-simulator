@@ -11,9 +11,12 @@ import type {
   BacktestResponse,
   SimBacktestRequest,
   SimBacktestResponse,
+  SimBatchBacktestResponse,
+  GuardrailBatchBacktestResponse,
   AllocationSweepRequest,
   AllocationSweepResponse,
   CountryInfo,
+  FormParams,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
@@ -65,6 +68,16 @@ export async function runSimBacktest(req: SimBacktestRequest): Promise<SimBackte
 
 export async function runAllocationSweep(req: AllocationSweepRequest): Promise<AllocationSweepResponse> {
   return post<AllocationSweepRequest, AllocationSweepResponse>("/api/allocation-sweep", req);
+}
+
+// 批量历史回测：主模拟页
+export async function runSimBatchBacktest(params: FormParams): Promise<SimBatchBacktestResponse> {
+  return post<FormParams, SimBatchBacktestResponse>("/api/simulate/backtest-batch", params);
+}
+
+// 批量历史回测：Guardrail 页
+export async function runGuardrailBatchBacktest(req: Record<string, unknown>): Promise<GuardrailBatchBacktestResponse> {
+  return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req);
 }
 
 export async function fetchCountries(): Promise<CountryInfo[]> {

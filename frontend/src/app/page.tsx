@@ -1,26 +1,35 @@
 "use client";
 
-import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useState, useMemo, useEffect } from "react";
+import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { FanChart, useIsMobile, MobileChartTitle } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
-import { runSimulation, runSimBacktest } from "@/lib/api";
-import { downloadTrajectories, downloadCSV } from "@/lib/csv";
+import { runSimulation, runSimBatchBacktest, runSimBacktest, fetchCountries } from "@/lib/api";
+import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { DEFAULT_PARAMS } from "@/lib/types";
-import type { FormParams, SimulationResponse, SimBacktestResponse } from "@/lib/types";
+import type { FormParams, SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
 
 export default function SimulatorPage() {
   const t = useTranslations("simulator");
   const tc = useTranslations("common");
+  const locale = useLocale();
 
   const isMobile = useIsMobile();
 
@@ -33,13 +42,27 @@ export default function SimulatorPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Backtest state
-  const [histStartYear, setHistStartYear] = useState(1990);
-  const [btResult, setBtResult] = useState<SimBacktestResponse | null>(null);
-  const [btLoading, setBtLoading] = useState(false);
+  // Batch backtest state
+  const [batchResult, setBatchResult] = useState<SimBatchBacktestResponse | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
   const [btError, setBtError] = useState<string | null>(null);
+  const [batchSubTab, setBatchSubTab] = useState<"aggregate" | "paths">("aggregate");
+  const [selectedPath, setSelectedPath] = useState<SimBatchPathSummary | null>(null);
   const [btLogScale, setBtLogScale] = useState(false);
   const [btWdLogScale, setBtWdLogScale] = useState(false);
+  // Path list sorting
+  const [sortCol, setSortCol] = useState<string>("start_year");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // Single backtest state
+  const [histStartYear, setHistStartYear] = useState(1990);
+  const [singleCountry, setSingleCountry] = useState("USA");
+  const [singleBtLoading, setSingleBtLoading] = useState(false);
+  const [countries, setCountries] = useState<CountryInfo[]>([]);
+
+  useEffect(() => {
+    fetchCountries().then(setCountries).catch(() => {});
+  }, []);
 
   const handleRun = async () => {
     setLoading(true);
@@ -58,10 +81,30 @@ export default function SimulatorPage() {
     }
   };
 
-  const handleRunBacktest = async () => {
-    setBtLoading(true);
+  const handleRunBatchBacktest = async () => {
+    setBatchLoading(true);
+    setBtError(null);
+    setSelectedPath(null);
+    setBatchSubTab("aggregate");
+    try {
+      const res = await runSimBatchBacktest({
+        ...params,
+        initial_portfolio: portfolio,
+        annual_withdrawal: withdrawal,
+      });
+      setBatchResult(res);
+    } catch (e) {
+      setBtError(e instanceof Error ? e.message : tc("unknownError"));
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleRunSingleBacktest = async () => {
+    setSingleBtLoading(true);
     setBtError(null);
     try {
+      const btCountry = params.country === "ALL" ? singleCountry : params.country;
       const res = await runSimBacktest({
         initial_portfolio: portfolio,
         annual_withdrawal: withdrawal,
@@ -69,7 +112,7 @@ export default function SimulatorPage() {
         expense_ratios: params.expense_ratios,
         retirement_years: params.retirement_years,
         data_start_year: params.data_start_year,
-        country: params.country,
+        country: btCountry,
         pooling_method: params.pooling_method,
         withdrawal_strategy: params.withdrawal_strategy,
         dynamic_ceiling: params.dynamic_ceiling,
@@ -79,15 +122,61 @@ export default function SimulatorPage() {
         cash_flows: params.cash_flows,
         hist_start_year: histStartYear,
       });
-      setBtResult(res);
+      // Convert SimBacktestResponse -> SimBatchPathSummary for detail view
+      setSelectedPath({
+        country: btCountry,
+        start_year: histStartYear,
+        years_simulated: res.years_simulated,
+        is_complete: res.years_simulated >= params.retirement_years,
+        survived: res.survived,
+        final_portfolio: res.final_portfolio,
+        total_consumption: res.total_consumption,
+        year_labels: res.year_labels,
+        portfolio: res.portfolio,
+        withdrawals: res.withdrawals,
+        path_metrics: res.path_metrics,
+      });
     } catch (e) {
       setBtError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
-      setBtLoading(false);
+      setSingleBtLoading(false);
     }
   };
 
-  const isPooled = params.country === "ALL";
+  // Sorted paths for the table
+  const sortedPaths = useMemo(() => {
+    if (!batchResult) return [];
+    const paths = [...batchResult.paths];
+    paths.sort((a, b) => {
+      let va: number | string, vb: number | string;
+      switch (sortCol) {
+        case "country": va = a.country; vb = b.country; break;
+        case "start_year": va = a.start_year; vb = b.start_year; break;
+        case "years_simulated": va = a.years_simulated; vb = b.years_simulated; break;
+        case "final_portfolio": va = a.final_portfolio; vb = b.final_portfolio; break;
+        case "survived": va = a.survived ? 1 : 0; vb = b.survived ? 1 : 0; break;
+        default: va = a.start_year; vb = b.start_year;
+      }
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      // secondary sort by country then start_year
+      if (a.country !== b.country) return a.country < b.country ? -1 : 1;
+      return a.start_year - b.start_year;
+    });
+    return paths;
+  }, [batchResult, sortCol, sortDir]);
+
+  const handleSort = (col: string) => {
+    if (sortCol === col) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
+    }
+  };
+
+  const sortIndicator = (col: string) =>
+    sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
@@ -238,196 +327,313 @@ export default function SimulatorPage() {
 
           {/* ── Backtest Tab ── */}
           <TabsContent value="backtest" className="space-y-6">
-            {isPooled ? (
-              <div className="flex items-center justify-center h-64 text-muted-foreground text-center px-4">
-                {t("backtestRequiresCountry")}
-              </div>
-            ) : (
+            {/* Single backtest input */}
+            <Card>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-end gap-3 flex-wrap">
+                  {params.country === "ALL" && (
+                    <div className="w-40">
+                      <Label className="text-xs">{t("country")}</Label>
+                      <Select value={singleCountry} onValueChange={setSingleCountry}>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {countries
+                            .filter((c) => c.iso !== "ALL")
+                            .map((c) => (
+                              <SelectItem key={c.iso} value={c.iso}>
+                                {locale === "zh" ? c.name_zh : c.name_en}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="w-28">
+                    <NumberField
+                      label={t("backtestStartYear")}
+                      value={histStartYear}
+                      onChange={(v) => setHistStartYear(Math.round(v))}
+                      min={params.data_start_year}
+                      max={2024}
+                    />
+                  </div>
+                  <Button
+                    onClick={handleRunSingleBacktest}
+                    disabled={singleBtLoading}
+                    size="sm"
+                  >
+                    {singleBtLoading ? t("backtesting") : t("runBacktest")}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Batch backtest */}
+            <Card>
+              <CardContent className="pt-4 space-y-2">
+                <p className="text-sm text-muted-foreground">{t("batchBacktestDesc")}</p>
+                <Button
+                  onClick={handleRunBatchBacktest}
+                  disabled={batchLoading}
+                  size="sm"
+                >
+                  {batchLoading ? t("batchBacktesting") : t("runBatchBacktest")}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {(batchLoading || singleBtLoading) && <LoadingOverlay message={singleBtLoading ? t("backtesting") : t("batchBacktesting")} />}
+
+            {batchResult && !batchLoading && !selectedPath && (
               <>
-                {/* 输入区 */}
-                <Card>
-                  <CardContent className="pt-4 space-y-3">
-                    <div className="flex items-end gap-3">
-                      <div className="w-28">
-                        <NumberField
-                          label={t("backtestStartYear")}
-                          value={histStartYear}
-                          onChange={(v) => setHistStartYear(Math.round(v))}
-                          min={params.data_start_year}
-                          max={2024}
-                        />
-                      </div>
-                      <Button
-                        onClick={handleRunBacktest}
-                        disabled={btLoading}
-                        size="sm"
-                      >
-                        {btLoading ? t("backtesting") : t("runBacktest")}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                {/* Summary metrics */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <MetricCard label={t("numPaths")} value={`${batchResult.num_paths}`} />
+                  <MetricCard label={t("numComplete")} value={`${batchResult.num_complete}`} />
+                  <MetricCard label={t("successRate")} value={pct(batchResult.success_rate)} />
+                  <MetricCard label={t("fundedRatio")} value={pct(batchResult.funded_ratio)} />
+                </div>
+                <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
 
-                {btLoading && <LoadingOverlay message={t("backtestLoading")} />}
+                {/* Sub-tabs */}
+                <Tabs value={batchSubTab} onValueChange={(v) => setBatchSubTab(v as "aggregate" | "paths")}>
+                  <TabsList className="mb-4">
+                    <TabsTrigger value="aggregate">{t("batchAggregateView")}</TabsTrigger>
+                    <TabsTrigger value="paths">{t("batchPathsTable")}</TabsTrigger>
+                  </TabsList>
 
-                {btResult && !btLoading && (
-                  <>
-                    {/* 下载按钮 */}
-                    <div className="flex flex-wrap gap-2">
-                      <DownloadButton
-                        label={t("downloadBacktestData")}
-                        onClick={() => {
-                          const n = btResult.years_simulated;
-                          const headers = [
-                            t("backtestHeaderYear"),
-                            t("backtestHeaderPortfolio"),
-                            t("backtestHeaderWithdrawal"),
-                          ];
-                          const rows: (string | number)[][] = [];
-                          for (let i = 0; i < n; i++) {
-                            rows.push([
-                              btResult.year_labels[i],
-                              Math.round(btResult.portfolio[i]),
-                              Math.round(btResult.withdrawals[i]),
-                            ]);
-                          }
-                          // final year-end portfolio (one extra element)
-                          if (btResult.portfolio.length > n) {
-                            rows.push([
-                              btResult.year_labels[n - 1] + 1,
-                              Math.round(btResult.portfolio[n]),
-                              "",
-                            ]);
-                          }
-                          downloadCSV("sim_backtest_data", headers, rows);
-                        }}
-                      />
-                    </div>
-
-                    {/* 指标卡片 */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <MetricCard label={t("yearsSimulated")} value={`${btResult.years_simulated}`} />
-                      <MetricCard label={t("finalPortfolio")} value={fmt(btResult.final_portfolio)} />
-                      <MetricCard label={t("totalConsumption")} value={fmt(btResult.total_consumption)} />
-                      <MetricCard
-                        label={t("survived")}
-                        value={btResult.survived ? t("survived") : t("depleted")}
-                      />
-                    </div>
-
-                    {/* 资产轨迹 */}
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="flex items-center justify-between">
-                          <MobileChartTitle title={t("portfolioHistory")} isMobile={isMobile} />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-6 px-2 text-xs mb-1"
-                            onClick={() => setBtLogScale((v) => !v)}
-                          >
-                            {btLogScale ? tc("linearScale") : tc("logScale")}
-                          </Button>
-                        </div>
-                        <PlotlyChart
-                          data={[
-                            {
-                              x: btResult.year_labels.concat(
-                                btResult.portfolio.length > btResult.years_simulated
-                                  ? [btResult.year_labels[btResult.years_simulated - 1] + 1]
-                                  : []
-                              ),
-                              y: btResult.portfolio,
-                              type: "scatter",
-                              mode: "lines",
-                              name: t("portfolioHistory"),
-                              line: { color: "#2563eb", width: 2 },
-                              hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
-                            },
-                          ]}
-                          layout={{
-                            title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
-                            xaxis: { title: { text: tc("year") } },
-                            yaxis: {
-                              title: { text: tc("amount") },
-                              type: btLogScale ? "log" : "linear",
-                              tickformat: btLogScale ? "$~s" : "$,.0f",
-                            },
-                            margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
-                            height: isMobile ? 260 : 380,
-                            hovermode: "x unified",
-                            showlegend: false,
-                          }}
-                          config={{ responsive: true, displayModeBar: false }}
-                          style={{ width: "100%" }}
-                        />
-                      </CardContent>
-                    </Card>
-
-                    {/* 提取金额轨迹 */}
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="flex items-center justify-between">
-                          <MobileChartTitle title={t("withdrawalHistory")} isMobile={isMobile} />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-6 px-2 text-xs mb-1"
-                            onClick={() => setBtWdLogScale((v) => !v)}
-                          >
-                            {btWdLogScale ? tc("linearScale") : tc("logScale")}
-                          </Button>
-                        </div>
-                        <PlotlyChart
-                          data={[
-                            {
-                              x: btResult.year_labels,
-                              y: btResult.withdrawals,
-                              type: "bar",
-                              name: t("withdrawalHistory"),
-                              marker: { color: "#ea580c" },
-                              hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
-                            },
-                          ]}
-                          layout={{
-                            title: isMobile ? undefined : { text: t("withdrawalHistory"), font: { size: 14 } },
-                            xaxis: { title: { text: tc("year") } },
-                            yaxis: {
-                              title: { text: tc("amount") },
-                              type: btWdLogScale ? "log" : "linear",
-                              tickformat: btWdLogScale ? "$~s" : "$,.0f",
-                            },
-                            margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
-                            height: isMobile ? 260 : 380,
-                            hovermode: "x unified",
-                            showlegend: false,
-                          }}
-                          config={{ responsive: true, displayModeBar: false }}
-                          style={{ width: "100%" }}
-                        />
-                      </CardContent>
-                    </Card>
-
-                    {/* 路径绩效指标 */}
-                    {btResult.path_metrics && btResult.path_metrics.length > 0 && (
+                  {/* ── Aggregate view ── */}
+                  <TabsContent value="aggregate" className="space-y-6">
+                    {/* Portfolio fan chart */}
+                    {Object.keys(batchResult.percentile_trajectories).length > 0 && (
                       <Card>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-sm">{t("pathMetrics")}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <StatsTable rows={btResult.path_metrics} downloadName="backtest_path_metrics" />
+                        <CardContent className="pt-4">
+                          <FanChart
+                            trajectories={batchResult.percentile_trajectories}
+                            title={t("portfolioTrajectory")}
+                            showLogToggle
+                          />
                         </CardContent>
                       </Card>
                     )}
-                  </>
-                )}
 
-                {!btResult && !btLoading && (
-                  <div className="flex items-center justify-center h-64 text-muted-foreground">
-                    {t("backtestPlaceholder")}
-                  </div>
+                    {/* Withdrawal fan chart */}
+                    {batchResult.withdrawal_percentile_trajectories &&
+                      Object.keys(batchResult.withdrawal_percentile_trajectories).length > 0 && (
+                      <Card>
+                        <CardContent className="pt-4">
+                          <FanChart
+                            trajectories={batchResult.withdrawal_percentile_trajectories}
+                            title={t("withdrawalTrajectory")}
+                            color="234, 88, 12"
+                            showLogToggle
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Stats summary */}
+                    {batchResult.final_values_summary.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">{t("statsSummary")}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <StatsTable rows={batchResult.final_values_summary} downloadName="batch_stats_summary" />
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Portfolio metrics */}
+                    {batchResult.portfolio_metrics && batchResult.portfolio_metrics.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">{t("portfolioMetrics")}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <StatsTable rows={batchResult.portfolio_metrics} downloadName="batch_portfolio_metrics" />
+                        </CardContent>
+                      </Card>
+                    )}
+                  </TabsContent>
+
+                  {/* ── Individual paths table ── */}
+                  <TabsContent value="paths" className="space-y-4">
+                    <div className="rounded-md border overflow-auto max-h-[600px]">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/50 sticky top-0">
+                          <tr>
+                            <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("country")}>
+                              {t("country")}{sortIndicator("country")}
+                            </th>
+                            <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("start_year")}>
+                              {t("startYear")}{sortIndicator("start_year")}
+                            </th>
+                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("years_simulated")}>
+                              {t("yearsSimulatedShort")}{sortIndicator("years_simulated")}
+                            </th>
+                            <th className="px-3 py-2 text-center whitespace-nowrap">{t("survived")}</th>
+                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("final_portfolio")}>
+                              {t("finalPortfolio")}{sortIndicator("final_portfolio")}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedPaths.map((p, i) => (
+                            <tr
+                              key={`${p.country}-${p.start_year}`}
+                              className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${!p.is_complete ? "opacity-60" : ""}`}
+                              onClick={() => setSelectedPath(p)}
+                            >
+                              <td className="px-3 py-1.5">{p.country}</td>
+                              <td className="px-3 py-1.5">{p.start_year}</td>
+                              <td className="px-3 py-1.5 text-right">
+                                {p.years_simulated}
+                                {!p.is_complete && <span className="ml-1 text-xs text-amber-600">*</span>}
+                              </td>
+                              <td className="px-3 py-1.5 text-center">
+                                {p.survived
+                                  ? <span className="text-green-600">✓</span>
+                                  : <span className="text-red-500">✗</span>
+                                }
+                              </td>
+                              <td className="px-3 py-1.5 text-right font-mono">{fmt(p.final_portfolio)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      * = {t("incomplete")} (&lt; {params.retirement_years} {t("yearsSimulatedShort")})
+                    </p>
+                  </TabsContent>
+                </Tabs>
+              </>
+            )}
+
+            {/* ── Path detail view ── */}
+            {selectedPath && !batchLoading && !singleBtLoading && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedPath(null)}>
+                  {t("backToList")}
+                </Button>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <MetricCard label={t("country")} value={selectedPath.country} />
+                  <MetricCard label={t("startYear")} value={`${selectedPath.start_year}`} />
+                  <MetricCard label={t("yearsSimulated")} value={`${selectedPath.years_simulated}`} />
+                  <MetricCard
+                    label={t("survived")}
+                    value={selectedPath.survived ? t("survived") : t("depleted")}
+                  />
+                  <MetricCard label={t("finalPortfolio")} value={fmt(selectedPath.final_portfolio)} />
+                  <MetricCard label={t("totalConsumption")} value={fmt(selectedPath.total_consumption)} />
+                </div>
+
+                {/* Portfolio trajectory */}
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="flex items-center justify-between">
+                      <MobileChartTitle title={t("portfolioHistory")} isMobile={isMobile} />
+                      <Button
+                        variant="outline" size="sm"
+                        className="h-6 px-2 text-xs mb-1"
+                        onClick={() => setBtLogScale(v => !v)}
+                      >
+                        {btLogScale ? tc("linearScale") : tc("logScale")}
+                      </Button>
+                    </div>
+                    <PlotlyChart
+                      data={[{
+                        x: selectedPath.year_labels.concat(
+                          selectedPath.portfolio.length > selectedPath.years_simulated
+                            ? [selectedPath.year_labels[selectedPath.years_simulated - 1] + 1]
+                            : []
+                        ),
+                        y: selectedPath.portfolio,
+                        type: "scatter", mode: "lines",
+                        name: t("portfolioHistory"),
+                        line: { color: "#2563eb", width: 2 },
+                        hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
+                      }]}
+                      layout={{
+                        title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
+                        xaxis: { title: { text: tc("year") } },
+                        yaxis: {
+                          title: { text: tc("amount") },
+                          type: btLogScale ? "log" : "linear",
+                          tickformat: btLogScale ? "$~s" : "$,.0f",
+                        },
+                        margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
+                        height: isMobile ? 260 : 380,
+                        hovermode: "x unified", showlegend: false,
+                      }}
+                      config={{ responsive: true, displayModeBar: false }}
+                      style={{ width: "100%" }}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Withdrawal trajectory */}
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="flex items-center justify-between">
+                      <MobileChartTitle title={t("withdrawalHistory")} isMobile={isMobile} />
+                      <Button
+                        variant="outline" size="sm"
+                        className="h-6 px-2 text-xs mb-1"
+                        onClick={() => setBtWdLogScale(v => !v)}
+                      >
+                        {btWdLogScale ? tc("linearScale") : tc("logScale")}
+                      </Button>
+                    </div>
+                    <PlotlyChart
+                      data={[{
+                        x: selectedPath.year_labels,
+                        y: selectedPath.withdrawals,
+                        type: "bar",
+                        name: t("withdrawalHistory"),
+                        marker: { color: "#ea580c" },
+                        hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
+                      }]}
+                      layout={{
+                        title: isMobile ? undefined : { text: t("withdrawalHistory"), font: { size: 14 } },
+                        xaxis: { title: { text: tc("year") } },
+                        yaxis: {
+                          title: { text: tc("amount") },
+                          type: btWdLogScale ? "log" : "linear",
+                          tickformat: btWdLogScale ? "$~s" : "$,.0f",
+                        },
+                        margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
+                        height: isMobile ? 260 : 380,
+                        hovermode: "x unified", showlegend: false,
+                      }}
+                      config={{ responsive: true, displayModeBar: false }}
+                      style={{ width: "100%" }}
+                    />
+                  </CardContent>
+                </Card>
+
+                {/* Path metrics */}
+                {selectedPath.path_metrics && selectedPath.path_metrics.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">{t("pathMetrics")}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <StatsTable rows={selectedPath.path_metrics} downloadName="backtest_path_metrics" />
+                    </CardContent>
+                  </Card>
                 )}
               </>
+            )}
+
+            {!batchResult && !batchLoading && !selectedPath && (
+              <div className="flex items-center justify-center h-64 text-muted-foreground">
+                {t("backtestPlaceholder")}
+              </div>
             )}
           </TabsContent>
         </Tabs>
