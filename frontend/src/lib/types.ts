@@ -27,6 +27,7 @@ export interface CashFlowItem {
   start_year: number;
   duration: number;
   inflation_adjusted: boolean;
+  enabled?: boolean; // 默认 true
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,7 @@ export interface SimulationRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -85,6 +87,7 @@ export interface SweepRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -125,6 +128,7 @@ export interface GuardrailRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -168,6 +172,7 @@ export interface BacktestRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -218,6 +223,7 @@ export interface SimBacktestRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -323,6 +329,7 @@ export interface AllocationSweepRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -366,6 +373,7 @@ export interface FormParams {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
   withdrawal_strategy: "fixed" | "dynamic";
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -386,6 +394,7 @@ export const DEFAULT_PARAMS: FormParams = {
   data_start_year: 1970,
   country: "USA",
   pooling_method: "equal",
+  data_source: "jst",
   withdrawal_strategy: "fixed",
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,

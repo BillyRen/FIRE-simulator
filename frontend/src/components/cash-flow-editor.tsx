@@ -26,6 +26,7 @@ const NEW_ITEM: CashFlowItem = {
   start_year: 1,
   duration: 10,
   inflation_adjusted: true,
+  enabled: true,
 };
 
 /** 数字输入：string 中间状态 + onBlur 提交 */
@@ -124,92 +125,105 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
         </Button>
       </div>
 
-      {items.map((item, i) => (
-        <div
-          key={i}
-          className="rounded-lg border bg-card p-3 space-y-2"
-        >
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-muted-foreground">#{i + 1}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-destructive"
-              onClick={() => remove(i)}
-            >
-              {t("delete")}
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label className="text-xs">{t("name")}</Label>
-              <Input
-                value={item.name}
-                onChange={(e) => update(i, { name: e.target.value })}
-                className="h-8 text-sm"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">{t("type")}</Label>
-              <Select
-                value={types[i] ?? "income"}
-                onValueChange={(v) =>
-                  setType(i, v as "income" | "expense")
-                }
+      {items.map((item, i) => {
+        const enabled = item.enabled !== false;
+        return (
+          <div
+            key={i}
+            className="rounded-lg border bg-card p-3 space-y-2"
+          >
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={enabled}
+                  onCheckedChange={(checked) =>
+                    update(i, { enabled: checked === true })
+                  }
+                />
+                <span className="text-xs text-muted-foreground">#{i + 1}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-destructive"
+                onClick={() => remove(i)}
               >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="income">{t("income")}</SelectItem>
-                  <SelectItem value="expense">{t("expense")}</SelectItem>
-                </SelectContent>
-              </Select>
+                {t("delete")}
+              </Button>
             </div>
-          </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <Label className="text-xs">{t("amountLabel")}</Label>
-              <CfNumberInput
-                value={Math.abs(item.amount)}
-                onChange={(abs) => {
-                  const tp = types[i] ?? "income";
-                  update(i, { amount: tp === "expense" ? -abs : abs });
-                }}
-                min={0}
-              />
-            </div>
-            <div>
-              <Label className="text-xs">{t("startYear")}</Label>
-              <CfNumberInput
-                value={item.start_year}
-                onChange={(v) => update(i, { start_year: Math.round(v) })}
-                min={1}
-              />
-            </div>
-            <div>
-              <Label className="text-xs">{t("duration")}</Label>
-              <CfNumberInput
-                value={item.duration}
-                onChange={(v) => update(i, { duration: Math.round(v) })}
-                min={1}
-              />
-            </div>
-          </div>
+            <div className={enabled ? "" : "opacity-40 pointer-events-none"}>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">{t("name")}</Label>
+                  <Input
+                    value={item.name}
+                    onChange={(e) => update(i, { name: e.target.value })}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">{t("type")}</Label>
+                  <Select
+                    value={types[i] ?? "income"}
+                    onValueChange={(v) =>
+                      setType(i, v as "income" | "expense")
+                    }
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="income">{t("income")}</SelectItem>
+                      <SelectItem value="expense">{t("expense")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
 
-          <div className="flex items-center gap-2">
-            <Checkbox
-              checked={item.inflation_adjusted}
-              onCheckedChange={(checked) =>
-                update(i, { inflation_adjusted: checked === true })
-              }
-            />
-            <Label className="text-xs cursor-pointer">{t("inflationAdjusted")}</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                <div>
+                  <Label className="text-xs">{t("amountLabel")}</Label>
+                  <CfNumberInput
+                    value={Math.abs(item.amount)}
+                    onChange={(abs) => {
+                      const tp = types[i] ?? "income";
+                      update(i, { amount: tp === "expense" ? -abs : abs });
+                    }}
+                    min={0}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">{t("startYear")}</Label>
+                  <CfNumberInput
+                    value={item.start_year}
+                    onChange={(v) => update(i, { start_year: Math.round(v) })}
+                    min={1}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">{t("duration")}</Label>
+                  <CfNumberInput
+                    value={item.duration}
+                    onChange={(v) => update(i, { duration: Math.round(v) })}
+                    min={1}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-2">
+                <Checkbox
+                  checked={item.inflation_adjusted}
+                  onCheckedChange={(checked) =>
+                    update(i, { inflation_adjusted: checked === true })
+                  }
+                />
+                <Label className="text-xs cursor-pointer">{t("inflationAdjusted")}</Label>
+              </div>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {items.length === 0 && (
         <p className="text-xs text-muted-foreground text-center py-2">

@@ -53,6 +53,10 @@ export default function SimulatorPage() {
   // Path list sorting
   const [sortCol, setSortCol] = useState<string>("start_year");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  // Path list filters
+  const [filterCountries, setFilterCountries] = useState<Set<string>>(new Set());
+  const [filterMinStartYear, setFilterMinStartYear] = useState(0);
+  const [filterMinYears, setFilterMinYears] = useState(0);
 
   // Single backtest state
   const [histStartYear, setHistStartYear] = useState(1990);
@@ -61,8 +65,8 @@ export default function SimulatorPage() {
   const [countries, setCountries] = useState<CountryInfo[]>([]);
 
   useEffect(() => {
-    fetchCountries().then(setCountries).catch(() => {});
-  }, []);
+    fetchCountries(params.data_source).then(setCountries).catch(() => {});
+  }, [params.data_source]);
 
   const handleRun = async () => {
     setLoading(true);
@@ -86,6 +90,9 @@ export default function SimulatorPage() {
     setBtError(null);
     setSelectedPath(null);
     setBatchSubTab("aggregate");
+    setFilterCountries(new Set());
+    setFilterMinStartYear(0);
+    setFilterMinYears(0);
     try {
       const res = await runSimBatchBacktest({
         ...params,
@@ -114,6 +121,7 @@ export default function SimulatorPage() {
         data_start_year: params.data_start_year,
         country: btCountry,
         pooling_method: params.pooling_method,
+        data_source: params.data_source,
         withdrawal_strategy: params.withdrawal_strategy,
         dynamic_ceiling: params.dynamic_ceiling,
         dynamic_floor: params.dynamic_floor,
@@ -143,10 +151,21 @@ export default function SimulatorPage() {
     }
   };
 
-  // Sorted paths for the table
+  // Unique countries from batch result (for filter chips)
+  const availableCountries = useMemo(() => {
+    if (!batchResult) return [];
+    return Array.from(new Set(batchResult.paths.map((p) => p.country))).sort();
+  }, [batchResult]);
+
+  // Sorted & filtered paths for the table
   const sortedPaths = useMemo(() => {
     if (!batchResult) return [];
-    const paths = [...batchResult.paths];
+    let paths = batchResult.paths.filter((p) => {
+      if (filterCountries.size > 0 && !filterCountries.has(p.country)) return false;
+      if (filterMinStartYear > 0 && p.start_year < filterMinStartYear) return false;
+      if (filterMinYears > 0 && p.years_simulated < filterMinYears) return false;
+      return true;
+    });
     paths.sort((a, b) => {
       let va: number | string, vb: number | string;
       switch (sortCol) {
@@ -154,6 +173,7 @@ export default function SimulatorPage() {
         case "start_year": va = a.start_year; vb = b.start_year; break;
         case "years_simulated": va = a.years_simulated; vb = b.years_simulated; break;
         case "final_portfolio": va = a.final_portfolio; vb = b.final_portfolio; break;
+        case "min_withdrawal": va = Math.min(...a.withdrawals); vb = Math.min(...b.withdrawals); break;
         case "survived": va = a.survived ? 1 : 0; vb = b.survived ? 1 : 0; break;
         default: va = a.start_year; vb = b.start_year;
       }
@@ -164,7 +184,7 @@ export default function SimulatorPage() {
       return a.start_year - b.start_year;
     });
     return paths;
-  }, [batchResult, sortCol, sortDir]);
+  }, [batchResult, sortCol, sortDir, filterCountries, filterMinStartYear, filterMinYears]);
 
   const handleSort = (col: string) => {
     if (sortCol === col) {
@@ -461,6 +481,71 @@ export default function SimulatorPage() {
 
                   {/* ── Individual paths table ── */}
                   <TabsContent value="paths" className="space-y-4">
+                    {/* Filters */}
+                    <div className="flex flex-wrap items-end gap-3 text-sm">
+                      {/* Country chips */}
+                      <div className="space-y-1">
+                        <Label className="text-xs">{t("filterCountry")}</Label>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            className={`px-2 py-0.5 text-xs rounded border transition-colors ${filterCountries.size === 0 ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:bg-muted"}`}
+                            onClick={() => setFilterCountries(new Set())}
+                          >
+                            {t("allCountries")}
+                          </button>
+                          {availableCountries.map((c) => (
+                            <button
+                              key={c}
+                              className={`px-2 py-0.5 text-xs rounded border transition-colors ${filterCountries.has(c) ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border hover:bg-muted"}`}
+                              onClick={() => {
+                                setFilterCountries((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(c)) next.delete(c);
+                                  else next.add(c);
+                                  return next;
+                                });
+                              }}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Start year min */}
+                      <div className="w-28">
+                        <NumberField
+                          label={t("filterMinStartYear")}
+                          value={filterMinStartYear}
+                          onChange={(v) => setFilterMinStartYear(Math.round(v))}
+                          min={0}
+                        />
+                      </div>
+                      {/* Years simulated min */}
+                      <div className="w-28">
+                        <NumberField
+                          label={t("filterMinYears")}
+                          value={filterMinYears}
+                          onChange={(v) => setFilterMinYears(Math.round(v))}
+                          min={0}
+                        />
+                      </div>
+                      {/* Clear */}
+                      {(filterCountries.size > 0 || filterMinStartYear > 0 || filterMinYears > 0) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            setFilterCountries(new Set());
+                            setFilterMinStartYear(0);
+                            setFilterMinYears(0);
+                          }}
+                        >
+                          {t("clearFilters")}
+                        </Button>
+                      )}
+                    </div>
+
                     <div className="rounded-md border overflow-auto max-h-[600px]">
                       <table className="w-full text-sm">
                         <thead className="bg-muted/50 sticky top-0">
@@ -475,6 +560,9 @@ export default function SimulatorPage() {
                               {t("yearsSimulatedShort")}{sortIndicator("years_simulated")}
                             </th>
                             <th className="px-3 py-2 text-center whitespace-nowrap">{t("survived")}</th>
+                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("min_withdrawal")}>
+                              {t("minWithdrawal")}{sortIndicator("min_withdrawal")}
+                            </th>
                             <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("final_portfolio")}>
                               {t("finalPortfolio")}{sortIndicator("final_portfolio")}
                             </th>
@@ -499,15 +587,23 @@ export default function SimulatorPage() {
                                   : <span className="text-red-500">✗</span>
                                 }
                               </td>
+                              <td className="px-3 py-1.5 text-right font-mono">{fmt(Math.min(...p.withdrawals))}</td>
                               <td className="px-3 py-1.5 text-right font-mono">{fmt(p.final_portfolio)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      * = {t("incomplete")} (&lt; {params.retirement_years} {t("yearsSimulatedShort")})
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        * = {t("incomplete")} (&lt; {params.retirement_years} {t("yearsSimulatedShort")})
+                      </p>
+                      {batchResult && (
+                        <p className="text-xs text-muted-foreground">
+                          {t("filteredCount", { count: sortedPaths.length, total: batchResult.paths.length })}
+                        </p>
+                      )}
+                    </div>
                   </TabsContent>
                 </Tabs>
               </>

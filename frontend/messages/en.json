@@ -34,6 +34,11 @@
   },
   "sidebar": {
     "dataRange": "📅 Data Range",
+    "dataSource": "Data Source",
+    "dataSourceJst": "JST Multi-Country (1871-2020)",
+    "dataSourceFire": "FIRE Dataset (US, 1871-2025)",
+    "dataSourceJstDesc": "Jordà-Schularick-Taylor Macrohistory Database, 16 developed countries",
+    "dataSourceFireDesc": "US market data: S&P 500 + MSCI EAFE (post-1970) + 10Y Treasury",
     "country": "Country",
     "allCountries": "All Countries (Pooled)",
     "poolingMethod": "Pooling Weight",
@@ -142,7 +147,14 @@
     "gFinalPortfolio": "Guardrail Final Portfolio",
     "bFinalPortfolio": "Baseline Final Portfolio",
     "gTotalConsumption": "Guardrail Total Consumption",
-    "bTotalConsumption": "Baseline Total Consumption"
+    "bTotalConsumption": "Baseline Total Consumption",
+    "filterCountry": "Country",
+    "filterMinStartYear": "Start Year ≥",
+    "filterMinYears": "Years ≥",
+    "filteredCount": "Showing {count} / {total} paths",
+    "clearFilters": "Clear Filters",
+    "allCountries": "All",
+    "minWithdrawal": "Min Withdrawal"
   },
   "sensitivity": {
     "title": "📈 Sensitivity Analysis",
@@ -254,7 +266,14 @@
     "aggregateOnlyComplete": "Aggregate stats based on complete paths only (≥ retirement years)",
     "backToList": "← Back to Path List",
     "yearsSimulated": "Years Simulated",
-    "adjustmentCount": "Adjustments"
+    "adjustmentCount": "Adjustments",
+    "filterCountry": "Country",
+    "filterMinStartYear": "Start Year ≥",
+    "filterMinYears": "Years ≥",
+    "filteredCount": "Showing {count} / {total} paths",
+    "clearFilters": "Clear Filters",
+    "allCountries": "All",
+    "minWithdrawal": "Min Withdrawal"
   },
   "allocation": {
     "title": "🎯 Allocation Optimizer",

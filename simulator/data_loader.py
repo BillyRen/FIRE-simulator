@@ -1,7 +1,9 @@
 """数据加载与预处理模块。
 
-支持 JST 多国数据格式：
-  CSV 长格式列：Year, Country, Domestic_Stock, Global_Stock, Domestic_Bond, Inflation
+支持两种数据源：
+  1. JST 多国数据 — CSV 长格式：Year, Country, Domestic_Stock, Global_Stock, Domestic_Bond, Inflation
+  2. FIRE Dataset — CSV 宽格式（仅美国）：Year, US Stock, International Stock, US Bond, US Inflation
+     加载时自动转换为内部统一格式。
 """
 
 import json
@@ -28,14 +30,19 @@ EXPECTED_COLUMNS = [
 RETURN_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
 
 
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _default_csv_path() -> str:
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_dir, "data", "jst_returns.csv")
+    return os.path.join(_BASE_DIR, "data", "jst_returns.csv")
 
 
 def _default_meta_path() -> str:
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_dir, "data", "jst_countries.json")
+    return os.path.join(_BASE_DIR, "data", "jst_countries.json")
+
+
+def _fire_dataset_path() -> str:
+    return os.path.join(_BASE_DIR, "data", "FIRE_dataset.csv")
 
 
 def load_country_list(meta_path: str | None = None) -> list[dict[str, Any]]:
@@ -145,3 +152,81 @@ def get_country_dfs(
         if len(country_df) >= 2:  # 至少需要 2 年数据
             result[str(iso)] = country_df
     return result
+
+
+# ---------------------------------------------------------------------------
+# FIRE Dataset (老数据，仅美国)
+# ---------------------------------------------------------------------------
+
+_FIRE_COL_MAP = {
+    "US Stock": "Domestic_Stock",
+    "International Stock": "Global_Stock",
+    "US Bond": "Domestic_Bond",
+    "US Inflation": "Inflation",
+}
+
+
+def load_fire_dataset(filepath: str | None = None) -> pd.DataFrame:
+    """加载 FIRE_dataset.csv 并转换为内部统一格式。
+
+    列映射: US Stock → Domestic_Stock, International Stock → Global_Stock,
+    US Bond → Domestic_Bond, US Inflation → Inflation。
+    添加 Country = "USA" 列。
+    """
+    if filepath is None:
+        filepath = _fire_dataset_path()
+
+    try:
+        df = pd.read_csv(filepath)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"数据文件不存在: {filepath}")
+    except Exception as e:
+        raise ValueError(f"读取 FIRE Dataset 时发生错误: {e}")
+
+    for old_col in _FIRE_COL_MAP:
+        if old_col not in df.columns:
+            raise ValueError(f"FIRE_dataset.csv 缺少必要列: {old_col}")
+
+    df = df.rename(columns=_FIRE_COL_MAP)
+    df["Country"] = "USA"
+
+    # 清洗 NaN / Inf
+    has_nan = df[RETURN_COLS].isna().any(axis=1)
+    has_inf = np.isinf(df[RETURN_COLS].values).any(axis=1)
+    bad_rows = has_nan | has_inf
+    if bad_rows.any():
+        logger.warning("FIRE Dataset 发现 %d 行 NaN/Inf（已删除）", bad_rows.sum())
+        df = df[~bad_rows]
+
+    df = df.sort_values("Year").reset_index(drop=True)
+    return df[EXPECTED_COLUMNS]
+
+
+def load_fire_country_list() -> list[dict[str, Any]]:
+    """返回 FIRE Dataset 的国家元数据（仅 USA）。"""
+    return [{
+        "iso": "USA",
+        "name_en": "United States",
+        "name_zh": "美国",
+        "min_year": 1871,
+        "max_year": 2025,
+        "n_years": 155,
+    }]
+
+
+# ---------------------------------------------------------------------------
+# 统一入口（按 data_source 分发）
+# ---------------------------------------------------------------------------
+
+def load_returns_by_source(data_source: str = "jst") -> pd.DataFrame:
+    """根据 data_source 加载对应的回报数据。"""
+    if data_source == "fire_dataset":
+        return load_fire_dataset()
+    return load_returns_data()
+
+
+def load_country_list_by_source(data_source: str = "jst") -> list[dict[str, Any]]:
+    """根据 data_source 加载对应的国家列表。"""
+    if data_source == "fire_dataset":
+        return load_fire_country_list()
+    return load_country_list()

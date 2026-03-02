@@ -34,6 +34,11 @@
   },
   "sidebar": {
     "dataRange": "📅 数据范围",
+    "dataSource": "数据源",
+    "dataSourceJst": "JST 多国数据 (1871-2020)",
+    "dataSourceFire": "FIRE Dataset (美国, 1871-2025)",
+    "dataSourceJstDesc": "Jordà-Schularick-Taylor 宏观历史数据库，覆盖 16 个发达国家",
+    "dataSourceFireDesc": "美国市场数据：S&P 500 + MSCI EAFE (1970后) + 10年国债",
     "country": "国家",
     "allCountries": "所有国家（池化采样）",
     "poolingMethod": "池化权重方式",
@@ -142,7 +147,14 @@
     "gFinalPortfolio": "Guardrail 最终资产",
     "bFinalPortfolio": "基准最终资产",
     "gTotalConsumption": "Guardrail 总消费",
-    "bTotalConsumption": "基准总消费"
+    "bTotalConsumption": "基准总消费",
+    "filterCountry": "国家",
+    "filterMinStartYear": "起始年 ≥",
+    "filterMinYears": "年数 ≥",
+    "filteredCount": "显示 {count} / {total} 条路径",
+    "clearFilters": "清除过滤",
+    "allCountries": "全部",
+    "minWithdrawal": "最低年消费"
   },
   "sensitivity": {
     "title": "📈 敏感性分析参数",
@@ -254,7 +266,14 @@
     "aggregateOnlyComplete": "聚合统计仅基于完整路径（≥退休年限）",
     "backToList": "← 返回路径列表",
     "yearsSimulated": "模拟年数",
-    "adjustmentCount": "调整次数"
+    "adjustmentCount": "调整次数",
+    "filterCountry": "国家",
+    "filterMinStartYear": "起始年 ≥",
+    "filterMinYears": "年数 ≥",
+    "filteredCount": "显示 {count} / {total} 条路径",
+    "clearFilters": "清除过滤",
+    "allCountries": "全部",
+    "minWithdrawal": "最低年消费"
   },
   "allocation": {
     "title": "🎯 资产配置优化",

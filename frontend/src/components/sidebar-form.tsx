@@ -99,11 +99,11 @@ export function SidebarForm({
   const set = <K extends keyof FormParams>(key: K, val: FormParams[K]) =>
     onChange({ ...p, [key]: val });
 
-  // 加载国家列表
+  // 加载国家列表（随 data_source 变化重新加载）
   const [countries, setCountries] = useState<CountryInfo[]>([]);
   useEffect(() => {
-    fetchCountries().then(setCountries).catch(() => {});
-  }, []);
+    fetchCountries(p.data_source).then(setCountries).catch(() => {});
+  }, [p.data_source]);
 
   const countryName = (c: CountryInfo) =>
     locale === "zh" ? c.name_zh : c.name_en;
@@ -114,16 +114,17 @@ export function SidebarForm({
       <div>
         <h3 className="text-sm font-semibold mb-2">{t("dataRange")}</h3>
 
+        {/* 数据源选择 */}
         <div className="mb-2">
-          <Label className="text-xs">{t("country")}</Label>
+          <Label className="text-xs">{t("dataSource")}</Label>
           <Select
-            value={p.country}
+            value={p.data_source}
             onValueChange={(v) => {
-              set("country", v);
-              // 自动调整 data_start_year 到该国最小年份（如果当前值超出范围）
-              const info = countries.find((c) => c.iso === v);
-              if (info && p.data_start_year < info.min_year) {
-                onChange({ ...p, country: v, data_start_year: info.min_year });
+              const ds = v as "jst" | "fire_dataset";
+              if (ds === "fire_dataset") {
+                onChange({ ...p, data_source: ds, country: "USA" });
+              } else {
+                onChange({ ...p, data_source: ds });
               }
             }}
           >
@@ -131,17 +132,46 @@ export function SidebarForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">{t("allCountries")}</SelectItem>
-              {countries.map((c) => (
-                <SelectItem key={c.iso} value={c.iso}>
-                  {countryName(c)} ({c.iso})
-                </SelectItem>
-              ))}
+              <SelectItem value="jst">{t("dataSourceJst")}</SelectItem>
+              <SelectItem value="fire_dataset">{t("dataSourceFire")}</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {p.data_source === "fire_dataset" ? t("dataSourceFireDesc") : t("dataSourceJstDesc")}
+          </p>
         </div>
 
-        {p.country === "ALL" && (
+        {/* 国家选择（仅 JST 数据源时显示） */}
+        {p.data_source === "jst" && (
+          <div className="mb-2">
+            <Label className="text-xs">{t("country")}</Label>
+            <Select
+              value={p.country}
+              onValueChange={(v) => {
+                set("country", v);
+                const info = countries.find((c) => c.iso === v);
+                if (info && p.data_start_year < info.min_year) {
+                  onChange({ ...p, country: v, data_start_year: info.min_year });
+                }
+              }}
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">{t("allCountries")}</SelectItem>
+                {countries.map((c) => (
+                  <SelectItem key={c.iso} value={c.iso}>
+                    {countryName(c)} ({c.iso})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* 池化方法（仅 JST + ALL 时显示） */}
+        {p.data_source === "jst" && p.country === "ALL" && (
           <div className="mb-2">
             <Label className="text-xs">{t("poolingMethod")}</Label>
             <Select
@@ -169,7 +199,7 @@ export function SidebarForm({
           value={p.data_start_year}
           onChange={(v) => set("data_start_year", v)}
           min={1871}
-          max={2020}
+          max={p.data_source === "fire_dataset" ? 2025 : 2020}
           step={1}
         />
       </div>

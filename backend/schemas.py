@@ -34,6 +34,7 @@ class CashFlowSchema(BaseModel):
     start_year: int = Field(1, ge=1, le=100, description="从退休第几年开始 (1-indexed)")
     duration: int = Field(10, ge=1, le=100)
     inflation_adjusted: bool = True
+    enabled: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,11 @@ class BaseSimulationParams(BaseModel):
         "equal",
         pattern="^(equal|gdp_sqrt)$",
         description="池化采样权重方式: 'equal'=等概率 1/N, 'gdp_sqrt'=sqrt(GDP) 加权",
+    )
+    data_source: str = Field(
+        "jst",
+        pattern="^(jst|fire_dataset)$",
+        description="数据源: 'jst'=JST 多国数据, 'fire_dataset'=FIRE Dataset (仅美国)",
     )
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)

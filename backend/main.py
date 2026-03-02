@@ -29,8 +29,8 @@ from simulator.config import (
 from simulator.data_loader import (
     filter_by_country,
     get_country_dfs,
-    load_country_list,
-    load_returns_data,
+    load_country_list_by_source,
+    load_returns_by_source,
 )
 from simulator.guardrail import (
     build_success_rate_table,
@@ -107,39 +107,40 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-# 全局缓存
-_returns_df = None
-_country_list = None
+# 全局缓存（按 data_source 键分别缓存）
+_returns_cache: dict[str, object] = {}
+_country_list_cache: dict[str, list] = {}
 
 
-def _get_returns_df():
-    global _returns_df
-    if _returns_df is None:
-        _returns_df = load_returns_data()
-    return _returns_df
+def _get_returns_df(data_source: str = "jst"):
+    if data_source not in _returns_cache:
+        _returns_cache[data_source] = load_returns_by_source(data_source)
+    return _returns_cache[data_source]
 
 
-def _get_country_list():
-    global _country_list
-    if _country_list is None:
-        _country_list = load_country_list()
-    return _country_list
+def _get_country_list(data_source: str = "jst"):
+    if data_source not in _country_list_cache:
+        _country_list_cache[data_source] = load_country_list_by_source(data_source)
+    return _country_list_cache[data_source]
 
 
-def _filter_df(country: str, data_start_year: int):
+def _filter_df(country: str, data_start_year: int, data_source: str = "jst"):
     """按国家和起始年份过滤数据（单国模式）。"""
-    df = _get_returns_df()
+    df = _get_returns_df(data_source)
     return filter_by_country(df, country, data_start_year)
 
 
-def _get_country_dfs_cached(data_start_year: int) -> dict[str, "pd.DataFrame"]:
+def _get_country_dfs_cached(data_start_year: int, data_source: str = "jst") -> dict[str, "pd.DataFrame"]:
     """获取按国家拆分的 DataFrames（池化 bootstrap 用）。"""
-    df = _get_returns_df()
+    df = _get_returns_df(data_source)
     return get_country_dfs(df, data_start_year)
 
 
 def _to_cash_flows(items) -> list[CashFlowItem] | None:
     if not items:
+        return None
+    enabled = [cf for cf in items if getattr(cf, "enabled", True)]
+    if not enabled:
         return None
     return [
         CashFlowItem(
@@ -149,7 +150,7 @@ def _to_cash_flows(items) -> list[CashFlowItem] | None:
             duration=cf.duration,
             inflation_adjusted=cf.inflation_adjusted,
         )
-        for cf in items
+        for cf in enabled
     ]
 
 
@@ -173,15 +174,20 @@ def _resolve_data(req):
     """
     import pandas as pd
 
-    if req.country == "ALL":
-        country_dfs = _get_country_dfs_cached(req.data_start_year)
+    ds = getattr(req, "data_source", "jst")
+    country = req.country
+    # FIRE Dataset 只有 USA，自动降级
+    if ds == "fire_dataset" and country == "ALL":
+        country = "USA"
+
+    if country == "ALL":
+        country_dfs = _get_country_dfs_cached(req.data_start_year, ds)
         if not country_dfs:
             return pd.DataFrame(), None
-        # 合并所有国家数据作为 filtered_df（用于非 bootstrap 场景）
         combined = pd.concat(country_dfs.values(), ignore_index=True)
         return combined, country_dfs
     else:
-        filtered = _filter_df(req.country, req.data_start_year)
+        filtered = _filter_df(country, req.data_start_year, ds)
         return filtered, None
 
 
@@ -216,9 +222,9 @@ def health_check():
 # ---------------------------------------------------------------------------
 
 @app.get("/api/countries", response_model=CountriesResponse)
-def api_countries():
+def api_countries(data_source: str = "jst"):
     """返回可用国家列表及其元数据。"""
-    raw = _get_country_list()
+    raw = _get_country_list(data_source)
     items = [CountryInfo(**c) for c in raw]
     return CountriesResponse(countries=items)
 
@@ -300,10 +306,13 @@ def api_simulate(request: Request, req: SimulationRequest):
 @limiter.limit("10/minute")
 def api_sim_backtest(request: Request, req: SimBacktestRequest):
     """用真实历史回报模拟退休路径（无 bootstrap）。"""
-    if req.country == "ALL":
+    country = req.country
+    if req.data_source == "fire_dataset" and country == "ALL":
+        country = "USA"
+    if country == "ALL":
         raise HTTPException(400, "历史回测必须选择具体国家，不能使用 ALL 池化模式")
 
-    filtered = _filter_df(req.country, req.data_start_year)
+    filtered = _filter_df(country, req.data_start_year, req.data_source)
     if len(filtered) < 2:
         raise HTTPException(400, "可用数据不足")
 
@@ -642,7 +651,7 @@ def api_backtest(request: Request, req: BacktestRequest):
 
     # 如果回测国家与 MC 国家不同（如 MC 用 ALL，回测用 USA），单独获取该国数据
     if bt_country != req.country or req.country == "ALL":
-        hist_filtered = _filter_df(bt_country, req.data_start_year)
+        hist_filtered = _filter_df(bt_country, req.data_start_year, req.data_source)
     else:
         hist_filtered = filtered
 
@@ -854,8 +863,8 @@ def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/returns", response_model=ReturnsResponse)
-def api_returns(country: str = "USA", data_start_year: int = 1970):
-    df = _get_returns_df()
+def api_returns(country: str = "USA", data_start_year: int = 1970, data_source: str = "jst"):
+    df = _get_returns_df(data_source)
     filtered = filter_by_country(df, country, data_start_year)
     return ReturnsResponse(
         years=filtered["Year"].tolist(),

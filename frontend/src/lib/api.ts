@@ -80,11 +80,11 @@ export async function runGuardrailBatchBacktest(req: Record<string, unknown>): P
   return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req);
 }
 
-export async function fetchCountries(): Promise<CountryInfo[]> {
+export async function fetchCountries(dataSource: string = "jst"): Promise<CountryInfo[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    const res = await fetch(`${API_BASE}/api/countries`, { signal: controller.signal });
+    const res = await fetch(`${API_BASE}/api/countries?data_source=${dataSource}`, { signal: controller.signal });
     if (!res.ok) throw new Error(`API error ${res.status}`);
     const data = await res.json();
     return data.countries;
