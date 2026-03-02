@@ -20,23 +20,25 @@ import { useIsMobile } from "@/components/fan-chart";
 import { runSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
-import { DEFAULT_PARAMS } from "@/lib/types";
-import type { FormParams, SweepResponse } from "@/lib/types";
+import { useSharedParams } from "@/lib/params-context";
+import type { SweepResponse } from "@/lib/types";
 
 export default function SensitivityPage() {
   const t = useTranslations("sensitivity");
   const tc = useTranslations("common");
   const isMobile = useIsMobile();
 
-  const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
-  const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(DEFAULT_PARAMS.annual_withdrawal);
-  const [rateMax, setRateMax] = useState(0.12);
-  const [rateStep, setRateStep] = useState(0.002);
+  const {
+    params, setParams,
+    sensitivityRateMax: rateMax, setSensitivityRateMax: setRateMax,
+    sensitivityRateStep: rateStep, setSensitivityRateStep: setRateStep,
+    sensitivityMetric: metric, setSensitivityMetric: setMetric,
+  } = useSharedParams();
+  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
   const [result, setResult] = useState<SweepResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [metric, setMetric] = useState<"success_rate" | "funded_ratio">("success_rate");
 
   const handleRun = async () => {
     setLoading(true);

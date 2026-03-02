@@ -20,8 +20,8 @@ import { useIsMobile } from "@/components/fan-chart";
 import { runAllocationSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
-import { DEFAULT_PARAMS } from "@/lib/types";
-import type { FormParams, AllocationSweepResponse } from "@/lib/types";
+import { useSharedParams } from "@/lib/params-context";
+import type { AllocationSweepResponse } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
 
 export default function AllocationPage() {
@@ -29,13 +29,12 @@ export default function AllocationPage() {
   const tc = useTranslations("common");
   const isMobile = useIsMobile();
 
-  const [params, setParams] = useState<FormParams>({
-    ...DEFAULT_PARAMS,
-    num_simulations: 1_000,
-  });
-  const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(DEFAULT_PARAMS.annual_withdrawal);
-  const [allocStep, setAllocStep] = useState(0.1);
+  const {
+    params, setParams,
+    allocationAllocStep: allocStep, setAllocationAllocStep: setAllocStep,
+  } = useSharedParams();
+  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
   const [result, setResult] = useState<AllocationSweepResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

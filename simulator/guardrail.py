@@ -254,12 +254,92 @@ def _find_portfolio_for_success(
 
 
 # ---------------------------------------------------------------------------
+# 5b. 向量化二分法：固定初始资产，查找达到目标成功率的年提取额
+# ---------------------------------------------------------------------------
+
+def _find_withdrawal_for_success(
+    scenarios: np.ndarray,
+    initial_portfolio: float,
+    target_success: float,
+    retirement_years: int,
+    cf_matrix: np.ndarray | None,
+    initial_guess: float,
+    max_iter: int = 25,
+    tol: float = 0.005,
+) -> float:
+    """用向量化二分法找到使固定提取+现金流达到目标成功率的年提取额。
+
+    Parameters
+    ----------
+    scenarios : np.ndarray
+        shape (num_sims, max_years) 的回报矩阵。
+    initial_portfolio : float
+        初始资产。
+    target_success : float
+        目标成功率 (0-1)。
+    retirement_years : int
+        退休年限。
+    cf_matrix : np.ndarray or None
+        shape (num_sims, retirement_years) 或 (retirement_years,) 的现金流矩阵。
+    initial_guess : float
+        年提取额的初始猜测值。
+    max_iter : int
+        最大迭代次数。
+    tol : float
+        成功率容差。
+
+    Returns
+    -------
+    float
+        使成功率达到 target_success 的年提取额。
+    """
+    num_sims = scenarios.shape[0]
+    n_years = min(retirement_years, scenarios.shape[1])
+
+    if cf_matrix is not None:
+        if cf_matrix.ndim == 1:
+            cf_2d = np.broadcast_to(cf_matrix[:n_years], (num_sims, n_years))
+        else:
+            cf_2d = cf_matrix[:, :n_years]
+    else:
+        cf_2d = None
+
+    def _success_rate(wd: float) -> float:
+        values = np.full(num_sims, initial_portfolio)
+        for year in range(n_years):
+            values = values * (1.0 + scenarios[:, year]) - wd
+            if cf_2d is not None:
+                values += cf_2d[:, year]
+            values = np.maximum(values, 0.0)
+        return float(np.mean(values > 0))
+
+    lo = max(initial_guess * 0.1, 1.0)
+    hi = initial_guess * 5.0
+
+    if _success_rate(lo) < target_success:
+        lo = 1.0
+    if _success_rate(hi) > target_success:
+        hi *= 3.0
+
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2.0
+        sr = _success_rate(mid)
+        if abs(sr - target_success) < tol:
+            return mid
+        if sr > target_success:
+            lo = mid
+        else:
+            hi = mid
+
+    return (lo + hi) / 2.0
+
+
+# ---------------------------------------------------------------------------
 # 6. Guardrail 模拟
 # ---------------------------------------------------------------------------
 
 def run_guardrail_simulation(
     scenarios: np.ndarray,
-    annual_withdrawal: float,
     target_success: float,
     upper_guardrail: float,
     lower_guardrail: float,
@@ -271,39 +351,22 @@ def run_guardrail_simulation(
     adjustment_mode: str = "amount",
     cash_flows: list[CashFlowItem] | None = None,
     inflation_matrix: np.ndarray | None = None,
-) -> tuple[float, np.ndarray, np.ndarray]:
+    initial_portfolio: float | None = None,
+    annual_withdrawal: float | None = None,
+) -> tuple[float, float, np.ndarray, np.ndarray]:
     """运行 Risk-based Guardrail 模拟。
 
-    Parameters
-    ----------
-    scenarios : np.ndarray
-        shape (num_sims, max_years) 的回报矩阵。
-    annual_withdrawal : float
-        初始年提取金额（实际购买力）。
-    target_success : float
-        目标成功率 (0-1)。
-    upper_guardrail, lower_guardrail : float
-        上下护栏。
-    adjustment_pct : float
-        调整百分比 (0-1)。
-    retirement_years : int
-        退休年限。
-    min_remaining_years : int
-        计算成功率时的最小剩余年限。
-    table, rate_grid : np.ndarray
-        成功率查找表及网格。
-    adjustment_mode : str
-        "amount" or "success_rate"。
-    cash_flows : list[CashFlowItem] or None
-        自定义现金流列表。
-    inflation_matrix : np.ndarray or None
-        shape (num_sims, retirement_years) 的通胀率矩阵。
+    提供 initial_portfolio 或 annual_withdrawal 中的一个，函数根据
+    target_success 反算另一个。
 
     Returns
     -------
-    tuple[float, np.ndarray, np.ndarray]
-        (initial_portfolio, trajectories, withdrawals)
+    tuple[float, float, np.ndarray, np.ndarray]
+        (initial_portfolio, annual_withdrawal, trajectories, withdrawals)
     """
+    if initial_portfolio is None and annual_withdrawal is None:
+        raise ValueError("必须提供 initial_portfolio 或 annual_withdrawal 之一")
+
     num_sims = scenarios.shape[0]
 
     # 1. 预计算现金流 schedule
@@ -315,7 +378,6 @@ def run_guardrail_simulation(
         has_nominal = len(nominal_cfs) > 0
         fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
 
-        # 预计算完整的 cf_matrix (num_sims, retirement_years) 用于二分法和主循环
         if has_nominal and inflation_matrix is not None:
             cf_matrix = np.zeros((num_sims, retirement_years))
             for i in range(num_sims):
@@ -329,23 +391,33 @@ def run_guardrail_simulation(
         fixed_cf_schedule = None
         cf_matrix = None
 
-    # 2. 计算初始资产
+    # 2. 反算缺失的 initial_portfolio 或 annual_withdrawal
     initial_rate = find_rate_for_target(table, rate_grid, target_success, retirement_years)
     if initial_rate <= 0:
         initial_rate = rate_grid[1] if len(rate_grid) > 1 else 0.01
 
-    if has_cf:
-        # 用简单平均作为初始猜测，然后用向量化二分法精确求解
-        init_cf_avg = float(np.mean(fixed_cf_schedule)) if len(fixed_cf_schedule) > 0 else 0.0
-        effective_wd = annual_withdrawal - init_cf_avg
-        initial_guess = max(effective_wd, annual_withdrawal * 0.1) / initial_rate
-
-        initial_portfolio = _find_portfolio_for_success(
-            scenarios, annual_withdrawal, target_success, retirement_years,
-            cf_matrix, initial_guess,
-        )
+    if initial_portfolio is not None:
+        # portfolio 模式：已知资产，反算提取额
+        if has_cf:
+            initial_guess = initial_portfolio * initial_rate
+            annual_withdrawal = _find_withdrawal_for_success(
+                scenarios, initial_portfolio, target_success, retirement_years,
+                cf_matrix, initial_guess,
+            )
+        else:
+            annual_withdrawal = initial_portfolio * initial_rate
     else:
-        initial_portfolio = annual_withdrawal / initial_rate
+        # withdrawal 模式：已知提取额，反算资产
+        if has_cf:
+            init_cf_avg = float(np.mean(fixed_cf_schedule)) if len(fixed_cf_schedule) > 0 else 0.0
+            effective_wd = annual_withdrawal - init_cf_avg
+            initial_guess = max(effective_wd, annual_withdrawal * 0.1) / initial_rate
+            initial_portfolio = _find_portfolio_for_success(
+                scenarios, annual_withdrawal, target_success, retirement_years,
+                cf_matrix, initial_guess,
+            )
+        else:
+            initial_portfolio = annual_withdrawal / initial_rate
 
     # 3. 逐年模拟
     trajectories = np.zeros((num_sims, retirement_years + 1))
@@ -402,7 +474,7 @@ def run_guardrail_simulation(
 
             trajectories[i, year + 1] = value
 
-    return initial_portfolio, trajectories, withdrawals
+    return initial_portfolio, annual_withdrawal, trajectories, withdrawals
 
 
 def run_fixed_baseline(

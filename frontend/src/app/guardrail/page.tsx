@@ -23,9 +23,8 @@ import PlotlyChart from "@/components/plotly-chart";
 import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries } from "@/lib/api";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
-import { DEFAULT_PARAMS } from "@/lib/types";
+import { useSharedParams } from "@/lib/params-context";
 import type {
-  FormParams,
   GuardrailResponse,
   GuardrailBatchBacktestResponse,
   GuardrailBatchPathSummary,
@@ -39,17 +38,21 @@ export default function GuardrailPage() {
   const locale = useLocale();
   const isMobile = useIsMobile();
 
-  const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
-  const [withdrawal, setWithdrawal] = useState(40_000);
-
-  // Guardrail-specific params
-  const [targetSuccess, setTargetSuccess] = useState(0.8);
-  const [upperGuardrail, setUpperGuardrail] = useState(0.99);
-  const [lowerGuardrail, setLowerGuardrail] = useState(0.5);
-  const [adjustmentPct, setAdjustmentPct] = useState(0.5);
-  const [adjustmentMode, setAdjustmentMode] = useState<"amount" | "success_rate">("amount");
-  const [minRemainingYears, setMinRemainingYears] = useState(10);
-  const [baselineRate, setBaselineRate] = useState(0.033);
+  const {
+    params, setParams,
+    guardrailTargetSuccess: targetSuccess, setGuardrailTargetSuccess: setTargetSuccess,
+    guardrailUpperGuardrail: upperGuardrail, setGuardrailUpperGuardrail: setUpperGuardrail,
+    guardrailLowerGuardrail: lowerGuardrail, setGuardrailLowerGuardrail: setLowerGuardrail,
+    guardrailAdjustmentPct: adjustmentPct, setGuardrailAdjustmentPct: setAdjustmentPct,
+    guardrailAdjustmentMode: adjustmentMode, setGuardrailAdjustmentMode: setAdjustmentMode,
+    guardrailMinRemainingYears: minRemainingYears, setGuardrailMinRemainingYears: setMinRemainingYears,
+    guardrailBaselineRate: baselineRate, setGuardrailBaselineRate: setBaselineRate,
+    histStartYear, setHistStartYear,
+    singleCountry, setSingleCountry,
+  } = useSharedParams();
+  const [inputMode, setInputMode] = useState<"portfolio" | "withdrawal">("portfolio");
+  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
 
   // Results
   const [mcResult, setMcResult] = useState<GuardrailResponse | null>(null);
@@ -71,8 +74,6 @@ export default function GuardrailPage() {
   const [filterMinYears, setFilterMinYears] = useState(0);
 
   // Single backtest state
-  const [histStartYear, setHistStartYear] = useState(1990);
-  const [singleCountry, setSingleCountry] = useState("USA");
   const [singleBtLoading, setSingleBtLoading] = useState(false);
   const [countries, setCountries] = useState<CountryInfo[]>([]);
 
@@ -81,6 +82,8 @@ export default function GuardrailPage() {
   }, [params.data_source]);
 
   const guardrailReqBase = () => ({
+    input_mode: inputMode,
+    initial_portfolio: portfolio,
     annual_withdrawal: withdrawal,
     allocation: params.allocation,
     expense_ratios: params.expense_ratios,
@@ -132,6 +135,7 @@ export default function GuardrailPage() {
       const res = await runGuardrailBatchBacktest({
         ...guardrailReqBase(),
         initial_portfolio: mcResult.initial_portfolio,
+        annual_withdrawal: mcResult.annual_withdrawal,
       });
       setBatchResult(res);
     } catch (e) {
@@ -150,6 +154,7 @@ export default function GuardrailPage() {
       const res = await runBacktest({
         ...guardrailReqBase(),
         initial_portfolio: mcResult.initial_portfolio,
+        annual_withdrawal: mcResult.annual_withdrawal,
         hist_start_year: histStartYear,
         backtest_country: params.country === "ALL" ? btCountry : undefined,
       });
@@ -238,12 +243,34 @@ export default function GuardrailPage() {
             <CardTitle className="text-base">{t("title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <NumberField
-              label={tc("annualWithdrawalAlt")}
-              value={withdrawal}
-              onChange={setWithdrawal}
-              min={0}
-            />
+            <div className="space-y-2">
+              <Label className="text-xs">{t("inputMode")}</Label>
+              <Select value={inputMode} onValueChange={(v) => setInputMode(v as "portfolio" | "withdrawal")}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="portfolio">{t("inputModePortfolio")}</SelectItem>
+                  <SelectItem value="withdrawal">{t("inputModeWithdrawal")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {inputMode === "portfolio" ? (
+              <NumberField
+                label={t("initialPortfolioInput")}
+                value={portfolio}
+                onChange={setPortfolio}
+                min={0}
+              />
+            ) : (
+              <NumberField
+                label={tc("annualWithdrawalAlt")}
+                value={withdrawal}
+                onChange={setWithdrawal}
+                min={0}
+              />
+            )}
 
             <SidebarForm
               params={params}
@@ -375,8 +402,8 @@ export default function GuardrailPage() {
               {/* 指标卡片 */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <MetricCard
-                  label={t("initialPortfolio")}
-                  value={fmt(mcResult.initial_portfolio)}
+                  label={inputMode === "portfolio" ? t("annualWithdrawalResult") : t("initialPortfolioResult")}
+                  value={inputMode === "portfolio" ? fmt(mcResult.annual_withdrawal) : fmt(mcResult.initial_portfolio)}
                 />
                 <MetricCard
                   label={t("initialRate")}
@@ -444,14 +471,15 @@ export default function GuardrailPage() {
                         y: (() => {
                           const bP50 = mcResult.b_withdrawal_percentiles?.["50"];
                           const baseWd = mcResult.baseline_annual_wd;
+                          const initWd = mcResult.annual_withdrawal;
                           if (bP50) {
-                            return bP50.map((v) => withdrawal + (v - baseWd));
+                            return bP50.map((v) => initWd + (v - baseWd));
                           }
                           const n = mcResult.g_withdrawal_percentiles["50"]?.length ?? 0;
-                          return Array(n).fill(withdrawal);
+                          return Array(n).fill(initWd);
                         })(),
                         mode: "lines",
-                        name: tc("initialWithdrawalLine", { amount: fmt(withdrawal) }),
+                        name: tc("initialWithdrawalLine", { amount: fmt(mcResult.annual_withdrawal) }),
                         line: { color: "gray", width: 1, dash: "dot" },
                         type: "scatter",
                         hovertemplate: tc.raw("initialWithdrawalHover"),

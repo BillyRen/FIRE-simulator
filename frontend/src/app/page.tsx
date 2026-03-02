@@ -22,8 +22,8 @@ import PlotlyChart from "@/components/plotly-chart";
 import { runSimulation, runSimBatchBacktest, runSimBacktest, fetchCountries } from "@/lib/api";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
-import { DEFAULT_PARAMS } from "@/lib/types";
-import type { FormParams, SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo } from "@/lib/types";
+import { useSharedParams } from "@/lib/params-context";
+import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
 
 export default function SimulatorPage() {
@@ -33,9 +33,9 @@ export default function SimulatorPage() {
 
   const isMobile = useIsMobile();
 
-  const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
-  const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(DEFAULT_PARAMS.annual_withdrawal);
+  const { params, setParams, histStartYear, setHistStartYear, singleCountry, setSingleCountry } = useSharedParams();
+  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
 
   // MC state
   const [result, setResult] = useState<SimulationResponse | null>(null);
@@ -59,8 +59,6 @@ export default function SimulatorPage() {
   const [filterMinYears, setFilterMinYears] = useState(0);
 
   // Single backtest state
-  const [histStartYear, setHistStartYear] = useState(1990);
-  const [singleCountry, setSingleCountry] = useState("USA");
   const [singleBtLoading, setSingleBtLoading] = useState(false);
   const [countries, setCountries] = useState<CountryInfo[]>([]);
 

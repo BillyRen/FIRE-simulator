@@ -118,6 +118,8 @@ export interface SweepResponse {
 // ---------------------------------------------------------------------------
 
 export interface GuardrailRequest {
+  input_mode: "portfolio" | "withdrawal";
+  initial_portfolio: number;
   annual_withdrawal: number;
   allocation: Allocation;
   expense_ratios: ExpenseRatios;
@@ -143,6 +145,7 @@ export interface GuardrailRequest {
 
 export interface GuardrailResponse {
   initial_portfolio: number;
+  annual_withdrawal: number;
   initial_rate: number;
   g_success_rate: number;
   g_funded_ratio: number;

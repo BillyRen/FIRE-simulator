@@ -530,9 +530,8 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 
     cash_flows = _to_cash_flows(req.cash_flows)
 
-    init_portfolio, traj_g, wd_g = run_guardrail_simulation(
+    sim_kwargs = dict(
         scenarios=scenarios,
-        annual_withdrawal=req.annual_withdrawal,
         target_success=req.target_success,
         upper_guardrail=req.upper_guardrail,
         lower_guardrail=req.lower_guardrail,
@@ -545,6 +544,12 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         cash_flows=cash_flows,
         inflation_matrix=inflation_matrix,
     )
+    if req.input_mode == "withdrawal":
+        sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
+    else:
+        sim_kwargs["initial_portfolio"] = req.initial_portfolio
+
+    init_portfolio, annual_wd, traj_g, wd_g = run_guardrail_simulation(**sim_kwargs)
 
     traj_b, wd_b = run_fixed_baseline(
         scenarios, init_portfolio, req.baseline_rate, req.retirement_years,
@@ -555,7 +560,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     b_success = float(np.mean(traj_b[:, -1] > 0))
     g_fr = compute_funded_ratio(traj_g, req.retirement_years)
     b_fr = compute_funded_ratio(traj_b, req.retirement_years)
-    initial_rate = req.annual_withdrawal / init_portfolio if init_portfolio > 0 else 0
+    initial_rate = annual_wd / init_portfolio if init_portfolio > 0 else 0
     baseline_wd = init_portfolio * req.baseline_rate
 
     # 分位数轨迹
@@ -581,12 +586,12 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 
     metrics = [
         {"指标": "成功率", "Guardrail": f"{g_success:.1%}", "基准固定": f"{b_success:.1%}"},
-        {"指标": "初始年提取额", "Guardrail": f"${req.annual_withdrawal:,.0f}", "基准固定": f"${baseline_wd:,.0f}"},
+        {"指标": "初始年提取额", "Guardrail": f"${annual_wd:,.0f}", "基准固定": f"${baseline_wd:,.0f}"},
         {"指标": "中位数总消费额", "Guardrail": f"${np.median(g_total):,.0f}", "基准固定": f"${np.median(b_total):,.0f}"},
         {"指标": "中位数最终资产", "Guardrail": f"${np.median(traj_g[:, -1]):,.0f}", "基准固定": f"${np.median(traj_b[:, -1]):,.0f}"},
         {"指标": "P10 最低年度消费", "Guardrail": f"${g_p10_min:,.0f}", "基准固定": f"${b_p10_min:,.0f}"},
         {"指标": "P10 最低消费 vs 初始提取额",
-         "Guardrail": f"{(g_p10_min / req.annual_withdrawal - 1) * 100:+.1f}%" if req.annual_withdrawal > 0 else "N/A",
+         "Guardrail": f"{(g_p10_min / annual_wd - 1) * 100:+.1f}%" if annual_wd > 0 else "N/A",
          "基准固定": f"{(b_p10_min / baseline_wd - 1) * 100:+.1f}%" if baseline_wd > 0 else "N/A"},
         {"指标": "中位数最终年提取额",
          "Guardrail": f"${np.median(wd_g[:, -1]):,.0f}",
@@ -598,6 +603,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 
     return GuardrailResponse(
         initial_portfolio=init_portfolio,
+        annual_withdrawal=annual_wd,
         initial_rate=initial_rate,
         g_success_rate=g_success,
         g_funded_ratio=g_fr,

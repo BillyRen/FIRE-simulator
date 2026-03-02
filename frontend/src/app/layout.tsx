@@ -6,6 +6,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { ParamsProvider } from "@/lib/params-context";
 
 const OG_LOCALE_MAP: Record<string, string> = {
   en: "en_US",
@@ -71,9 +72,11 @@ export default async function RootLayout({
         className="antialiased min-h-screen bg-background flex flex-col font-sans"
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <Navbar />
-          <main className="flex-1">{children}</main>
-          <Footer />
+          <ParamsProvider>
+            <Navbar />
+            <main className="flex-1">{children}</main>
+            <Footer />
+          </ParamsProvider>
         </NextIntlClientProvider>
         <Analytics />
         <SpeedInsights />

@@ -128,6 +128,8 @@ class SweepResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class GuardrailRequest(BaseSimulationParams):
+    input_mode: str = Field("portfolio", pattern="^(portfolio|withdrawal)$")
+    initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
     target_success: float = Field(0.80, gt=0, lt=1)
     upper_guardrail: float = Field(0.99, gt=0, le=1)
@@ -140,6 +142,7 @@ class GuardrailRequest(BaseSimulationParams):
 
 class GuardrailResponse(BaseModel):
     initial_portfolio: float
+    annual_withdrawal: float
     initial_rate: float
     # Guardrail MC
     g_success_rate: float
@@ -164,7 +167,8 @@ class GuardrailResponse(BaseModel):
 
 class BacktestRequest(BaseSimulationParams):
     """复用 GuardrailRequest 的大部分字段，额外加回测起始年。"""
-    annual_withdrawal: float = Field(40_000, ge=0)
+    initial_portfolio: float = Field(..., gt=0, description="用户输入的初始资产")
+    annual_withdrawal: float = Field(..., ge=0, description="由 guardrail MC 阶段计算得出")
     target_success: float = Field(0.80, gt=0, lt=1)
     upper_guardrail: float = Field(0.99, gt=0, le=1)
     lower_guardrail: float = Field(0.50, ge=0, lt=1)
@@ -172,7 +176,6 @@ class BacktestRequest(BaseSimulationParams):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(10, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
-    initial_portfolio: float = Field(..., gt=0, description="由 guardrail MC 阶段计算得出")
     hist_start_year: int = Field(1990, ge=1871, le=2100)
     backtest_country: str | None = Field(None, description="回测用的具体国家 ISO（当 country=ALL 时必填）")
 
@@ -269,7 +272,8 @@ class SimBatchBacktestResponse(BaseModel):
 
 class GuardrailBatchBacktestRequest(BaseSimulationParams):
     """Guardrail 批量历史回测 — 遍历所有有效 (国家, 起始年)。"""
-    annual_withdrawal: float = Field(40_000, ge=0)
+    initial_portfolio: float = Field(..., gt=0, description="用户输入的初始资产")
+    annual_withdrawal: float = Field(..., ge=0, description="由 guardrail MC 阶段计算得出")
     target_success: float = Field(0.80, gt=0, lt=1)
     upper_guardrail: float = Field(0.99, gt=0, le=1)
     lower_guardrail: float = Field(0.50, ge=0, lt=1)
@@ -277,7 +281,6 @@ class GuardrailBatchBacktestRequest(BaseSimulationParams):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(10, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
-    initial_portfolio: float = Field(..., gt=0, description="由 guardrail MC 阶段计算得出")
 
 
 class GuardrailBatchPathSummary(BaseModel):
