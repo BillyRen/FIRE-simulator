@@ -10,6 +10,8 @@ from .guardrail import run_historical_backtest
 from .monte_carlo import run_simple_historical_backtest
 from .portfolio import compute_real_portfolio_returns
 from .statistics import (
+    CONSUMPTION_FLOOR,
+    compute_effective_funded_ratio,
     compute_funded_ratio,
     compute_portfolio_metrics,
     compute_single_path_metrics,
@@ -295,7 +297,10 @@ def run_guardrail_batch_backtest(
                 "start_year": start_year,
                 "years_simulated": result["years_simulated"],
                 "is_complete": n_years >= retirement_years,
-                "g_survived": float(result["g_portfolio"][-1]) > 0,
+                "g_survived": (
+                    float(result["g_portfolio"][-1]) > 0
+                    and not any(w < CONSUMPTION_FLOOR * annual_withdrawal for w in result["g_withdrawals"])
+                ),
                 "b_survived": float(result["b_portfolio"][-1]) > 0,
                 "g_final_portfolio": float(result["g_portfolio"][-1]),
                 "b_final_portfolio": float(result["b_portfolio"][-1]),
@@ -328,9 +333,10 @@ def run_guardrail_batch_backtest(
     b_traj = np.array([p["b_portfolio"] for p in complete])
     b_wd = np.array([p["b_withdrawals"] for p in complete])
 
-    g_success = float(np.mean(g_traj[:, -1] > 0))
+    g_fr, g_success = compute_effective_funded_ratio(
+        g_wd, annual_withdrawal, retirement_years, trajectories=g_traj,
+    )
     b_success = float(np.mean(b_traj[:, -1] > 0))
-    g_fr = compute_funded_ratio(g_traj, retirement_years)
     b_fr = compute_funded_ratio(b_traj, retirement_years)
 
     band_pcts = [10, 25, 50, 75, 90]

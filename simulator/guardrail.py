@@ -461,10 +461,10 @@ def run_guardrail_simulation(
             withdrawals[i, year] = wd
             value = value * (1.0 + scenarios[i, year]) - wd
 
-            # 加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
-                withdrawals[i, year] -= cf_schedule[year]
+                if cf_schedule[year] < 0:
+                    withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
@@ -543,10 +543,10 @@ def run_fixed_baseline(
             withdrawals[i, year] = annual_wd
             value = value * (1.0 + scenarios[i, year]) - annual_wd
 
-            # 加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
-                withdrawals[i, year] -= cf_schedule[year]
+                if cf_schedule[year] < 0:
+                    withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
@@ -695,10 +695,10 @@ def run_historical_backtest(
         g_withdrawals[year] = wd
         value = value * (1.0 + real_returns[year]) - wd
 
-        # 加入自定义现金流
         if cf_schedule is not None:
             value += cf_schedule[year]
-            g_withdrawals[year] -= cf_schedule[year]
+            if cf_schedule[year] < 0:
+                g_withdrawals[year] -= cf_schedule[year]
 
         if value <= 0:
             value = 0.0
@@ -716,10 +716,10 @@ def run_historical_backtest(
         if value > 0:
             value = value * (1.0 + real_returns[year]) - baseline_wd
 
-            # 基准策略也加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
-                b_withdrawals[year] -= cf_schedule[year]
+                if cf_schedule[year] < 0:
+                    b_withdrawals[year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0

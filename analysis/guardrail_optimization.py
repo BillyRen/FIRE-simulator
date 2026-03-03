@@ -35,6 +35,7 @@ from simulator.guardrail import (
     build_success_rate_table,
     run_historical_backtest,
 )
+from simulator.statistics import CONSUMPTION_FLOOR
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 固定参数
@@ -180,7 +181,6 @@ def evaluate_combo(
         n_years = result["years_simulated"]
         n_adj = len(result.get("adjustment_events", []))
 
-        g_survived = float(g_portfolio[-1]) > 0
         g_min_wd = float(np.min(g_wd)) if len(g_wd) > 0 else 0.0
         g_mean_wd = float(np.mean(g_wd)) if len(g_wd) > 0 else 0.0
         g_std_wd = float(np.std(g_wd)) if len(g_wd) > 0 else 0.0
@@ -192,13 +192,21 @@ def evaluate_combo(
         downside_sd = float(np.sqrt(np.mean(neg_changes ** 2)))
         downside_cv = downside_sd / g_mean_wd if g_mean_wd > 0 else 999.0
 
-        # funded ratio for this path
+        # funded ratio for this path (消费地板 + 资产归零)
         depletion_year = n_years
         for y in range(1, len(g_portfolio)):
             if g_portfolio[y] <= 0:
                 depletion_year = y
                 break
+        consumption_floor_val = CONSUMPTION_FLOOR * initial_wd
+        eff_depletion = n_years
+        for y in range(len(g_wd)):
+            if g_wd[y] < consumption_floor_val:
+                eff_depletion = y
+                break
+        depletion_year = min(depletion_year, eff_depletion)
         funded = min(depletion_year / RETIREMENT_YEARS, 1.0)
+        g_survived = depletion_year >= n_years
 
         consumption_ratio = g_total / b_total if b_total > 0 else 0.0
         floor_ratio = g_min_wd / initial_wd
@@ -352,6 +360,9 @@ def evaluate_combo_mc_fast(
     g_wds_arr = np.zeros((n_sims, n_years))
     g_depleted = np.zeros(n_sims, dtype=bool)
     g_depletion_year = np.full(n_sims, float(n_years))
+    consumption_floor_val = CONSUMPTION_FLOOR * initial_wd
+    g_eff_depleted = np.zeros(n_sims, dtype=bool)
+    g_eff_depletion = np.full(n_sims, float(n_years))
     n_adj = np.zeros(n_sims, dtype=np.int32)
 
     for year in range(n_years):
@@ -384,6 +395,11 @@ def evaluate_combo_mc_fast(
                 g_wds[need_adjust] = g_values[need_adjust] * adj_rates
 
         g_wds_arr[:, year] = g_wds
+
+        newly_eff = alive & (~g_eff_depleted) & (g_wds < consumption_floor_val)
+        g_eff_depletion[newly_eff] = year
+        g_eff_depleted |= newly_eff
+
         g_values = g_values * (1.0 + scenarios[:, year]) - g_wds
 
         newly_depleted = (~g_depleted) & (g_values <= 0)
@@ -403,8 +419,9 @@ def evaluate_combo_mc_fast(
         b_values = np.maximum(b_values, 0.0)
 
     # ── 聚合指标 ──
-    g_survived = g_values > 0
-    g_funded = np.minimum(g_depletion_year / RETIREMENT_YEARS, 1.0)
+    combined_depletion = np.minimum(g_depletion_year, g_eff_depletion)
+    g_survived = combined_depletion >= n_years
+    g_funded = np.minimum(combined_depletion / RETIREMENT_YEARS, 1.0)
     g_total = g_wds_arr.sum(axis=1)
     g_min_wd = g_wds_arr.min(axis=1)
     g_mean_wd = g_wds_arr.mean(axis=1)

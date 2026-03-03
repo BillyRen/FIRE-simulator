@@ -162,10 +162,10 @@ def run_simulation(
 
             value = value * (1.0 + real_returns[year]) - withdrawal
 
-            # 加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
-                withdrawals[i, year] -= cf_schedule[year]
+                if cf_schedule[year] < 0:
+                    withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0

@@ -15,6 +15,8 @@ Design decisions:
   - Output columns are NOMINAL returns + inflation (engine computes real returns).
   - Global_Stock is GDP-weighted average of other countries' equity returns,
     converted to investor's home currency via exchange rates.
+  - GDP weights use rgdpmad * pop (Maddison real GDP per capita in intl $
+    times population) for cross-country comparability.
   - Rows are kept if eq_tr is available; missing bond_tr is filled with 0
     (conservative: bonds earn zero nominal return, get eroded by inflation).
   - For known market-closure periods (e.g. JPN 1946-1947), eq_tr is set to 0
@@ -134,12 +136,15 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 2. Build per-year lookup tables for GDP weights and FX-adjusted returns
     # ------------------------------------------------------------------
-    # Collect all (iso, year, eq_tr, fx_change, gdp) into a flat table
+    # Collect all (iso, year, eq_tr, fx_change, gdp_comparable) into a flat table
     all_records = []
     for iso, df in country_frames.items():
         for _, row in df.iterrows():
-            gdp_val = row.get("gdp", np.nan)
-            if pd.isna(gdp_val) or gdp_val <= 0:
+            rgdpmad = row.get("rgdpmad", np.nan)
+            pop_val = row.get("pop", np.nan)
+            if pd.notna(rgdpmad) and pd.notna(pop_val) and rgdpmad > 0 and pop_val > 0:
+                gdp_val = rgdpmad * pop_val
+            else:
                 gdp_val = np.nan
             all_records.append({
                 "iso": iso,

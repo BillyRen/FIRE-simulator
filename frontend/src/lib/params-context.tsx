@@ -49,12 +49,12 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
 
   // Guardrail
-  const [guardrailTargetSuccess, setGuardrailTargetSuccess] = useState(0.8);
+  const [guardrailTargetSuccess, setGuardrailTargetSuccess] = useState(0.85);
   const [guardrailUpperGuardrail, setGuardrailUpperGuardrail] = useState(0.99);
-  const [guardrailLowerGuardrail, setGuardrailLowerGuardrail] = useState(0.5);
-  const [guardrailAdjustmentPct, setGuardrailAdjustmentPct] = useState(0.5);
+  const [guardrailLowerGuardrail, setGuardrailLowerGuardrail] = useState(0.7);
+  const [guardrailAdjustmentPct, setGuardrailAdjustmentPct] = useState(0.1);
   const [guardrailAdjustmentMode, setGuardrailAdjustmentMode] = useState<"amount" | "success_rate">("amount");
-  const [guardrailMinRemainingYears, setGuardrailMinRemainingYears] = useState(10);
+  const [guardrailMinRemainingYears, setGuardrailMinRemainingYears] = useState(5);
   const [guardrailBaselineRate, setGuardrailBaselineRate] = useState(0.033);
 
   // Sensitivity

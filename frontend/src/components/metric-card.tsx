@@ -11,11 +11,11 @@ interface MetricCardProps {
 
 export function MetricCard({ label, value, sub, className = "" }: MetricCardProps) {
   return (
-    <Card className={`${className}`}>
+    <Card className={`${className} overflow-hidden`}>
       <CardContent className="pt-4 pb-3 px-4">
-        <p className="text-xs text-muted-foreground mb-1">{label}</p>
-        <p className="text-xl font-bold tabular-nums">{value}</p>
-        {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+        <p className="text-xs text-muted-foreground mb-1 truncate">{label}</p>
+        <p className="text-xl font-bold tabular-nums truncate" title={value}>{value}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>}
       </CardContent>
     </Card>
   );

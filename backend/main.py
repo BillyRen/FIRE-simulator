@@ -42,6 +42,7 @@ from simulator.monte_carlo import run_simulation, run_simple_historical_backtest
 from simulator.portfolio import compute_real_portfolio_returns
 from simulator.statistics import (
     PERCENTILES,
+    compute_effective_funded_ratio,
     compute_funded_ratio,
     compute_portfolio_metrics,
     compute_single_path_metrics,
@@ -556,9 +557,10 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         cash_flows=cash_flows, inflation_matrix=inflation_matrix,
     )
 
-    g_success = float(np.mean(traj_g[:, -1] > 0))
+    g_fr, g_success = compute_effective_funded_ratio(
+        wd_g, annual_wd, req.retirement_years, trajectories=traj_g,
+    )
     b_success = float(np.mean(traj_b[:, -1] > 0))
-    g_fr = compute_funded_ratio(traj_g, req.retirement_years)
     b_fr = compute_funded_ratio(traj_b, req.retirement_years)
     initial_rate = annual_wd / init_portfolio if init_portfolio > 0 else 0
     baseline_wd = init_portfolio * req.baseline_rate

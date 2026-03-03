@@ -71,6 +71,50 @@ def compute_funded_ratio(
     return float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
 
 
+CONSUMPTION_FLOOR = 0.50
+
+
+def compute_effective_funded_ratio(
+    withdrawals: np.ndarray,
+    initial_withdrawal: float,
+    retirement_years: int,
+    consumption_floor: float = CONSUMPTION_FLOOR,
+    trajectories: np.ndarray | None = None,
+) -> tuple[float, float]:
+    """消费地板调整后的 funded_ratio 和 success_rate。
+
+    护栏策略通过削减消费避免资产归零，导致传统 funded_ratio 虚高。
+    本函数将"年消费低于 initial_withdrawal * consumption_floor"视为等效耗尽，
+    与传统资产归零耗尽取较早者。
+
+    Returns (effective_funded_ratio, effective_success_rate).
+    """
+    num_sims = withdrawals.shape[0]
+    n_years = withdrawals.shape[1]
+
+    floor_val = initial_withdrawal * consumption_floor
+    below_floor = withdrawals < floor_val  # (num_sims, n_years)
+
+    eff_depletion = np.full(num_sims, float(n_years))
+    for i in range(num_sims):
+        idx = np.where(below_floor[i])[0]
+        if len(idx) > 0:
+            eff_depletion[i] = float(idx[0])
+
+    if trajectories is not None:
+        depleted = trajectories[:, 1:] <= 0
+        asset_depletion = np.full(num_sims, float(n_years))
+        for i in range(num_sims):
+            idx = np.where(depleted[i])[0]
+            if len(idx) > 0:
+                asset_depletion[i] = float(idx[0])
+        eff_depletion = np.minimum(eff_depletion, asset_depletion)
+
+    funded = float(np.mean(np.minimum(eff_depletion / retirement_years, 1.0)))
+    success = float(np.mean(eff_depletion >= n_years))
+    return funded, success
+
+
 def compute_statistics(
     trajectories: np.ndarray,
     retirement_years: int,
