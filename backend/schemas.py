@@ -155,6 +155,11 @@ class GuardrailResponse(BaseModel):
     b_percentile_trajectories: dict[str, list[float]]
     b_withdrawal_percentiles: dict[str, list[float]]
     baseline_annual_wd: float
+    # 初始护栏触发阈值
+    upper_trigger_portfolio: float = 0.0
+    upper_trigger_withdrawal: float = 0.0
+    lower_trigger_portfolio: float = 0.0
+    lower_trigger_withdrawal: float = 0.0
     # 关键指标
     metrics: list[dict[str, str]]
     # 投资组合绩效指标（底层回报序列相同，guardrail/baseline 共用）

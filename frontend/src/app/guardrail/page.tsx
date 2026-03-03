@@ -428,6 +428,61 @@ export default function GuardrailPage() {
                 />
               </div>
 
+              {/* 初始护栏触发建议 */}
+              {mcResult.upper_trigger_portfolio > 0 && mcResult.lower_trigger_portfolio > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">{t("triggerPanelTitle")}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* 上护栏 — 消费提升 */}
+                      <div className="rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/30 dark:border-green-800 p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">📈</span>
+                          <span className="font-semibold text-green-700 dark:text-green-400 text-sm">{t("planIncrease")}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{t("ifBalanceReaches")}</div>
+                        <div className="text-xl font-bold text-green-700 dark:text-green-400" title={`$${mcResult.upper_trigger_portfolio.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                          {fmt(mcResult.upper_trigger_portfolio)}
+                        </div>
+                        <Separator className="bg-green-200 dark:bg-green-800" />
+                        <div className="text-xs text-muted-foreground">{t("thenIncreaseTo")}</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-lg font-bold text-green-700 dark:text-green-400" title={`$${mcResult.upper_trigger_withdrawal.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                            {fmt(mcResult.upper_trigger_withdrawal)}
+                          </span>
+                          <span className="text-xs font-medium text-green-600 dark:text-green-500">
+                            ({((mcResult.upper_trigger_withdrawal / mcResult.annual_withdrawal - 1) * 100).toFixed(1)}%)
+                          </span>
+                        </div>
+                      </div>
+                      {/* 下护栏 — 消费削减 */}
+                      <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">📉</span>
+                          <span className="font-semibold text-red-700 dark:text-red-400 text-sm">{t("planDecrease")}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{t("ifBalanceDrops")}</div>
+                        <div className="text-xl font-bold text-red-700 dark:text-red-400" title={`$${mcResult.lower_trigger_portfolio.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                          {fmt(mcResult.lower_trigger_portfolio)}
+                        </div>
+                        <Separator className="bg-red-200 dark:bg-red-800" />
+                        <div className="text-xs text-muted-foreground">{t("thenDecreaseTo")}</div>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-lg font-bold text-red-700 dark:text-red-400" title={`$${mcResult.lower_trigger_withdrawal.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                            {fmt(mcResult.lower_trigger_withdrawal)}
+                          </span>
+                          <span className="text-xs font-medium text-red-600 dark:text-red-500">
+                            ({((mcResult.lower_trigger_withdrawal / mcResult.annual_withdrawal - 1) * 100).toFixed(1)}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* 资产轨迹对比 */}
               <Card>
                 <CardContent className="pt-4">

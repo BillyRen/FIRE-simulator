@@ -33,7 +33,9 @@ from simulator.data_loader import (
     load_returns_by_source,
 )
 from simulator.guardrail import (
+    _apply_guardrail_adjustment,
     build_success_rate_table,
+    find_rate_for_target,
     run_fixed_baseline,
     run_guardrail_simulation,
     run_historical_backtest,
@@ -603,6 +605,26 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     # 投资组合绩效指标（底层回报序列相同，guardrail/baseline 共用）
     port_metrics = compute_portfolio_metrics(scenarios, inflation_matrix)
 
+    # 初始护栏触发阈值：反算触发上/下护栏时的资产值和调整后提取额
+    remaining_y0 = min(req.retirement_years, table.shape[1] - 1)
+    upper_rate = find_rate_for_target(table, rate_grid, req.upper_guardrail, remaining_y0)
+    lower_rate = find_rate_for_target(table, rate_grid, req.lower_guardrail, remaining_y0)
+    upper_trigger_port = annual_wd / upper_rate if upper_rate > 0 else 0.0
+    lower_trigger_port = annual_wd / lower_rate if lower_rate > 0 else 0.0
+
+    upper_trigger_wd = _apply_guardrail_adjustment(
+        wd=annual_wd, value=upper_trigger_port,
+        current_success=req.upper_guardrail, target_success=req.target_success,
+        adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+        remaining=remaining_y0, table=table, rate_grid=rate_grid,
+    ) if upper_trigger_port > 0 else 0.0
+    lower_trigger_wd = _apply_guardrail_adjustment(
+        wd=annual_wd, value=lower_trigger_port,
+        current_success=req.lower_guardrail, target_success=req.target_success,
+        adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+        remaining=remaining_y0, table=table, rate_grid=rate_grid,
+    ) if lower_trigger_port > 0 else 0.0
+
     return GuardrailResponse(
         initial_portfolio=init_portfolio,
         annual_withdrawal=annual_wd,
@@ -616,6 +638,10 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         b_percentile_trajectories=b_pct_traj,
         b_withdrawal_percentiles=b_wd_pcts,
         baseline_annual_wd=baseline_wd,
+        upper_trigger_portfolio=upper_trigger_port,
+        upper_trigger_withdrawal=upper_trigger_wd,
+        lower_trigger_portfolio=lower_trigger_port,
+        lower_trigger_withdrawal=lower_trigger_wd,
         metrics=metrics,
         portfolio_metrics=port_metrics,
     )

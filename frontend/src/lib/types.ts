@@ -156,6 +156,10 @@ export interface GuardrailResponse {
   b_percentile_trajectories: Record<string, number[]>;
   b_withdrawal_percentiles: Record<string, number[]>;
   baseline_annual_wd: number;
+  upper_trigger_portfolio: number;
+  upper_trigger_withdrawal: number;
+  lower_trigger_portfolio: number;
+  lower_trigger_withdrawal: number;
   metrics: Array<Record<string, string>>;
   portfolio_metrics: Array<Record<string, string>>;
 }
