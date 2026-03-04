@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from simulator.cashflow import CashFlowItem
+from simulator.cashflow import CashFlowItem, build_cf_schedule
 from simulator.config import (
     GUARDRAIL_RATE_MAX,
     GUARDRAIL_RATE_MIN,
@@ -606,23 +606,34 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     port_metrics = compute_portfolio_metrics(scenarios, inflation_matrix)
 
     # 初始护栏触发阈值：反算触发上/下护栏时的资产值和调整后提取额
+    # 计算 year-0 的 future_cf_avg（与模拟中一致）
+    _cf_avg_y0 = 0.0
+    if cash_flows:
+        adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
+        _cf_sched = build_cf_schedule(adj_cfs, req.retirement_years)
+        _cf_avg_y0 = float(np.mean(_cf_sched))
+
     remaining_y0 = min(req.retirement_years, table.shape[1] - 1)
     upper_rate = find_rate_for_target(table, rate_grid, req.upper_guardrail, remaining_y0)
     lower_rate = find_rate_for_target(table, rate_grid, req.lower_guardrail, remaining_y0)
-    upper_trigger_port = annual_wd / upper_rate if upper_rate > 0 else 0.0
-    lower_trigger_port = annual_wd / lower_rate if lower_rate > 0 else 0.0
+    # effective_rate = (wd - cf_avg) / portfolio  =>  portfolio = (wd - cf_avg) / rate
+    net_wd = annual_wd - _cf_avg_y0
+    upper_trigger_port = net_wd / upper_rate if upper_rate > 0 else 0.0
+    lower_trigger_port = net_wd / lower_rate if lower_rate > 0 else 0.0
 
     upper_trigger_wd = _apply_guardrail_adjustment(
         wd=annual_wd, value=upper_trigger_port,
         current_success=req.upper_guardrail, target_success=req.target_success,
         adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
         remaining=remaining_y0, table=table, rate_grid=rate_grid,
+        future_cf_avg=_cf_avg_y0,
     ) if upper_trigger_port > 0 else 0.0
     lower_trigger_wd = _apply_guardrail_adjustment(
         wd=annual_wd, value=lower_trigger_port,
         current_success=req.lower_guardrail, target_success=req.target_success,
         adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
         remaining=remaining_y0, table=table, rate_grid=rate_grid,
+        future_cf_avg=_cf_avg_y0,
     ) if lower_trigger_port > 0 else 0.0
 
     return GuardrailResponse(
@@ -897,7 +908,7 @@ def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/returns", response_model=ReturnsResponse)
-def api_returns(country: str = "USA", data_start_year: int = 1970, data_source: str = "jst"):
+def api_returns(country: str = "USA", data_start_year: int = 1900, data_source: str = "jst"):
     df = _get_returns_df(data_source)
     filtered = filter_by_country(df, country, data_start_year)
     return ReturnsResponse(

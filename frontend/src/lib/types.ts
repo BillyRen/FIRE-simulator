@@ -398,7 +398,7 @@ export const DEFAULT_PARAMS: FormParams = {
   min_block: 5,
   max_block: 15,
   num_simulations: 2_000,
-  data_start_year: 1970,
+  data_start_year: 1900,
   country: "USA",
   pooling_method: "equal",
   data_source: "jst",

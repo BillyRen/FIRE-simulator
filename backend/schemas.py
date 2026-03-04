@@ -49,7 +49,7 @@ class BaseSimulationParams(BaseModel):
     min_block: int = Field(5, ge=1, le=30)
     max_block: int = Field(15, ge=1, le=55)
     num_simulations: int = Field(2_000, ge=100, le=50_000)
-    data_start_year: int = Field(1970, ge=1871, le=2100)
+    data_start_year: int = Field(1900, ge=1871, le=2100)
     country: str = Field("USA", description="ISO country code or 'ALL'")
     pooling_method: str = Field(
         "equal",
