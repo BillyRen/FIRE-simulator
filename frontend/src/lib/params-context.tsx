@@ -51,7 +51,7 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
   // Guardrail
   const [guardrailTargetSuccess, setGuardrailTargetSuccess] = useState(0.85);
   const [guardrailUpperGuardrail, setGuardrailUpperGuardrail] = useState(0.99);
-  const [guardrailLowerGuardrail, setGuardrailLowerGuardrail] = useState(0.7);
+  const [guardrailLowerGuardrail, setGuardrailLowerGuardrail] = useState(0.6);
   const [guardrailAdjustmentPct, setGuardrailAdjustmentPct] = useState(0.1);
   const [guardrailAdjustmentMode, setGuardrailAdjustmentMode] = useState<"amount" | "success_rate">("amount");
   const [guardrailMinRemainingYears, setGuardrailMinRemainingYears] = useState(5);

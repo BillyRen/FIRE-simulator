@@ -609,8 +609,13 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     # 计算 year-0 的 future_cf_avg（与模拟中一致）
     _cf_avg_y0 = 0.0
     if cash_flows:
-        adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
-        _cf_sched = build_cf_schedule(adj_cfs, req.retirement_years)
+        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
+        if has_nominal and inflation_matrix is not None:
+            median_inflation = np.median(inflation_matrix, axis=0)
+            _cf_sched = build_cf_schedule(cash_flows, req.retirement_years, median_inflation)
+        else:
+            adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
+            _cf_sched = build_cf_schedule(adj_cfs, req.retirement_years)
         _cf_avg_y0 = float(np.mean(_cf_sched))
 
     remaining_y0 = min(req.retirement_years, table.shape[1] - 1)

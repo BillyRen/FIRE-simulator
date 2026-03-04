@@ -409,7 +409,10 @@ def run_guardrail_simulation(
     else:
         # withdrawal 模式：已知提取额，反算资产
         if has_cf:
-            init_cf_avg = float(np.mean(fixed_cf_schedule)) if len(fixed_cf_schedule) > 0 else 0.0
+            median_cf = float(np.median(np.mean(cf_matrix, axis=1)))
+            init_cf_avg = median_cf if median_cf != 0 else (
+                float(np.mean(fixed_cf_schedule)) if len(fixed_cf_schedule) > 0 else 0.0
+            )
             effective_wd = annual_withdrawal - init_cf_avg
             initial_guess = max(effective_wd, annual_withdrawal * 0.1) / initial_rate
             initial_portfolio = _find_portfolio_for_success(
