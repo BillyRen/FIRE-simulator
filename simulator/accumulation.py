@@ -184,6 +184,8 @@ def run_accumulation(
     country_weights: dict[str, float] | None = None,
     num_sims_swr: int = 500,
     swr_sample_interval: int = 5,
+    expense_growth_rate: float = 0.0,
+    auto_retirement_spending: bool = False,
 ) -> dict:
     """运行 FIRE 积累阶段蒙特卡洛模拟。
 
@@ -265,13 +267,20 @@ def run_accumulation(
 
     req_portfolio_samples = []
     swr_samples = []
+    spending_at_year = []
 
     for t in sample_years:
         remaining = life_expectancy - (current_age + t)
         if remaining < min_retirement_years:
             req_portfolio_samples.append(0.0)
             swr_samples.append(1.0)
+            spending_at_year.append(0.0)
             continue
+
+        if auto_retirement_spending:
+            spend_t = annual_expenses * (1.0 + expense_growth_rate) ** t
+        else:
+            spend_t = retirement_spending
 
         _, post_fire_cfs = _split_cashflows_at_year(cfs, t)
         cf_arg = post_fire_cfs if post_fire_cfs else None
@@ -280,7 +289,7 @@ def run_accumulation(
         req_p = _binary_search_required_portfolio(
             retire_scenarios[:, :remaining],
             retire_inflation[:, :remaining],
-            retirement_spending,
+            spend_t,
             target_success_rate,
             withdrawal_strategy,
             retirement_age_at_fire,
@@ -288,8 +297,9 @@ def run_accumulation(
             cash_flows=cf_arg,
         )
         req_portfolio_samples.append(req_p)
-        swr = retirement_spending / req_p if req_p > 0 else 0.0
+        swr = spend_t / req_p if req_p > 0 else 0.0
         swr_samples.append(swr)
+        spending_at_year.append(spend_t)
 
     # 线性插值到每年
     interp_portfolio = interpolate.interp1d(
@@ -330,11 +340,13 @@ def run_accumulation(
             cf_schedule = fixed_cf_schedule
 
         income = annual_income
+        expenses = annual_expenses
         for t in range(max_working_years):
-            savings = income - annual_expenses + cf_schedule[t]
+            savings = income - expenses + cf_schedule[t]
             new_val = portfolio_paths[i, t] * (1.0 + accum_scenarios[i, t]) + savings
             portfolio_paths[i, t + 1] = max(new_val, 0.0)
             income *= (1.0 + income_growth_rate)
+            expenses *= (1.0 + expense_growth_rate)
 
     # ── 6. 检测 FIRE 交叉点 ──
     fire_years = np.full(num_simulations, -1, dtype=int)
@@ -371,9 +383,14 @@ def run_accumulation(
         fire_idx = min(fire_age_p50 - current_age, max_working_years)
         swr_at_fire = float(swr_curve[fire_idx])
         req_portfolio_at_fire = float(required_portfolio_curve[fire_idx])
+        if auto_retirement_spending:
+            ret_spending_at_fire = float(annual_expenses * (1.0 + expense_growth_rate) ** fire_idx)
+        else:
+            ret_spending_at_fire = float(retirement_spending)
     else:
         swr_at_fire = float(swr_curve[0])
         req_portfolio_at_fire = float(required_portfolio_curve[0])
+        ret_spending_at_fire = float(retirement_spending)
 
     # ── 10. 敏感性分析：FIRE 年龄 vs 年支出 ──
     median_return = float(np.median(accum_scenarios))
@@ -388,14 +405,16 @@ def run_accumulation(
     for exp_level in expense_levels:
         p = current_portfolio
         inc = annual_income
+        exp = exp_level
         fire_year_est = None
         for t in range(max_working_years):
-            sav = inc - exp_level
+            sav = inc - exp
             p = p * (1.0 + median_return) + sav
             if t + 1 < len(required_portfolio_curve) and p >= required_portfolio_curve[t + 1]:
                 fire_year_est = t + 1
                 break
             inc *= (1.0 + income_growth_rate)
+            exp *= (1.0 + expense_growth_rate)
         if fire_year_est is not None:
             sensitivity_fire_ages.append(current_age + fire_year_est)
         else:
@@ -412,6 +431,7 @@ def run_accumulation(
         "annual_savings": annual_income - annual_expenses,
         "swr_at_fire": swr_at_fire,
         "required_portfolio_at_fire": req_portfolio_at_fire,
+        "retirement_spending_at_fire": ret_spending_at_fire,
         "percentile_trajectories": percentile_trajectories,
         "required_portfolio_curve": required_portfolio_curve.tolist(),
         "swr_curve": swr_curve.tolist(),

@@ -1178,6 +1178,8 @@ def api_accumulation(request: Request, req: AccumulationRequest):
         borrowing_spread=req.borrowing_spread,
         country_dfs=country_dfs,
         country_weights=country_weights,
+        expense_growth_rate=req.expense_growth_rate,
+        auto_retirement_spending=req.auto_retirement_spending,
     )
 
     return AccumulationResponse(**result)

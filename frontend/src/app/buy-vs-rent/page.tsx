@@ -40,7 +40,7 @@ import type {
 
 const PRESETS = {
   us: {
-    homePrice: 400_000, downPaymentPct: 20, mortgageTerm: 30,
+    homePrice: 500_000, downPaymentPct: 20, mortgageTerm: 30,
     buyingCostPct: 3, sellingCostPct: 6,
     propertyTaxPct: 1, maintenancePct: 1, insuranceAnnual: 1500,
     annualRent: 24_000,
@@ -195,7 +195,7 @@ export default function BuyVsRentPage() {
   // MC mode params
   const [mortgageRateSpread, setMortgageRateSpread] = useState(1.7);
   const [mcCountry, setMcCountry] = useState("USA");
-  const [mcPooling, setMcPooling] = useState<"equal" | "gdp_sqrt">("equal");
+  const [mcPooling, setMcPooling] = useState<"equal" | "gdp_sqrt">("gdp_sqrt");
   const [mcDataStartYear, setMcDataStartYear] = useState(1900);
   const [mcNumSim, setMcNumSim] = useState(2000);
   const [mcMinBlock, setMcMinBlock] = useState(5);

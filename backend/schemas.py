@@ -52,7 +52,7 @@ class BaseSimulationParams(BaseModel):
     data_start_year: int = Field(1900, ge=1871, le=2100)
     country: str = Field("USA", description="ISO country code or 'ALL'")
     pooling_method: str = Field(
-        "equal",
+        "gdp_sqrt",
         pattern="^(equal|gdp_sqrt)$",
         description="池化采样权重方式: 'equal'=等概率 1/N, 'gdp_sqrt'=sqrt(GDP) 加权",
     )
@@ -107,7 +107,7 @@ class SweepRequest(BaseSimulationParams):
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     rate_max: float = Field(0.12, gt=0, le=0.5)
-    rate_step: float = Field(0.001, gt=0, le=0.1)
+    rate_step: float = Field(0.002, gt=0, le=0.1)
 
 
 class TargetRateResult(BaseModel):
@@ -399,8 +399,8 @@ class BuyVsRentBaseParams(BaseModel):
     selling_cost_pct: float = Field(0.06, ge=0, le=0.2, description="卖房交易费率")
     property_tax_pct: float = Field(0.01, ge=0, le=0.1, description="年房产税率")
     maintenance_pct: float = Field(0.01, ge=0, le=0.1, description="年维护费率")
-    insurance_annual: float = Field(1200, ge=0, description="年保险费")
-    annual_rent: float = Field(20_000, ge=0, description="初始年租金")
+    insurance_annual: float = Field(1500, ge=0, description="年保险费")
+    annual_rent: float = Field(24_000, ge=0, description="初始年租金")
     analysis_years: int = Field(30, ge=1, le=60, description="分析年限")
 
 
@@ -441,7 +441,7 @@ class BuyVsRentMCRequest(BuyVsRentBaseParams):
     num_simulations: int = Field(2_000, ge=100, le=20_000)
     data_start_year: int = Field(1900, ge=1871, le=2100)
     country: str = Field("USA", description="ISO 国家代码或 'ALL'")
-    pooling_method: str = Field("equal", pattern="^(equal|gdp_sqrt)$")
+    pooling_method: str = Field("gdp_sqrt", pattern="^(equal|gdp_sqrt)$")
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     override_home_appreciation: float | None = Field(None, ge=-0.2, le=0.3, description="手动房价增值率")
@@ -506,7 +506,7 @@ class BreakevenMCRequest(BuyVsRentBaseParams):
     num_simulations: int = Field(1_000, ge=100, le=10_000)
     data_start_year: int = Field(1900, ge=1871, le=2100)
     country: str = Field("USA")
-    pooling_method: str = Field("equal", pattern="^(equal|gdp_sqrt)$")
+    pooling_method: str = Field("gdp_sqrt", pattern="^(equal|gdp_sqrt)$")
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     override_home_appreciation: float | None = Field(None, ge=-0.2, le=0.3)
@@ -549,7 +549,9 @@ class AccumulationRequest(BaseSimulationParams):
     annual_income: float = Field(120_000, gt=0)
     annual_expenses: float = Field(60_000, ge=0)
     income_growth_rate: float = Field(0.02, ge=-0.1, le=0.2, description="收入实际年增长率")
-    retirement_spending: float = Field(60_000, gt=0, description="退休后年支出（实际购买力）")
+    expense_growth_rate: float = Field(0.02, ge=-0.1, le=0.2, description="支出实际年增长率")
+    retirement_spending: float = Field(60_000, ge=0, description="退休后年支出（手动模式时使用）")
+    auto_retirement_spending: bool = Field(False, description="退休支出是否自动跟随退休前最终支出")
     target_success_rate: float = Field(0.85, gt=0, lt=1, description="目标成功率")
     withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
@@ -565,6 +567,7 @@ class AccumulationResponse(BaseModel):
     annual_savings: float
     swr_at_fire: float
     required_portfolio_at_fire: float
+    retirement_spending_at_fire: float
     percentile_trajectories: dict[str, list[float]]
     required_portfolio_curve: list[float]
     swr_curve: list[float]

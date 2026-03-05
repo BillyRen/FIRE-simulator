@@ -5,12 +5,12 @@
   },
   "nav": {
     "brand": "FIRE Lab",
-    "simulator": "🔥 Simulator",
-    "sensitivity": "📈 Sensitivity",
+    "simulator": "🔥 Retirement",
+    "sensitivity": "📊 Withdrawal",
     "guardrail": "🛡️ Guardrail",
     "allocation": "🎯 Allocation",
     "buyVsRent": "🏠 Buy vs Rent",
-    "accumulation": "💰 FIRE Calc"
+    "accumulation": "💰 FIRE Planner"
   },
   "common": {
     "year": "Yr",
@@ -487,7 +487,12 @@
     "currentPortfolio": "Current Portfolio ($)",
     "annualIncome": "Annual After-Tax Income ($)",
     "annualExpenses": "Annual Expenses ($)",
-    "incomeGrowthRate": "Real Income Growth Rate (%)",
+    "incomeGrowthRate": "Income Growth (%)",
+    "expenseGrowthRate": "Expense Growth (%)",
+    "retirementSpendingMode": "Retirement Spending",
+    "manualSpending": "Set Manually",
+    "autoSpending": "Follow Current Expenses",
+    "autoSpendingDesc": "Retirement spending will be projected from current expenses at the expense growth rate",
     "retirementSpending": "Retirement Annual Spending ($)",
     "riskTolerance": "Risk Tolerance",
     "riskConservative": "Conservative (95%)",
@@ -500,6 +505,7 @@
     "fireProbability": "Overall FIRE Probability",
     "savingsRate": "Current Savings Rate",
     "annualSavings": "Annual Savings",
+    "retirementSpendingAtFire": "Retirement Spending at FIRE",
     "swrAtFire": "Safe Withdrawal Rate (SWR)",
     "requiredPortfolio": "Required FIRE Portfolio",
     "chartPortfolio": "Portfolio Growth Trajectory",

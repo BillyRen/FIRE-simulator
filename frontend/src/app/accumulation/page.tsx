@@ -40,12 +40,15 @@ export default function AccumulationPage() {
   const [annualIncome, setAnnualIncome] = useState(120_000);
   const [annualExpenses, setAnnualExpenses] = useState(60_000);
   const [incomeGrowthRate, setIncomeGrowthRate] = useState(2);
+  const [expenseGrowthRate, setExpenseGrowthRate] = useState(2);
   const [retirementSpending, setRetirementSpending] = useState(60_000);
+  const [autoRetirementSpending, setAutoRetirementSpending] = useState(false);
   const [riskTolerance, setRiskTolerance] = useState("moderate");
 
   const [result, setResult] = useState<AccumulationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logScale, setLogScale] = useState(false);
 
   useEffect(() => {
     const retYears = Math.max(5, lifeExpectancy - currentAge);
@@ -65,7 +68,9 @@ export default function AccumulationPage() {
         annual_income: annualIncome,
         annual_expenses: annualExpenses,
         income_growth_rate: incomeGrowthRate / 100,
-        retirement_spending: retirementSpending,
+        expense_growth_rate: expenseGrowthRate / 100,
+        retirement_spending: autoRetirementSpending ? annualExpenses : retirementSpending,
+        auto_retirement_spending: autoRetirementSpending,
         target_success_rate: RISK_MAP[riskTolerance],
         allocation: params.allocation,
         expense_ratios: params.expense_ratios,
@@ -137,15 +142,6 @@ export default function AccumulationPage() {
                 min={0}
               />
               <NumberField
-                label={t("annualExpenses")}
-                value={annualExpenses}
-                onChange={setAnnualExpenses}
-                min={0}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <NumberField
                 label={t("incomeGrowthRate")}
                 value={incomeGrowthRate}
                 onChange={setIncomeGrowthRate}
@@ -154,12 +150,52 @@ export default function AccumulationPage() {
                 step={0.5}
                 suffix="%"
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
               <NumberField
-                label={t("retirementSpending")}
-                value={retirementSpending}
-                onChange={setRetirementSpending}
+                label={t("annualExpenses")}
+                value={annualExpenses}
+                onChange={setAnnualExpenses}
                 min={0}
               />
+              <NumberField
+                label={t("expenseGrowthRate")}
+                value={expenseGrowthRate}
+                onChange={setExpenseGrowthRate}
+                min={-10}
+                max={20}
+                step={0.5}
+                suffix="%"
+              />
+            </div>
+
+            <div>
+              <Label className="text-xs">{t("retirementSpendingMode")}</Label>
+              <Select
+                value={autoRetirementSpending ? "auto" : "manual"}
+                onValueChange={(v) => setAutoRetirementSpending(v === "auto")}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">{t("manualSpending")}</SelectItem>
+                  <SelectItem value="auto">{t("autoSpending")}</SelectItem>
+                </SelectContent>
+              </Select>
+              {autoRetirementSpending ? (
+                <p className="text-[10px] text-muted-foreground mt-1">{t("autoSpendingDesc")}</p>
+              ) : (
+                <div className="mt-1">
+                  <NumberField
+                    label={t("retirementSpending")}
+                    value={retirementSpending}
+                    onChange={setRetirementSpending}
+                    min={0}
+                  />
+                </div>
+              )}
             </div>
 
             <div>
@@ -219,6 +255,7 @@ export default function AccumulationPage() {
               <MetricCard label={t("fireProbability")} value={pct(result.fire_probability)} />
               <MetricCard label={t("savingsRate")} value={pct(result.savings_rate)} />
               <MetricCard label={t("annualSavings")} value={fmt(result.annual_savings)} />
+              <MetricCard label={t("retirementSpendingAtFire")} value={fmt(result.retirement_spending_at_fire)} />
               <MetricCard label={t("swrAtFire")} value={pct(result.swr_at_fire)} />
               <MetricCard label={t("requiredPortfolio")} value={fmt(result.required_portfolio_at_fire)} />
             </div>
@@ -232,7 +269,17 @@ export default function AccumulationPage() {
             {/* 图 1: 资产增长轨迹 + FIRE 目标线 */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">{t("chartPortfolio")}</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">{t("chartPortfolio")}</CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => setLogScale((v) => !v)}
+                  >
+                    {logScale ? tc("linearScale") : tc("logScale")}
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">{t("chartPortfolioDesc")}</p>
               </CardHeader>
               <CardContent>
@@ -306,7 +353,8 @@ export default function AccumulationPage() {
                     },
                     yaxis: {
                       title: isMobile ? undefined : { text: "$" },
-                      tickformat: "$~s",
+                      type: logScale ? "log" : "linear",
+                      tickformat: logScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
                       tickfont: { size: isMobile ? 9 : 12 },
                     },
                     height: isMobile ? 300 : 450,

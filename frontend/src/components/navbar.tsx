@@ -11,12 +11,12 @@ export function Navbar() {
   const locale = useLocale();
 
   const NAV_ITEMS = [
+    { href: "/accumulation", label: t("accumulation") },
     { href: "/", label: t("simulator") },
     { href: "/sensitivity", label: t("sensitivity") },
     { href: "/guardrail", label: t("guardrail") },
     { href: "/allocation", label: t("allocation") },
     { href: "/buy-vs-rent", label: t("buyVsRent") },
-    { href: "/accumulation", label: t("accumulation") },
   ];
 
   const switchLocale = () => {

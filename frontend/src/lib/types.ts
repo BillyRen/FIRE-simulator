@@ -544,7 +544,9 @@ export interface AccumulationRequest {
   annual_income: number;
   annual_expenses: number;
   income_growth_rate: number;
+  expense_growth_rate: number;
   retirement_spending: number;
+  auto_retirement_spending: boolean;
   target_success_rate: number;
   allocation: Allocation;
   expense_ratios: ExpenseRatios;
@@ -573,6 +575,7 @@ export interface AccumulationResponse {
   annual_savings: number;
   swr_at_fire: number;
   required_portfolio_at_fire: number;
+  retirement_spending_at_fire: number;
   percentile_trajectories: Record<string, number[]>;
   required_portfolio_curve: number[];
   swr_curve: number[];
@@ -619,7 +622,7 @@ export const DEFAULT_PARAMS: FormParams = {
   num_simulations: 2_000,
   data_start_year: 1900,
   country: "USA",
-  pooling_method: "equal",
+  pooling_method: "gdp_sqrt",
   data_source: "jst",
   withdrawal_strategy: "fixed",
   retirement_age: 45,
