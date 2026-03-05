@@ -7,6 +7,7 @@ import pandas as pd
 
 
 RETURN_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
+HOUSING_COLS = ["Housing_CapGain", "Rent_Growth", "Long_Rate"]
 
 
 def block_bootstrap(
@@ -15,6 +16,7 @@ def block_bootstrap(
     min_block: int,
     max_block: int,
     rng: np.random.Generator | None = None,
+    columns: list[str] | None = None,
 ) -> pd.DataFrame:
     """使用 block bootstrap 方法生成一条退休期间的回报序列。
 
@@ -28,26 +30,29 @@ def block_bootstrap(
     Parameters
     ----------
     returns_df : pd.DataFrame
-        历史回报数据，必须包含 Domestic_Stock, Global_Stock, Domestic_Bond, Inflation 列。
+        历史回报数据，必须包含 columns 中指定的列。
     retirement_years : int
-        退休年限（需要生成的回报序列长度）。
+        需要生成的回报序列长度。
     min_block : int
         最小采样窗口大小。
     max_block : int
         最大采样窗口大小。
     rng : np.random.Generator or None
         随机数生成器，用于可复现性。默认使用全局随机状态。
+    columns : list[str] or None
+        要采样的列名。默认 None 时使用 RETURN_COLS。
+        传入 RETURN_COLS + HOUSING_COLS 可联合采样金融和房产数据。
 
     Returns
     -------
     pd.DataFrame
-        shape 为 (retirement_years, 4) 的 DataFrame，
-        列为 Domestic_Stock, Global_Stock, Domestic_Bond, Inflation。
+        shape 为 (retirement_years, len(columns)) 的 DataFrame。
     """
     if rng is None:
         rng = np.random.default_rng()
 
-    data = returns_df[RETURN_COLS].values  # shape: (n, 4)
+    cols = columns if columns is not None else RETURN_COLS
+    data = returns_df[cols].values
     n = len(data)
 
     sampled_rows: list[np.ndarray] = []
@@ -62,7 +67,7 @@ def block_bootstrap(
         total_sampled += block_size
 
     all_rows = np.concatenate(sampled_rows, axis=0)[:retirement_years]
-    return pd.DataFrame(all_rows, columns=RETURN_COLS)
+    return pd.DataFrame(all_rows, columns=cols)
 
 
 def block_bootstrap_pooled(
@@ -72,6 +77,7 @@ def block_bootstrap_pooled(
     max_block: int,
     rng: np.random.Generator | None = None,
     country_weights: dict[str, float] | None = None,
+    columns: list[str] | None = None,
 ) -> pd.DataFrame:
     """池化多国 block bootstrap。
 
@@ -82,7 +88,7 @@ def block_bootstrap_pooled(
     Parameters
     ----------
     country_dfs : dict[str, pd.DataFrame]
-        {iso: country_df}，每个 df 必须包含 RETURN_COLS 列。
+        {iso: country_df}，每个 df 必须包含 columns 中指定的列。
     retirement_years : int
         需要生成的总年数。
     min_block, max_block : int
@@ -92,19 +98,23 @@ def block_bootstrap_pooled(
     country_weights : dict[str, float] or None
         {iso: weight} 各国采样权重（需已归一化，和为 1）。
         为 None 时使用等概率 1/N。
+    columns : list[str] or None
+        要采样的列名。默认 None 时使用 RETURN_COLS。
 
     Returns
     -------
     pd.DataFrame
-        shape (retirement_years, 4) 的 DataFrame，列为 RETURN_COLS。
+        shape (retirement_years, len(columns)) 的 DataFrame。
     """
     if rng is None:
         rng = np.random.default_rng()
 
+    cols = columns if columns is not None else RETURN_COLS
+
     # 预转换为 numpy 数组
     country_list = list(country_dfs.keys())
     country_arrays = {
-        iso: df[RETURN_COLS].values for iso, df in country_dfs.items()
+        iso: df[cols].values for iso, df in country_dfs.items()
     }
     n_countries = len(country_list)
 
@@ -142,4 +152,4 @@ def block_bootstrap_pooled(
         total_sampled += block_size
 
     all_rows = np.concatenate(sampled_rows, axis=0)[:retirement_years]
-    return pd.DataFrame(all_rows, columns=RETURN_COLS)
+    return pd.DataFrame(all_rows, columns=cols)

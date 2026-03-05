@@ -26,9 +26,13 @@ from simulator.config import (
     TARGET_SUCCESS_RATES,
     get_gdp_weights,
 )
+from simulator.buy_vs_rent import run_buy_vs_rent_mc, run_simple_buy_vs_rent
 from simulator.data_loader import (
     filter_by_country,
+    filter_housing_data,
     get_country_dfs,
+    get_housing_available_countries,
+    get_housing_country_dfs,
     load_country_list_by_source,
     load_returns_by_source,
 )
@@ -70,6 +74,10 @@ from schemas import (
     AllocationSweepResponse,
     BacktestRequest,
     BacktestResponse,
+    BuyVsRentMCRequest,
+    BuyVsRentMCResponse,
+    BuyVsRentSimpleRequest,
+    BuyVsRentSimpleResponse,
     CountriesResponse,
     CountryInfo,
     GuardrailBatchBacktestRequest,
@@ -77,6 +85,8 @@ from schemas import (
     GuardrailBatchPathSummary,
     GuardrailRequest,
     GuardrailResponse,
+    HousingCountriesResponse,
+    HousingCountryInfo,
     ReturnsResponse,
     SimBatchBacktestRequest,
     SimBatchBacktestResponse,
@@ -928,3 +938,106 @@ def api_returns(country: str = "USA", data_start_year: int = 1900, data_source: 
         domestic_bond=filtered["Domestic_Bond"].tolist(),
         inflation=filtered["Inflation"].tolist(),
     )
+
+
+# ---------------------------------------------------------------------------
+# 7. 买房 vs 租房
+# ---------------------------------------------------------------------------
+
+@app.get("/api/buy-vs-rent/countries", response_model=HousingCountriesResponse)
+def api_housing_countries():
+    countries = get_housing_available_countries("jst")
+    return HousingCountriesResponse(
+        countries=[HousingCountryInfo(**c) for c in countries]
+    )
+
+
+@app.post("/api/buy-vs-rent/simple", response_model=BuyVsRentSimpleResponse)
+@limiter.limit("20/minute")
+def api_buy_vs_rent_simple(request: Request, req: BuyVsRentSimpleRequest):
+    result = run_simple_buy_vs_rent(
+        home_price=req.home_price,
+        down_payment_pct=req.down_payment_pct,
+        mortgage_term=req.mortgage_term,
+        mortgage_rate=req.mortgage_rate,
+        buying_cost_pct=req.buying_cost_pct,
+        selling_cost_pct=req.selling_cost_pct,
+        property_tax_pct=req.property_tax_pct,
+        maintenance_pct=req.maintenance_pct,
+        insurance_annual=req.insurance_annual,
+        annual_rent=req.annual_rent,
+        rent_growth_rate=req.rent_growth_rate,
+        home_appreciation_rate=req.home_appreciation_rate,
+        investment_return_rate=req.investment_return_rate,
+        inflation_rate=req.inflation_rate,
+        analysis_years=req.analysis_years,
+    )
+    return BuyVsRentSimpleResponse(**result)
+
+
+@app.post("/api/buy-vs-rent/simulate", response_model=BuyVsRentMCResponse)
+@limiter.limit("10/minute")
+def api_buy_vs_rent_mc(request: Request, req: BuyVsRentMCRequest):
+    df = _get_returns_df("jst")
+
+    alloc_dict = req.allocation.model_dump()
+    expense_dict = req.expense_ratios.model_dump()
+
+    if req.country == "ALL":
+        country_dfs = get_housing_country_dfs(df, req.data_start_year)
+        if not country_dfs:
+            raise HTTPException(400, "No countries with housing data available")
+        country_weights = _resolve_country_weights_for_housing(req, country_dfs)
+        filtered_df = None
+    else:
+        filtered_df = filter_housing_data(df, req.country, req.data_start_year)
+        if len(filtered_df) < 10:
+            raise HTTPException(
+                400,
+                f"Insufficient housing data for country {req.country} "
+                f"(need 10+ years, got {len(filtered_df)})"
+            )
+        country_dfs = None
+        country_weights = None
+
+    result = run_buy_vs_rent_mc(
+        home_price=req.home_price,
+        down_payment_pct=req.down_payment_pct,
+        mortgage_term=req.mortgage_term,
+        mortgage_rate_spread=req.mortgage_rate_spread,
+        buying_cost_pct=req.buying_cost_pct,
+        selling_cost_pct=req.selling_cost_pct,
+        property_tax_pct=req.property_tax_pct,
+        maintenance_pct=req.maintenance_pct,
+        insurance_annual=req.insurance_annual,
+        annual_rent=req.annual_rent,
+        allocation=alloc_dict,
+        expense_ratios=expense_dict,
+        analysis_years=req.analysis_years,
+        num_simulations=req.num_simulations,
+        min_block=req.min_block,
+        max_block=req.max_block,
+        returns_df=filtered_df,
+        country_dfs=country_dfs,
+        country_weights=country_weights,
+        override_home_appreciation=req.override_home_appreciation,
+        override_rent_growth=req.override_rent_growth,
+        override_mortgage_rate=req.override_mortgage_rate,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+    )
+    return BuyVsRentMCResponse(**result)
+
+
+def _resolve_country_weights_for_housing(
+    req: BuyVsRentMCRequest,
+    country_dfs: dict,
+) -> dict[str, float] | None:
+    """为有 housing 数据的国家计算池化权重。"""
+    if req.pooling_method == "gdp_sqrt":
+        all_weights = get_gdp_weights()
+        weights = {iso: all_weights.get(iso, 1.0) for iso in country_dfs}
+        total = sum(weights.values())
+        if total > 0:
+            return {iso: w / total for iso, w in weights.items()}
+    return None

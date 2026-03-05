@@ -17,6 +17,11 @@ import type {
   AllocationSweepResponse,
   CountryInfo,
   FormParams,
+  BuyVsRentSimpleRequest,
+  BuyVsRentSimpleResponse,
+  BuyVsRentMCRequest,
+  BuyVsRentMCResponse,
+  HousingCountryInfo,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
@@ -78,6 +83,33 @@ export async function runSimBatchBacktest(params: FormParams): Promise<SimBatchB
 // 批量历史回测：Guardrail 页
 export async function runGuardrailBatchBacktest(req: Record<string, unknown>): Promise<GuardrailBatchBacktestResponse> {
   return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req);
+}
+
+// 买房 vs 租房
+export async function runBuyVsRentSimple(req: BuyVsRentSimpleRequest): Promise<BuyVsRentSimpleResponse> {
+  return post<BuyVsRentSimpleRequest, BuyVsRentSimpleResponse>("/api/buy-vs-rent/simple", req);
+}
+
+export async function runBuyVsRentMC(req: BuyVsRentMCRequest): Promise<BuyVsRentMCResponse> {
+  return post<BuyVsRentMCRequest, BuyVsRentMCResponse>("/api/buy-vs-rent/simulate", req);
+}
+
+export async function fetchHousingCountries(): Promise<HousingCountryInfo[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}/api/buy-vs-rent/countries`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    return data.countries;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function fetchCountries(dataSource: string = "jst"): Promise<CountryInfo[]> {

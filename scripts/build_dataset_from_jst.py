@@ -8,11 +8,18 @@ Data source:
   License: CC BY-NC-SA 4.0
 
 Reads JSTdatasetR6.xlsx and produces:
-  - data/jst_returns.csv   (long format: Year, Country, Domestic_Stock, Global_Stock, Domestic_Bond, Inflation)
-  - data/jst_countries.json (country metadata with year ranges)
+  - data/jst_returns.csv   (long format with core + housing columns)
+  - data/jst_countries.json (country metadata with year ranges and housing flags)
+
+Output columns (all NOMINAL — engine computes real values internally):
+  Core (always present):
+    Year, Country, Domestic_Stock, Global_Stock, Domestic_Bond, Inflation
+  Housing (NaN for countries/years without data):
+    Housing_CapGain  — nominal house price capital gain rate
+    Rent_Growth      — nominal rent growth rate (derived from rent_yd * hpnom)
+    Long_Rate        — long-term government bond yield (decimal, e.g. 0.05)
 
 Design decisions:
-  - Output columns are NOMINAL returns + inflation (engine computes real returns).
   - Global_Stock is GDP-weighted average of other countries' equity returns,
     converted to investor's home currency via exchange rates.
   - GDP weights use rgdpmad * pop (Maddison real GDP per capita in intl $
@@ -23,6 +30,8 @@ Design decisions:
     (assets frozen, no nominal gain; real value destroyed by inflation).
   - Countries with < 30 complete years are excluded.
   - FX conversion: eq_tr_F_in_X = (1 + eq_tr_F) * (fx_change_X / fx_change_F) - 1
+  - Housing columns are optional: NaN values are preserved for countries/years
+    without housing data (CAN, IRL have no housing returns in JST R6).
 """
 
 from __future__ import annotations
@@ -92,6 +101,25 @@ def main() -> None:
 
         # Compute FX change (xrusd[t] / xrusd[t-1])
         df["fx_change"] = df["xrusd"] / df["xrusd"].shift(1)
+
+        # ----------------------------------------------------------
+        # Housing columns (all nominal; NaN when source data missing)
+        # ----------------------------------------------------------
+        # housing_capgain: nominal house price capital gain (already a rate)
+        df["_housing_capgain"] = df.get("housing_capgain", np.nan)
+
+        # Rent growth: derived from nominal rent level = rent_yd * hpnom
+        if "housing_rent_yd" in df.columns and "hpnom" in df.columns:
+            rent_level = df["housing_rent_yd"] * df["hpnom"]
+            df["_rent_growth"] = rent_level.pct_change()
+        else:
+            df["_rent_growth"] = np.nan
+
+        # Long-term rate: convert from percentage points to decimal
+        if "ltrate" in df.columns:
+            df["_long_rate"] = df["ltrate"] / 100.0
+        else:
+            df["_long_rate"] = np.nan
 
         # ----------------------------------------------------------
         # Inject market-closure rows: set eq_tr = 0 for frozen markets
@@ -168,6 +196,11 @@ def main() -> None:
             year = int(row_x["year"])
             fx_change_x = row_x["fx_change"]
 
+            # Housing columns for this row (may be NaN)
+            housing_capgain = row_x.get("_housing_capgain", np.nan)
+            rent_growth = row_x.get("_rent_growth", np.nan)
+            long_rate = row_x.get("_long_rate", np.nan)
+
             # If fx_change is missing for this row, we cannot compute
             # FX-adjusted global returns → fall back to Domestic_Stock
             if pd.isna(fx_change_x):
@@ -179,6 +212,9 @@ def main() -> None:
                     "Global_Stock": global_stock,
                     "Domestic_Bond": row_x["bond_tr"],
                     "Inflation": row_x["inflation"],
+                    "Housing_CapGain": housing_capgain,
+                    "Rent_Growth": rent_growth,
+                    "Long_Rate": long_rate,
                 })
                 print(f"  {iso_x} {year}: fx_change missing, Global_Stock = Domestic_Stock ({global_stock:.4f})")
                 continue
@@ -211,6 +247,9 @@ def main() -> None:
                 "Global_Stock": global_stock,
                 "Domestic_Bond": row_x["bond_tr"],
                 "Inflation": row_x["inflation"],
+                "Housing_CapGain": housing_capgain,
+                "Rent_Growth": rent_growth,
+                "Long_Rate": long_rate,
             })
 
     result = pd.DataFrame(output_rows)
@@ -238,6 +277,7 @@ def main() -> None:
     for iso in sorted(result["Country"].unique()):
         sub = result[result["Country"] == iso]
         en_name, zh_name = COUNTRY_NAMES.get(iso, (iso, iso))
+        housing_years = int(sub["Housing_CapGain"].notna().sum())
         countries_meta.append({
             "iso": iso,
             "name_en": en_name,
@@ -245,6 +285,8 @@ def main() -> None:
             "min_year": int(sub["Year"].min()),
             "max_year": int(sub["Year"].max()),
             "n_years": len(sub),
+            "has_housing": housing_years > 0,
+            "housing_years": housing_years,
         })
 
     with open(OUT_JSON, "w", encoding="utf-8") as f:
@@ -261,7 +303,16 @@ def main() -> None:
         gs = sub["Global_Stock"].mean() * 100
         db = sub["Domestic_Bond"].mean() * 100
         inf = sub["Inflation"].mean() * 100
-        print(f"  {iso}: DomStock={ds:+.2f}% GlobStock={gs:+.2f}% DomBond={db:+.2f}% Infl={inf:+.2f}%")
+        hcg = sub["Housing_CapGain"].dropna()
+        rg = sub["Rent_Growth"].dropna()
+        lr = sub["Long_Rate"].dropna()
+        housing_str = ""
+        if len(hcg) > 0:
+            housing_str = (f" HousCG={hcg.mean()*100:+.2f}% RentGr={rg.mean()*100:+.2f}%"
+                           f" LongRate={lr.mean()*100:.2f}% (n_housing={len(hcg)})")
+        else:
+            housing_str = " (no housing data)"
+        print(f"  {iso}: DomStock={ds:+.2f}% GlobStock={gs:+.2f}% DomBond={db:+.2f}% Infl={inf:+.2f}%{housing_str}")
 
     # ------------------------------------------------------------------
     # 7. Report filled/injected rows

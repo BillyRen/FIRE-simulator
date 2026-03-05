@@ -29,6 +29,8 @@ EXPECTED_COLUMNS = [
 
 RETURN_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
 
+HOUSING_COLS = ["Housing_CapGain", "Rent_Growth", "Long_Rate"]
+
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -230,3 +232,46 @@ def load_country_list_by_source(data_source: str = "jst") -> list[dict[str, Any]
     if data_source == "fire_dataset":
         return load_fire_country_list()
     return load_country_list()
+
+
+def get_housing_available_countries(data_source: str = "jst") -> list[dict[str, Any]]:
+    """返回有 housing 数据的国家列表（用于买房 vs 租房功能）。
+
+    仅 JST 数据源含 housing 数据。FIRE Dataset 不含 housing 数据，返回空列表。
+    """
+    if data_source != "jst":
+        return []
+    countries = load_country_list()
+    return [c for c in countries if c.get("has_housing", False)]
+
+
+def filter_housing_data(
+    df: pd.DataFrame,
+    country: str,
+    data_start_year: int = 1970,
+) -> pd.DataFrame:
+    """按国家和起始年过滤，并只保留有 housing 数据的行。
+
+    与 filter_by_country 类似，但额外要求 Housing_CapGain 非 NaN。
+    用于买房 vs 租房模拟中需要完整 housing 数据的场景。
+    """
+    result = filter_by_country(df, country, data_start_year)
+    if "Housing_CapGain" in result.columns:
+        result = result.dropna(subset=["Housing_CapGain"]).reset_index(drop=True)
+    return result
+
+
+def get_housing_country_dfs(
+    df: pd.DataFrame,
+    data_start_year: int = 1970,
+) -> dict[str, pd.DataFrame]:
+    """按国家拆分数据，仅保留有 housing 数据的国家和行。"""
+    filtered = df[df["Year"] >= data_start_year]
+    result = {}
+    for iso, group in filtered.groupby("Country"):
+        country_df = group.sort_values("Year").reset_index(drop=True)
+        if "Housing_CapGain" in country_df.columns:
+            country_df = country_df.dropna(subset=["Housing_CapGain"])
+        if len(country_df) >= 2:
+            result[str(iso)] = country_df
+    return result

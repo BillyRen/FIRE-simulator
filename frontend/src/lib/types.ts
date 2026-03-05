@@ -369,6 +369,97 @@ export interface AllocationSweepResponse {
 }
 
 // ---------------------------------------------------------------------------
+// 6. 买房 vs 租房
+// ---------------------------------------------------------------------------
+
+export interface BuyVsRentSimpleRequest {
+  home_price: number;
+  down_payment_pct: number;
+  mortgage_term: number;
+  buying_cost_pct: number;
+  selling_cost_pct: number;
+  property_tax_pct: number;
+  maintenance_pct: number;
+  insurance_annual: number;
+  annual_rent: number;
+  analysis_years: number;
+  mortgage_rate: number;
+  rent_growth_rate: number;
+  home_appreciation_rate: number;
+  investment_return_rate: number;
+  inflation_rate: number;
+}
+
+export interface BuyVsRentSimpleResponse {
+  analysis_years: number;
+  buy_net_worth_real: number[];
+  rent_net_worth_real: number[];
+  advantage_real: number[];
+  breakeven_year: number | null;
+  home_value_real: number[];
+  mortgage_balance_real: number[];
+  buy_cost_total_real: number[];
+  rent_cost_real: number[];
+  buy_cost_interest_real: number[];
+  buy_cost_principal_real: number[];
+  buy_cost_tax_real: number[];
+  buy_cost_maintenance_real: number[];
+  buy_cost_insurance_real: number[];
+  summary: Record<string, number | null>;
+}
+
+export interface BuyVsRentMCRequest {
+  home_price: number;
+  down_payment_pct: number;
+  mortgage_term: number;
+  buying_cost_pct: number;
+  selling_cost_pct: number;
+  property_tax_pct: number;
+  maintenance_pct: number;
+  insurance_annual: number;
+  annual_rent: number;
+  analysis_years: number;
+  mortgage_rate_spread: number;
+  allocation: Allocation;
+  expense_ratios: ExpenseRatios;
+  min_block: number;
+  max_block: number;
+  num_simulations: number;
+  data_start_year: number;
+  country: string;
+  pooling_method: "equal" | "gdp_sqrt";
+  leverage: number;
+  borrowing_spread: number;
+  override_home_appreciation: number | null;
+  override_rent_growth: number | null;
+  override_mortgage_rate: number | null;
+}
+
+export interface BuyVsRentMCResponse {
+  num_simulations: number;
+  analysis_years: number;
+  buy_percentile_trajectories: Record<string, number[]>;
+  rent_percentile_trajectories: Record<string, number[]>;
+  advantage_percentile_trajectories: Record<string, number[]>;
+  buy_wins_probability: number[];
+  breakeven_percentiles: Record<string, number>;
+  buy_cost_median: number[];
+  rent_cost_median: number[];
+  summary: Record<string, number | null>;
+}
+
+export interface HousingCountryInfo {
+  iso: string;
+  name_en: string;
+  name_zh: string;
+  min_year: number;
+  max_year: number;
+  n_years: number;
+  has_housing: boolean;
+  housing_years: number;
+}
+
+// ---------------------------------------------------------------------------
 // 共享表单状态
 // ---------------------------------------------------------------------------
 

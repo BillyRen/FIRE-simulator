@@ -384,3 +384,94 @@ class ReturnsResponse(BaseModel):
     global_stock: list[float]
     domestic_bond: list[float]
     inflation: list[float]
+
+
+# ---------------------------------------------------------------------------
+# 7. 买房 vs 租房
+# ---------------------------------------------------------------------------
+
+class BuyVsRentBaseParams(BaseModel):
+    """买房/租房对比的共享参数。"""
+    home_price: float = Field(500_000, gt=0, description="房价")
+    down_payment_pct: float = Field(0.20, ge=0, le=1, description="首付比例")
+    mortgage_term: int = Field(30, ge=1, le=50, description="贷款年限")
+    buying_cost_pct: float = Field(0.03, ge=0, le=0.2, description="买房交易费率")
+    selling_cost_pct: float = Field(0.06, ge=0, le=0.2, description="卖房交易费率")
+    property_tax_pct: float = Field(0.01, ge=0, le=0.1, description="年房产税率")
+    maintenance_pct: float = Field(0.01, ge=0, le=0.1, description="年维护费率")
+    insurance_annual: float = Field(1200, ge=0, description="年保险费")
+    annual_rent: float = Field(20_000, ge=0, description="初始年租金")
+    analysis_years: int = Field(30, ge=1, le=60, description="分析年限")
+
+
+class BuyVsRentSimpleRequest(BuyVsRentBaseParams):
+    """简化版：用户手动输入所有利率参数。"""
+    mortgage_rate: float = Field(0.065, ge=0, le=0.3, description="固定房贷利率（名义）")
+    rent_growth_rate: float = Field(0.03, ge=-0.1, le=0.2, description="年租金增长率（名义）")
+    home_appreciation_rate: float = Field(0.035, ge=-0.2, le=0.3, description="年房价增值率（名义）")
+    investment_return_rate: float = Field(0.08, ge=-0.1, le=0.3, description="投资回报率（名义）")
+    inflation_rate: float = Field(0.025, ge=-0.05, le=0.2, description="通胀率")
+
+
+class BuyVsRentSimpleResponse(BaseModel):
+    analysis_years: int
+    buy_net_worth_real: list[float]
+    rent_net_worth_real: list[float]
+    advantage_real: list[float]
+    breakeven_year: int | None
+    home_value_real: list[float]
+    mortgage_balance_real: list[float]
+    buy_cost_total_real: list[float]
+    rent_cost_real: list[float]
+    buy_cost_interest_real: list[float]
+    buy_cost_principal_real: list[float]
+    buy_cost_tax_real: list[float]
+    buy_cost_maintenance_real: list[float]
+    buy_cost_insurance_real: list[float]
+    summary: dict
+
+
+class BuyVsRentMCRequest(BuyVsRentBaseParams):
+    """完整版：蒙特卡洛模拟。可选手动覆盖部分参数。"""
+    mortgage_rate_spread: float = Field(0.017, ge=0, le=0.1, description="房贷利差（ltrate + spread）")
+    allocation: AllocationSchema = AllocationSchema()
+    expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
+    min_block: int = Field(5, ge=1, le=30)
+    max_block: int = Field(15, ge=1, le=55)
+    num_simulations: int = Field(2_000, ge=100, le=20_000)
+    data_start_year: int = Field(1900, ge=1871, le=2100)
+    country: str = Field("USA", description="ISO 国家代码或 'ALL'")
+    pooling_method: str = Field("equal", pattern="^(equal|gdp_sqrt)$")
+    leverage: float = Field(1.0, ge=1.0, le=5.0)
+    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
+    override_home_appreciation: float | None = Field(None, ge=-0.2, le=0.3, description="手动房价增值率")
+    override_rent_growth: float | None = Field(None, ge=-0.1, le=0.2, description="手动租金增长率")
+    override_mortgage_rate: float | None = Field(None, ge=0, le=0.3, description="手动房贷利率")
+
+
+class BuyVsRentMCResponse(BaseModel):
+    num_simulations: int
+    analysis_years: int
+    buy_percentile_trajectories: dict[str, list[float]]
+    rent_percentile_trajectories: dict[str, list[float]]
+    advantage_percentile_trajectories: dict[str, list[float]]
+    buy_wins_probability: list[float]
+    breakeven_percentiles: dict
+    buy_cost_median: list[float]
+    rent_cost_median: list[float]
+    summary: dict
+
+
+class HousingCountryInfo(BaseModel):
+    iso: str
+    name_en: str
+    name_zh: str
+    min_year: int
+    max_year: int
+    n_years: int
+    has_housing: bool
+    housing_years: int
+
+
+class HousingCountriesResponse(BaseModel):
+    countries: list[HousingCountryInfo]
