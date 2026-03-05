@@ -476,3 +476,62 @@ class HousingCountryInfo(BaseModel):
 
 class HousingCountriesResponse(BaseModel):
     countries: list[HousingCountryInfo]
+
+
+# ---------------------------------------------------------------------------
+# 7b. 盈亏平衡房价查找
+# ---------------------------------------------------------------------------
+
+class BreakevenSimpleRequest(BuyVsRentBaseParams):
+    """简化版盈亏平衡查找 — 复用 simple 的利率参数。"""
+    mortgage_rate: float = Field(0.065, ge=0, le=0.3)
+    rent_growth_rate: float = Field(0.03, ge=-0.1, le=0.2)
+    home_appreciation_rate: float = Field(0.035, ge=-0.2, le=0.3)
+    investment_return_rate: float = Field(0.08, ge=-0.1, le=0.3)
+    inflation_rate: float = Field(0.025, ge=-0.05, le=0.2)
+    price_low: float | None = Field(None, gt=0, description="搜索下界")
+    price_high: float | None = Field(None, gt=0, description="搜索上界")
+    auto_estimate_ha: bool = Field(False, description="是否根据房价动态计算增值率")
+    fair_pe: float | None = Field(None, ge=5, le=100, description="合理租售比")
+    reversion_years: int | None = Field(None, ge=1, le=50, description="回归年限")
+
+
+class BreakevenMCRequest(BuyVsRentBaseParams):
+    """MC 版盈亏平衡查找 — 复用 MC 的采样参数。"""
+    mortgage_rate_spread: float = Field(0.017, ge=0, le=0.1)
+    allocation: AllocationSchema = AllocationSchema()
+    expense_ratios: ExpenseRatioSchema = ExpenseRatioSchema()
+    min_block: int = Field(5, ge=1, le=30)
+    max_block: int = Field(15, ge=1, le=55)
+    num_simulations: int = Field(1_000, ge=100, le=10_000)
+    data_start_year: int = Field(1900, ge=1871, le=2100)
+    country: str = Field("USA")
+    pooling_method: str = Field("equal", pattern="^(equal|gdp_sqrt)$")
+    leverage: float = Field(1.0, ge=1.0, le=5.0)
+    borrowing_spread: float = Field(0.02, ge=0, le=0.2)
+    override_home_appreciation: float | None = Field(None, ge=-0.2, le=0.3)
+    override_rent_growth: float | None = Field(None, ge=-0.1, le=0.2)
+    override_mortgage_rate: float | None = Field(None, ge=0, le=0.3)
+    target_win_pct: float = Field(0.5, ge=0.1, le=0.9, description="目标胜率")
+    price_low: float | None = Field(None, gt=0)
+    price_high: float | None = Field(None, gt=0)
+
+
+class BreakevenResponse(BaseModel):
+    found: bool
+    breakeven_price: float | None = None
+    price_to_annual_rent: float | None = None
+    message: str | None = None
+    ha_at_breakeven: float | None = None
+    # simple-specific
+    summary: dict | None = None
+    advantage_at_low: float | None = None
+    advantage_at_high: float | None = None
+    # mc-specific
+    target_win_pct: float | None = None
+    actual_win_pct: float | None = None
+    median_advantage: float | None = None
+    median_buy_nw: float | None = None
+    median_rent_nw: float | None = None
+    win_pct_at_low: float | None = None
+    win_pct_at_high: float | None = None

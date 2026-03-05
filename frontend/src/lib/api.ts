@@ -22,6 +22,9 @@ import type {
   BuyVsRentMCRequest,
   BuyVsRentMCResponse,
   HousingCountryInfo,
+  BreakevenSimpleRequest,
+  BreakevenMCRequest,
+  BreakevenResponse,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
@@ -92,6 +95,14 @@ export async function runBuyVsRentSimple(req: BuyVsRentSimpleRequest): Promise<B
 
 export async function runBuyVsRentMC(req: BuyVsRentMCRequest): Promise<BuyVsRentMCResponse> {
   return post<BuyVsRentMCRequest, BuyVsRentMCResponse>("/api/buy-vs-rent/simulate", req);
+}
+
+export async function runBreakevenSimple(req: BreakevenSimpleRequest): Promise<BreakevenResponse> {
+  return post<BreakevenSimpleRequest, BreakevenResponse>("/api/buy-vs-rent/breakeven/simple", req);
+}
+
+export async function runBreakevenMC(req: BreakevenMCRequest): Promise<BreakevenResponse> {
+  return post<BreakevenMCRequest, BreakevenResponse>("/api/buy-vs-rent/breakeven/mc", req);
 }
 
 export async function fetchHousingCountries(): Promise<HousingCountryInfo[]> {

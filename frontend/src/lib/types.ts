@@ -461,6 +461,79 @@ export interface HousingCountryInfo {
 }
 
 // ---------------------------------------------------------------------------
+// 6b. 盈亏平衡房价查找
+// ---------------------------------------------------------------------------
+
+export interface BreakevenSimpleRequest {
+  down_payment_pct: number;
+  mortgage_term: number;
+  buying_cost_pct: number;
+  selling_cost_pct: number;
+  property_tax_pct: number;
+  maintenance_pct: number;
+  insurance_annual: number;
+  annual_rent: number;
+  analysis_years: number;
+  mortgage_rate: number;
+  rent_growth_rate: number;
+  home_appreciation_rate: number;
+  investment_return_rate: number;
+  inflation_rate: number;
+  price_low?: number;
+  price_high?: number;
+  auto_estimate_ha?: boolean;
+  fair_pe?: number;
+  reversion_years?: number;
+}
+
+export interface BreakevenMCRequest {
+  down_payment_pct: number;
+  mortgage_term: number;
+  buying_cost_pct: number;
+  selling_cost_pct: number;
+  property_tax_pct: number;
+  maintenance_pct: number;
+  insurance_annual: number;
+  annual_rent: number;
+  analysis_years: number;
+  mortgage_rate_spread: number;
+  allocation: Allocation;
+  expense_ratios: ExpenseRatios;
+  min_block: number;
+  max_block: number;
+  num_simulations: number;
+  data_start_year: number;
+  country: string;
+  pooling_method: "equal" | "gdp_sqrt";
+  leverage: number;
+  borrowing_spread: number;
+  override_home_appreciation: number | null;
+  override_rent_growth: number | null;
+  override_mortgage_rate: number | null;
+  target_win_pct: number;
+  price_low?: number;
+  price_high?: number;
+}
+
+export interface BreakevenResponse {
+  found: boolean;
+  breakeven_price: number | null;
+  price_to_annual_rent: number | null;
+  message?: string;
+  summary?: Record<string, number | null>;
+  advantage_at_low?: number;
+  advantage_at_high?: number;
+  target_win_pct?: number;
+  actual_win_pct?: number;
+  median_advantage?: number;
+  median_buy_nw?: number;
+  median_rent_nw?: number;
+  win_pct_at_low?: number;
+  win_pct_at_high?: number;
+  ha_at_breakeven?: number;
+}
+
+// ---------------------------------------------------------------------------
 // 共享表单状态
 // ---------------------------------------------------------------------------
 

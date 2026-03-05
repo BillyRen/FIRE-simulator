@@ -26,7 +26,12 @@ from simulator.config import (
     TARGET_SUCCESS_RATES,
     get_gdp_weights,
 )
-from simulator.buy_vs_rent import run_buy_vs_rent_mc, run_simple_buy_vs_rent
+from simulator.buy_vs_rent import (
+    find_breakeven_price_mc,
+    find_breakeven_price_simple,
+    run_buy_vs_rent_mc,
+    run_simple_buy_vs_rent,
+)
 from simulator.data_loader import (
     filter_by_country,
     filter_housing_data,
@@ -74,6 +79,9 @@ from schemas import (
     AllocationSweepResponse,
     BacktestRequest,
     BacktestResponse,
+    BreakevenMCRequest,
+    BreakevenResponse,
+    BreakevenSimpleRequest,
     BuyVsRentMCRequest,
     BuyVsRentMCResponse,
     BuyVsRentSimpleRequest,
@@ -1030,7 +1038,7 @@ def api_buy_vs_rent_mc(request: Request, req: BuyVsRentMCRequest):
 
 
 def _resolve_country_weights_for_housing(
-    req: BuyVsRentMCRequest,
+    req,
     country_dfs: dict,
 ) -> dict[str, float] | None:
     """为有 housing 数据的国家计算池化权重。"""
@@ -1041,3 +1049,90 @@ def _resolve_country_weights_for_housing(
         if total > 0:
             return {iso: w / total for iso, w in weights.items()}
     return None
+
+
+def _prepare_housing_data(req, df):
+    """Shared helper: resolve country_dfs / filtered_df for housing endpoints."""
+    if req.country == "ALL":
+        country_dfs = get_housing_country_dfs(df, req.data_start_year)
+        if not country_dfs:
+            raise HTTPException(400, "No countries with housing data available")
+        country_weights = _resolve_country_weights_for_housing(req, country_dfs)
+        return None, country_dfs, country_weights
+    else:
+        filtered_df = filter_housing_data(df, req.country, req.data_start_year)
+        if len(filtered_df) < 10:
+            raise HTTPException(
+                400,
+                f"Insufficient housing data for country {req.country} "
+                f"(need 10+ years, got {len(filtered_df)})"
+            )
+        return filtered_df, None, None
+
+
+# ---------------------------------------------------------------------------
+# 8. 盈亏平衡房价查找
+# ---------------------------------------------------------------------------
+
+@app.post("/api/buy-vs-rent/breakeven/simple", response_model=BreakevenResponse)
+@limiter.limit("20/minute")
+def api_breakeven_simple(request: Request, req: BreakevenSimpleRequest):
+    result = find_breakeven_price_simple(
+        down_payment_pct=req.down_payment_pct,
+        mortgage_term=req.mortgage_term,
+        mortgage_rate=req.mortgage_rate,
+        buying_cost_pct=req.buying_cost_pct,
+        selling_cost_pct=req.selling_cost_pct,
+        property_tax_pct=req.property_tax_pct,
+        maintenance_pct=req.maintenance_pct,
+        insurance_annual=req.insurance_annual,
+        annual_rent=req.annual_rent,
+        rent_growth_rate=req.rent_growth_rate,
+        home_appreciation_rate=req.home_appreciation_rate,
+        investment_return_rate=req.investment_return_rate,
+        inflation_rate=req.inflation_rate,
+        analysis_years=req.analysis_years,
+        price_low=req.price_low,
+        price_high=req.price_high,
+        auto_estimate_ha=req.auto_estimate_ha,
+        fair_pe=req.fair_pe,
+        reversion_years=req.reversion_years,
+    )
+    return BreakevenResponse(**result)
+
+
+@app.post("/api/buy-vs-rent/breakeven/mc", response_model=BreakevenResponse)
+@limiter.limit("5/minute")
+def api_breakeven_mc(request: Request, req: BreakevenMCRequest):
+    df = _get_returns_df("jst")
+    filtered_df, country_dfs, country_weights = _prepare_housing_data(req, df)
+
+    result = find_breakeven_price_mc(
+        down_payment_pct=req.down_payment_pct,
+        mortgage_term=req.mortgage_term,
+        mortgage_rate_spread=req.mortgage_rate_spread,
+        buying_cost_pct=req.buying_cost_pct,
+        selling_cost_pct=req.selling_cost_pct,
+        property_tax_pct=req.property_tax_pct,
+        maintenance_pct=req.maintenance_pct,
+        insurance_annual=req.insurance_annual,
+        annual_rent=req.annual_rent,
+        allocation=req.allocation.model_dump(),
+        expense_ratios=req.expense_ratios.model_dump(),
+        analysis_years=req.analysis_years,
+        num_simulations=req.num_simulations,
+        min_block=req.min_block,
+        max_block=req.max_block,
+        returns_df=filtered_df,
+        country_dfs=country_dfs,
+        country_weights=country_weights,
+        override_home_appreciation=req.override_home_appreciation,
+        override_rent_growth=req.override_rent_growth,
+        override_mortgage_rate=req.override_mortgage_rate,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+        target_win_pct=req.target_win_pct,
+        price_low=req.price_low,
+        price_high=req.price_high,
+    )
+    return BreakevenResponse(**result)

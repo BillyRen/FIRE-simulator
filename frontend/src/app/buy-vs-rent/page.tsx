@@ -25,6 +25,8 @@ import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import {
   runBuyVsRentSimple,
   runBuyVsRentMC,
+  runBreakevenSimple,
+  runBreakevenMC,
   fetchHousingCountries,
 } from "@/lib/api";
 import { useSharedParams } from "@/lib/params-context";
@@ -32,6 +34,7 @@ import { fmt, pct } from "@/lib/utils";
 import type {
   BuyVsRentSimpleResponse,
   BuyVsRentMCResponse,
+  BreakevenResponse,
   HousingCountryInfo,
 } from "@/lib/types";
 
@@ -212,10 +215,15 @@ export default function BuyVsRentPage() {
     fetchHousingCountries().then(setCountries).catch(() => {});
   }, []);
 
+  // MC breakeven target win pct
+  const [targetWinPct, setTargetWinPct] = useState(50);
+
   // Results
   const [simpleResult, setSimpleResult] = useState<BuyVsRentSimpleResponse | null>(null);
   const [mcResult, setMcResult] = useState<BuyVsRentMCResponse | null>(null);
+  const [breakevenResult, setBreakevenResult] = useState<BreakevenResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [breakevenLoading, setBreakevenLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("simple");
 
@@ -283,6 +291,78 @@ export default function BuyVsRentPage() {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBreakevenSimple = async () => {
+    setBreakevenLoading(true);
+    setError(null);
+    try {
+      const req: Parameters<typeof runBreakevenSimple>[0] = {
+        down_payment_pct: downPaymentPct / 100,
+        mortgage_term: mortgageTerm,
+        buying_cost_pct: buyingCostPct / 100,
+        selling_cost_pct: sellingCostPct / 100,
+        property_tax_pct: propertyTaxPct / 100,
+        maintenance_pct: maintenancePct / 100,
+        insurance_annual: insuranceAnnual,
+        annual_rent: annualRent,
+        analysis_years: analysisYears,
+        mortgage_rate: mortgageRate / 100,
+        rent_growth_rate: rentGrowthRate / 100,
+        home_appreciation_rate: homeAppreciationRate / 100,
+        investment_return_rate: investmentReturnRate / 100,
+        inflation_rate: inflationRate / 100,
+      };
+      if (autoEstimateHA) {
+        req.auto_estimate_ha = true;
+        req.fair_pe = fairPE;
+        req.reversion_years = reversionYears;
+      }
+      const res = await runBreakevenSimple(req);
+      setBreakevenResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tc("unknownError"));
+    } finally {
+      setBreakevenLoading(false);
+    }
+  };
+
+  const handleBreakevenMC = async () => {
+    setBreakevenLoading(true);
+    setError(null);
+    try {
+      const res = await runBreakevenMC({
+        down_payment_pct: downPaymentPct / 100,
+        mortgage_term: mortgageTerm,
+        buying_cost_pct: buyingCostPct / 100,
+        selling_cost_pct: sellingCostPct / 100,
+        property_tax_pct: propertyTaxPct / 100,
+        maintenance_pct: maintenancePct / 100,
+        insurance_annual: insuranceAnnual,
+        annual_rent: annualRent,
+        analysis_years: analysisYears,
+        mortgage_rate_spread: mortgageRateSpread / 100,
+        allocation,
+        expense_ratios: expenseRatios,
+        min_block: mcMinBlock,
+        max_block: mcMaxBlock,
+        num_simulations: Math.min(mcNumSim, 1000),
+        data_start_year: mcDataStartYear,
+        country: mcCountry,
+        pooling_method: mcPooling,
+        leverage: params.leverage,
+        borrowing_spread: params.borrowing_spread,
+        override_home_appreciation: overrideHA ? overrideHAVal / 100 : null,
+        override_rent_growth: overrideRG ? overrideRGVal / 100 : null,
+        override_mortgage_rate: overrideMR ? overrideMRVal / 100 : null,
+        target_win_pct: targetWinPct / 100,
+      });
+      setBreakevenResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tc("unknownError"));
+    } finally {
+      setBreakevenLoading(false);
     }
   };
 
@@ -393,6 +473,17 @@ export default function BuyVsRentPage() {
                 </div>
                 <NumberField label={t("inflationRate")} value={inflationRate} onChange={customSet(setInflationRate)} min={-5} max={20} step={0.1} suffix="%" />
                 <Button className="w-full" onClick={handleRunSimple}>{t("runSimple")}</Button>
+                <Separator />
+                <div className="font-medium text-xs text-muted-foreground">{t("breakeven")}</div>
+                <p className="text-[10px] text-muted-foreground">{t("breakevenDesc")}</p>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={handleBreakevenSimple}
+                  disabled={breakevenLoading}
+                >
+                  {breakevenLoading ? t("breakevenSearching") : t("findBreakeven")}
+                </Button>
               </TabsContent>
 
               <TabsContent value="mc" className="space-y-3 mt-3">
@@ -493,6 +584,18 @@ export default function BuyVsRentPage() {
                 </OverrideToggle>
 
                 <Button className="w-full" onClick={handleRunMC}>{t("runMC")}</Button>
+                <Separator />
+                <div className="font-medium text-xs text-muted-foreground">{t("breakeven")}</div>
+                <p className="text-[10px] text-muted-foreground">{t("breakevenDesc")}</p>
+                <NumberField label={t("targetWinPct")} value={targetWinPct} onChange={setTargetWinPct} min={10} max={90} step={5} suffix="%" />
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={handleBreakevenMC}
+                  disabled={breakevenLoading}
+                >
+                  {breakevenLoading ? t("breakevenSearching") : t("findBreakevenMC")}
+                </Button>
               </TabsContent>
             </Tabs>
 
@@ -510,7 +613,10 @@ export default function BuyVsRentPage() {
         {activeTab === "mc" && mcResult && (
           <MCResults result={mcResult} t={t} tc={tc} isMobile={isMobile} />
         )}
-        {!simpleResult && !mcResult && (
+        {breakevenResult && (
+          <BreakevenResults result={breakevenResult} t={t} homePrice={homePrice} annualRent={annualRent} />
+        )}
+        {!simpleResult && !mcResult && !breakevenResult && (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground text-sm">
               {locale === "zh" ? "输入参数后点击计算或运行模拟" : "Enter parameters and click Calculate or Run Simulation"}
@@ -798,5 +904,64 @@ function MCResults({
         </Card>
       )}
     </>
+  );
+}
+
+// ======================== Breakeven Results ========================
+function BreakevenResults({
+  result, t, homePrice, annualRent,
+}: {
+  result: BreakevenResponse;
+  t: ReturnType<typeof useTranslations>;
+  homePrice: number;
+  annualRent: number;
+}) {
+  if (!result.found) {
+    return (
+      <Card>
+        <CardHeader className="pb-1">
+          <CardTitle className="text-sm">{t("breakevenResult")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">{t("noSignChange")}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const bp = result.breakeven_price!;
+  const diff = bp - homePrice;
+  const diffPct = homePrice > 0 ? (diff / homePrice) * 100 : 0;
+  const isMC = result.target_win_pct != null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-1">
+        <CardTitle className="text-sm">{t("breakevenResult")}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <MetricCard label={t("breakevenPrice")} value={fmt(bp)} />
+          <MetricCard label={t("priceToRent")} value={`${result.price_to_annual_rent}x`} />
+          <MetricCard label={t("currentPrice")} value={fmt(homePrice)} />
+          <MetricCard label={t("priceGap")} value={`${diffPct > 0 ? "+" : ""}${diffPct.toFixed(1)}%`} />
+        </div>
+        {result.ha_at_breakeven != null && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <MetricCard label={t("haAtBreakeven")} value={`${result.ha_at_breakeven}%`} />
+          </div>
+        )}
+        {isMC && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+            <MetricCard label={t("targetWinPct")} value={pct(result.target_win_pct!)} />
+            <MetricCard label={t("actualWinPct")} value={pct(result.actual_win_pct!)} />
+            <MetricCard label={t("medianAdvantage")} value={fmt(result.median_advantage!)} />
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {diff > 0 ? t("priceLower") : t("priceHigher")}
+        </p>
+      </CardContent>
+    </Card>
   );
 }

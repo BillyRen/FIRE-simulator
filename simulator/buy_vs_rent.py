@@ -14,8 +14,6 @@
 
 from __future__ import annotations
 
-import warnings
-
 import numpy as np
 import pandas as pd
 
@@ -25,8 +23,6 @@ from simulator.bootstrap import (
     block_bootstrap,
     block_bootstrap_pooled,
 )
-from simulator.portfolio import compute_real_portfolio_returns
-
 
 def _mortgage_annual_payment(balance: float, annual_rate: float, remaining_years: int) -> float:
     """等额本息年还款额（名义值）。balance 为 0 或 remaining_years 为 0 时返回 0。"""
@@ -174,6 +170,258 @@ def _simulate_path(
     }
 
 
+def _simulate_paths_batch(
+    num_sims: int,
+    home_price: float,
+    down_payment_pct: float,
+    mortgage_term: int,
+    buying_cost_pct: float,
+    selling_cost_pct: float,
+    property_tax_pct: float,
+    maintenance_pct: float,
+    insurance_annual: float,
+    annual_rent: float,
+    analysis_years: int,
+    home_appreciation: np.ndarray,       # (N, T)
+    rent_growth: np.ndarray,             # (N, T)
+    mortgage_rates: np.ndarray,          # (N, T)
+    investment_returns_nominal: np.ndarray,  # (N, T)
+    inflation: np.ndarray,               # (N, T)
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorised batch simulation of N buy-vs-rent paths.
+
+    Returns (buy_nw_real, rent_nw_real, advantage_real, breakeven_years,
+             buy_cost_real, rent_cost_real).
+    All output arrays have shape (N, T+1) except buy_cost_real / rent_cost_real
+    which are (N, T), and breakeven_years which is (N,).
+    """
+    N, T = num_sims, analysis_years
+    dp = home_price * down_payment_pct
+    bc = home_price * buying_cost_pct
+    initial_capital = dp + bc
+    mortgage_principal = home_price - dp
+
+    # Cumulative inflation (N, T+1)
+    cum_infl = np.ones((N, T + 1))
+    cum_infl[:, 1:] = np.cumprod(1 + inflation, axis=1)
+
+    # Home value via cumulative product (N, T+1)
+    home_val = np.empty((N, T + 1))
+    home_val[:, 0] = home_price
+    home_val[:, 1:] = home_price * np.cumprod(1 + home_appreciation, axis=1)
+
+    # Mortgage balance & buy costs — sequential over T, vectorised over N
+    mort_bal = np.zeros((N, T + 1))
+    mort_bal[:, 0] = mortgage_principal
+    buy_cost_total = np.zeros((N, T))
+
+    for t in range(T):
+        remaining = mortgage_term - t
+        bal = mort_bal[:, t]
+
+        if remaining > 0:
+            rate = mortgage_rates[:, t]
+            active = bal > 0
+
+            payment = np.zeros(N)
+            pos_rate = active & (rate > 0)
+            if pos_rate.any():
+                r = rate[pos_rate]
+                b = bal[pos_rate]
+                payment[pos_rate] = b * r * (1 + r) ** remaining / ((1 + r) ** remaining - 1)
+            zero_rate = active & (rate <= 0)
+            if zero_rate.any():
+                payment[zero_rate] = bal[zero_rate] / remaining
+
+            interest = bal * rate
+            principal = np.clip(payment - interest, 0, bal)
+            mort_bal[:, t + 1] = bal - principal
+        else:
+            payment = np.zeros(N)
+            mort_bal[:, t + 1] = 0.0
+
+        tax = home_val[:, t] * property_tax_pct
+        maint = home_val[:, t] * maintenance_pct
+        insur = insurance_annual * cum_infl[:, t]
+        buy_cost_total[:, t] = payment + tax + maint + insur
+
+    buy_nw_nom = home_val * (1 - selling_cost_pct) - mort_bal
+
+    # Rent via cumulative product (N, T)
+    rg = (1 + rent_growth).copy()
+    rg[:, 0] = 1.0
+    rent_ann = annual_rent * np.cumprod(rg, axis=1)
+
+    # Renter portfolio — sequential over T, vectorised over N
+    portfolio = np.zeros((N, T + 1))
+    portfolio[:, 0] = initial_capital
+    for t in range(T):
+        cf = buy_cost_total[:, t] - rent_ann[:, t]
+        portfolio[:, t + 1] = np.maximum(
+            portfolio[:, t] * (1 + investment_returns_nominal[:, t]) + cf, 0.0,
+        )
+
+    rent_nw_nom = portfolio
+
+    # Convert to real values
+    buy_nw_real = buy_nw_nom / cum_infl
+    rent_nw_real = rent_nw_nom / cum_infl
+    advantage_real = buy_nw_real - rent_nw_real
+    buy_cost_real = buy_cost_total / cum_infl[:, :T]
+    rent_cost_real = rent_ann / cum_infl[:, :T]
+
+    # Breakeven — fully vectorised
+    final_pos = advantage_real[:, -1] > 0
+    adv_pos = advantage_real > 0                      # (N, T+1)
+    transitions = adv_pos[:, 1:] & ~adv_pos[:, :-1]   # (N, T) — ≤0 → >0
+    rev_trans = transitions[:, ::-1]
+    has_trans = rev_trans.any(axis=1)
+    last_idx_rev = rev_trans.argmax(axis=1)
+    last_year = T - last_idx_rev                       # breakeven year
+
+    breakeven_years = np.full(N, np.nan)
+    mask = final_pos & has_trans
+    breakeven_years[mask] = last_year[mask]
+    breakeven_years[final_pos & ~has_trans] = 0        # always positive
+
+    return buy_nw_real, rent_nw_real, advantage_real, breakeven_years, buy_cost_real, rent_cost_real
+
+
+def _sample_mc_paths(
+    num_simulations: int,
+    analysis_years: int,
+    allocation: dict[str, float],
+    expense_ratios: dict[str, float],
+    mortgage_rate_spread: float,
+    min_block: int,
+    max_block: int,
+    returns_df: pd.DataFrame,
+    rng: np.random.Generator,
+    country_dfs: dict[str, pd.DataFrame] | None = None,
+    country_weights: dict[str, float] | None = None,
+    override_home_appreciation: float | None = None,
+    override_rent_growth: float | None = None,
+    override_mortgage_rate: float | None = None,
+    leverage: float = 1.0,
+    borrowing_spread: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Sample N sets of per-year return arrays via block bootstrap.
+
+    Returns five (N, T) arrays:
+        (home_appr, rent_gr, mort_rates, inv_returns_nominal, inflation)
+    """
+    N, T = num_simulations, analysis_years
+    all_cols = RETURN_COLS + HOUSING_COLS
+
+    all_home = np.zeros((N, T))
+    all_rent = np.zeros((N, T))
+    all_mort = np.zeros((N, T))
+    all_inv = np.zeros((N, T))
+    all_infl = np.zeros((N, T))
+
+    for sim in range(N):
+        if country_dfs is not None:
+            sampled = block_bootstrap_pooled(
+                country_dfs, T, min_block, max_block,
+                rng=rng, country_weights=country_weights, columns=all_cols,
+            )
+        else:
+            sampled = block_bootstrap(
+                returns_df, T, min_block, max_block,
+                rng=rng, columns=all_cols,
+            )
+
+        infl = sampled["Inflation"].values
+
+        # Investment return
+        nom_ret = np.zeros(T)
+        asset_map = {"domestic_stock": "Domestic_Stock",
+                     "global_stock": "Global_Stock",
+                     "domestic_bond": "Domestic_Bond"}
+        for ak, col in asset_map.items():
+            w = allocation.get(ak, 0.0)
+            e = expense_ratios.get(ak, 0.0)
+            nom_ret += w * (sampled[col].values - e)
+        if leverage != 1.0:
+            nom_ret = leverage * nom_ret - (leverage - 1.0) * (infl + borrowing_spread)
+
+        # Housing
+        ha = np.full(T, override_home_appreciation) if override_home_appreciation is not None else sampled["Housing_CapGain"].values
+        rg = np.full(T, override_rent_growth) if override_rent_growth is not None else sampled["Rent_Growth"].values
+        mr = np.full(T, override_mortgage_rate) if override_mortgage_rate is not None else np.maximum(sampled["Long_Rate"].values + mortgage_rate_spread, 0.001)
+
+        # NaN safety
+        ha = np.nan_to_num(ha, nan=float(np.nanmedian(ha)) if not np.all(np.isnan(ha)) else 0.0)
+        rg = np.nan_to_num(rg, nan=float(np.nanmedian(rg)) if not np.all(np.isnan(rg)) else 0.0)
+        mr = np.nan_to_num(mr, nan=float(np.nanmedian(mr)) if not np.all(np.isnan(mr)) else 0.05)
+
+        all_home[sim] = ha
+        all_rent[sim] = rg
+        all_mort[sim] = mr
+        all_inv[sim] = nom_ret
+        all_infl[sim] = infl
+
+    return all_home, all_rent, all_mort, all_inv, all_infl
+
+
+def _compute_sampled_stats(
+    home_appr: np.ndarray,    # (N, T)
+    rent_gr: np.ndarray,
+    mort_rates: np.ndarray,
+    inv_ret: np.ndarray,
+    inflation: np.ndarray,
+    percentiles: list[int],
+) -> list[dict[str, str]]:
+    """Compute per-path summary statistics and format as percentile table."""
+    N, T = home_appr.shape
+    inv_t = 1.0 / T
+
+    s_home_nom = np.prod(1 + home_appr, axis=1) ** inv_t - 1
+    s_rent_nom = np.prod(1 + rent_gr, axis=1) ** inv_t - 1
+    s_infl = np.prod(1 + inflation, axis=1) ** inv_t - 1
+    s_inv_nom = np.prod(1 + inv_ret, axis=1) ** inv_t - 1
+
+    home_real = (1 + home_appr) / (1 + inflation) - 1
+    rent_real = (1 + rent_gr) / (1 + inflation) - 1
+    inv_real = (1 + inv_ret) / (1 + inflation) - 1
+
+    s_home_real = np.prod(1 + home_real, axis=1) ** inv_t - 1
+    s_rent_real = np.prod(1 + rent_real, axis=1) ** inv_t - 1
+    s_inv_real = np.prod(1 + inv_real, axis=1) ** inv_t - 1
+
+    s_mort = mort_rates.mean(axis=1)
+    s_vol = home_appr.std(axis=1, ddof=1) if T > 1 else np.zeros(N)
+
+    cum_nom = np.cumprod(1 + home_appr, axis=1)
+    peak_nom = np.maximum.accumulate(cum_nom, axis=1)
+    s_dd_nom = np.min(cum_nom / peak_nom - 1, axis=1)
+
+    cum_real = np.cumprod(1 + home_real, axis=1)
+    peak_real = np.maximum.accumulate(cum_real, axis=1)
+    s_dd_real = np.min(cum_real / peak_real - 1, axis=1)
+
+    metrics = [
+        ("ann_home_appreciation_nominal", s_home_nom),
+        ("ann_home_appreciation_real", s_home_real),
+        ("ann_rent_growth_nominal", s_rent_nom),
+        ("ann_rent_growth_real", s_rent_real),
+        ("avg_mortgage_rate", s_mort),
+        ("ann_inflation", s_infl),
+        ("ann_investment_nominal", s_inv_nom),
+        ("ann_investment_real", s_inv_real),
+        ("max_home_drawdown_nominal", s_dd_nom),
+        ("max_home_drawdown_real", s_dd_real),
+        ("home_price_volatility", s_vol),
+    ]
+    rows: list[dict[str, str]] = []
+    for key, vals in metrics:
+        row: dict[str, str] = {"metric": key}
+        for p in percentiles:
+            row[f"P{p}"] = f"{float(np.percentile(vals, p)):.2%}"
+        rows.append(row)
+    return rows
+
+
 def run_simple_buy_vs_rent(
     home_price: float,
     down_payment_pct: float,
@@ -263,220 +511,278 @@ def run_buy_vs_rent_mc(
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
 ) -> dict:
-    """蒙特卡洛版：用 block bootstrap 联合采样金融和房产数据。
-
-    对于每个可覆盖的参数（home_appreciation, rent_growth, mortgage_rate），
-    None 表示从 JST 数据采样，非 None 表示使用固定值。
-
-    Returns
-    -------
-    dict
-        包含百分位轨迹、P(买>租)、breakeven 分布、成本明细等。
-    """
+    """蒙特卡洛版：block bootstrap 采样 + 向量化批量模拟。"""
     rng = np.random.default_rng(seed)
-    all_cols = RETURN_COLS + HOUSING_COLS
 
-    # 收集每次模拟的结果
-    buy_nw = np.zeros((num_simulations, analysis_years + 1))
-    rent_nw = np.zeros((num_simulations, analysis_years + 1))
-    advantage = np.zeros((num_simulations, analysis_years + 1))
-    breakeven_years = np.full(num_simulations, np.nan)
-    buy_costs_total = np.zeros((num_simulations, analysis_years))
-    rent_costs_total = np.zeros((num_simulations, analysis_years))
+    # Phase 1 — sample N sets of return arrays
+    all_home, all_rent, all_mort, all_inv, all_infl = _sample_mc_paths(
+        num_simulations, analysis_years, allocation, expense_ratios,
+        mortgage_rate_spread, min_block, max_block, returns_df, rng,
+        country_dfs=country_dfs, country_weights=country_weights,
+        override_home_appreciation=override_home_appreciation,
+        override_rent_growth=override_rent_growth,
+        override_mortgage_rate=override_mortgage_rate,
+        leverage=leverage, borrowing_spread=borrowing_spread,
+    )
 
-    # 采样参数统计收集（每条路径 -> 1 个标量）
-    s_home_nom = np.zeros(num_simulations)
-    s_home_real = np.zeros(num_simulations)
-    s_rent_nom = np.zeros(num_simulations)
-    s_rent_real = np.zeros(num_simulations)
-    s_mort_rate = np.zeros(num_simulations)
-    s_inflation = np.zeros(num_simulations)
-    s_inv_nom = np.zeros(num_simulations)
-    s_inv_real = np.zeros(num_simulations)
-    s_home_dd_nom = np.zeros(num_simulations)
-    s_home_dd_real = np.zeros(num_simulations)
-    s_home_vol = np.zeros(num_simulations)
-
-    for sim in range(num_simulations):
-        # Block bootstrap: 联合采样所有列
-        if country_dfs is not None:
-            sampled = block_bootstrap_pooled(
-                country_dfs, analysis_years, min_block, max_block,
-                rng=rng, country_weights=country_weights, columns=all_cols,
-            )
-        else:
-            sampled = block_bootstrap(
-                returns_df, analysis_years, min_block, max_block,
-                rng=rng, columns=all_cols,
-            )
-
-        inflation = sampled["Inflation"].values
-
-        # --- 投资组合名义回报 ---
-        nominal_return = np.zeros(analysis_years)
-        asset_map = {
-            "domestic_stock": "Domestic_Stock",
-            "global_stock": "Global_Stock",
-            "domestic_bond": "Domestic_Bond",
-        }
-        for asset_key, col_name in asset_map.items():
-            weight = allocation.get(asset_key, 0.0)
-            expense = expense_ratios.get(asset_key, 0.0)
-            nominal_return += weight * (sampled[col_name].values - expense)
-
-        if leverage != 1.0:
-            borrowing_cost = inflation + borrowing_spread
-            nominal_return = leverage * nominal_return - (leverage - 1.0) * borrowing_cost
-
-        # --- 房产数据 ---
-        if override_home_appreciation is not None:
-            home_appr = np.full(analysis_years, override_home_appreciation)
-        else:
-            home_appr = sampled["Housing_CapGain"].values
-
-        if override_rent_growth is not None:
-            rent_gr = np.full(analysis_years, override_rent_growth)
-        else:
-            rent_gr = sampled["Rent_Growth"].values
-
-        if override_mortgage_rate is not None:
-            mort_rates = np.full(analysis_years, override_mortgage_rate)
-        else:
-            mort_rates = sampled["Long_Rate"].values + mortgage_rate_spread
-            mort_rates = np.maximum(mort_rates, 0.001)
-
-        # Defensive safety net: NaN should already be filled at build time
-        # (Rent_Growth→inflation, Long_Rate→ffill). Warn if triggered.
-        def _safe_fill(arr, name, fallback=0.0):
-            n_nan = int(np.isnan(arr).sum())
-            if n_nan == 0:
-                return arr
-            warnings.warn(
-                f"Unexpected NaN in {name}: {n_nan}/{len(arr)} values "
-                f"(sim #{sim}). Filling with nanmedian or fallback={fallback}.",
-                stacklevel=2,
-            )
-            m = np.nanmedian(arr)
-            fill_val = fallback if np.isnan(m) else float(m)
-            return np.nan_to_num(arr, nan=fill_val)
-
-        home_appr = _safe_fill(home_appr, "home_appr", 0.0)
-        rent_gr = _safe_fill(rent_gr, "rent_gr", 0.0)
-        mort_rates = _safe_fill(mort_rates, "mort_rates", 0.05)
-
-        # --- 采样参数统计 ---
-        n = analysis_years
-        s_home_nom[sim] = np.prod(1.0 + home_appr) ** (1.0 / n) - 1.0
-        s_rent_nom[sim] = np.prod(1.0 + rent_gr) ** (1.0 / n) - 1.0
-        s_inflation[sim] = np.prod(1.0 + inflation) ** (1.0 / n) - 1.0
-        s_inv_nom[sim] = np.prod(1.0 + nominal_return) ** (1.0 / n) - 1.0
-
-        home_real = (1.0 + home_appr) / (1.0 + inflation) - 1.0
-        rent_real = (1.0 + rent_gr) / (1.0 + inflation) - 1.0
-        inv_real = (1.0 + nominal_return) / (1.0 + inflation) - 1.0
-        s_home_real[sim] = np.prod(1.0 + home_real) ** (1.0 / n) - 1.0
-        s_rent_real[sim] = np.prod(1.0 + rent_real) ** (1.0 / n) - 1.0
-        s_inv_real[sim] = np.prod(1.0 + inv_real) ** (1.0 / n) - 1.0
-
-        s_mort_rate[sim] = mort_rates.mean()
-        s_home_vol[sim] = home_appr.std(ddof=1) if n > 1 else 0.0
-
-        # 房价最大回撤（名义）
-        cum_nom = np.cumprod(1.0 + home_appr)
-        peak_nom = np.maximum.accumulate(cum_nom)
-        s_home_dd_nom[sim] = np.min(cum_nom / peak_nom - 1.0)
-
-        # 房价最大回撤（实际）
-        cum_real_hp = np.cumprod(1.0 + home_real)
-        peak_real_hp = np.maximum.accumulate(cum_real_hp)
-        s_home_dd_real[sim] = np.min(cum_real_hp / peak_real_hp - 1.0)
-
-        result = _simulate_path(
-            home_price=home_price,
-            down_payment_pct=down_payment_pct,
-            mortgage_term=mortgage_term,
-            buying_cost_pct=buying_cost_pct,
-            selling_cost_pct=selling_cost_pct,
-            property_tax_pct=property_tax_pct,
-            maintenance_pct=maintenance_pct,
-            insurance_annual=insurance_annual,
-            annual_rent=annual_rent,
-            analysis_years=analysis_years,
-            home_appreciation=home_appr,
-            rent_growth=rent_gr,
-            mortgage_rates=mort_rates,
-            investment_returns_nominal=nominal_return,
-            inflation=inflation,
+    # Phase 2 — vectorised batch simulation
+    buy_nw, rent_nw, advantage, breakeven_years, buy_cost_real, rent_cost_real = (
+        _simulate_paths_batch(
+            num_simulations, home_price, down_payment_pct, mortgage_term,
+            buying_cost_pct, selling_cost_pct, property_tax_pct,
+            maintenance_pct, insurance_annual, annual_rent, analysis_years,
+            all_home, all_rent, all_mort, all_inv, all_infl,
         )
+    )
 
-        buy_nw[sim] = result["buy_net_worth_real"]
-        rent_nw[sim] = result["rent_net_worth_real"]
-        advantage[sim] = result["advantage_real"]
-        breakeven_years[sim] = result["breakeven_year"] if result["breakeven_year"] is not None else np.nan
-        buy_costs_total[sim] = result["buy_cost_total_real"]
-        rent_costs_total[sim] = result["rent_cost_real"]
-
-    # --- 统计汇总 ---
+    # Phase 3 — statistics
     percentiles = [10, 25, 50, 75, 90]
 
-    def _pct_trajectories(data: np.ndarray) -> dict[str, list[float]]:
-        return {
-            f"P{p}": np.percentile(data, p, axis=0).tolist()
-            for p in percentiles
-        }
+    def _pct(data: np.ndarray) -> dict[str, list[float]]:
+        return {f"P{p}": np.percentile(data, p, axis=0).tolist() for p in percentiles}
 
     buy_wins_prob = (advantage > 0).mean(axis=0).tolist()
 
-    # Breakeven 分布（仅在买房最终获胜的模拟中统计）
     valid_be = breakeven_years[~np.isnan(breakeven_years)]
-    breakeven_stats: dict = {}
+    be_stats: dict = {}
     if len(valid_be) > 0:
-        breakeven_stats = {
-            f"P{p}": float(np.percentile(valid_be, p))
-            for p in percentiles
-        }
-        breakeven_stats["mean"] = float(valid_be.mean())
-        breakeven_stats["pct_reached"] = float(len(valid_be) / num_simulations)
+        be_stats = {f"P{p}": float(np.percentile(valid_be, p)) for p in percentiles}
+        be_stats["mean"] = float(valid_be.mean())
+        be_stats["pct_reached"] = float(len(valid_be) / num_simulations)
     else:
-        breakeven_stats["pct_reached"] = 0.0
+        be_stats["pct_reached"] = 0.0
 
-    # --- 采样参数分位数表 ---
-    _stats_metrics = [
-        ("ann_home_appreciation_nominal", s_home_nom),
-        ("ann_home_appreciation_real", s_home_real),
-        ("ann_rent_growth_nominal", s_rent_nom),
-        ("ann_rent_growth_real", s_rent_real),
-        ("avg_mortgage_rate", s_mort_rate),
-        ("ann_inflation", s_inflation),
-        ("ann_investment_nominal", s_inv_nom),
-        ("ann_investment_real", s_inv_real),
-        ("max_home_drawdown_nominal", s_home_dd_nom),
-        ("max_home_drawdown_real", s_home_dd_real),
-        ("home_price_volatility", s_home_vol),
-    ]
-    sampled_stats: list[dict[str, str]] = []
-    for key, values in _stats_metrics:
-        row: dict[str, str] = {"metric": key}
-        for p in percentiles:
-            row[f"P{p}"] = f"{float(np.percentile(values, p)):.2%}"
-        sampled_stats.append(row)
+    sampled_stats = _compute_sampled_stats(all_home, all_rent, all_mort, all_inv, all_infl, percentiles)
 
     return {
         "num_simulations": num_simulations,
         "analysis_years": analysis_years,
-        "buy_percentile_trajectories": _pct_trajectories(buy_nw),
-        "rent_percentile_trajectories": _pct_trajectories(rent_nw),
-        "advantage_percentile_trajectories": _pct_trajectories(advantage),
+        "buy_percentile_trajectories": _pct(buy_nw),
+        "rent_percentile_trajectories": _pct(rent_nw),
+        "advantage_percentile_trajectories": _pct(advantage),
         "buy_wins_probability": buy_wins_prob,
-        "breakeven_percentiles": breakeven_stats,
-        "buy_cost_median": np.median(buy_costs_total, axis=0).tolist(),
-        "rent_cost_median": np.median(rent_costs_total, axis=0).tolist(),
+        "breakeven_percentiles": be_stats,
+        "buy_cost_median": np.median(buy_cost_real, axis=0).tolist(),
+        "rent_cost_median": np.median(rent_cost_real, axis=0).tolist(),
         "sampled_stats": sampled_stats,
         "summary": {
             "final_buy_median": float(np.median(buy_nw[:, -1])),
             "final_rent_median": float(np.median(rent_nw[:, -1])),
             "final_advantage_median": float(np.median(advantage[:, -1])),
             "final_buy_wins_pct": float((advantage[:, -1] > 0).mean()),
-            "breakeven_median": breakeven_stats.get("P50"),
+            "breakeven_median": be_stats.get("P50"),
         },
+    }
+
+
+def _auto_ha(price: float, annual_rent: float, rent_growth_rate: float,
+             fair_pe: float, reversion_years: int) -> float:
+    """Compute auto-estimated home appreciation rate for a given price.
+
+    Mean-reversion model: price converges to fair_pe * future_rent over
+    reversion_years.
+    """
+    if annual_rent <= 0 or price <= 0 or reversion_years <= 0:
+        return 0.0
+    future_rent = annual_rent * (1 + rent_growth_rate) ** reversion_years
+    fair_value = future_rent * fair_pe
+    return (fair_value / price) ** (1.0 / reversion_years) - 1.0
+
+
+def find_breakeven_price_simple(
+    *,
+    down_payment_pct: float,
+    mortgage_term: int,
+    mortgage_rate: float,
+    buying_cost_pct: float,
+    selling_cost_pct: float,
+    property_tax_pct: float,
+    maintenance_pct: float,
+    insurance_annual: float,
+    annual_rent: float,
+    rent_growth_rate: float,
+    home_appreciation_rate: float,
+    investment_return_rate: float,
+    inflation_rate: float,
+    analysis_years: int,
+    price_low: float | None = None,
+    price_high: float | None = None,
+    auto_estimate_ha: bool = False,
+    fair_pe: float | None = None,
+    reversion_years: int | None = None,
+) -> dict:
+    """Binary search for the home price where buying breaks even with renting.
+
+    When auto_estimate_ha is True, the home appreciation rate is dynamically
+    recomputed for each candidate price using the mean-reversion model.
+    """
+    from scipy.optimize import brentq
+
+    if price_low is None:
+        price_low = annual_rent * 1
+    if price_high is None:
+        price_high = annual_rent * 200
+
+    def _get_ha(price: float) -> float:
+        if auto_estimate_ha and fair_pe is not None and reversion_years is not None:
+            return _auto_ha(price, annual_rent, rent_growth_rate, fair_pe, reversion_years)
+        return home_appreciation_rate
+
+    def objective(price: float) -> float:
+        r = run_simple_buy_vs_rent(
+            home_price=price,
+            down_payment_pct=down_payment_pct,
+            mortgage_term=mortgage_term,
+            mortgage_rate=mortgage_rate,
+            buying_cost_pct=buying_cost_pct,
+            selling_cost_pct=selling_cost_pct,
+            property_tax_pct=property_tax_pct,
+            maintenance_pct=maintenance_pct,
+            insurance_annual=insurance_annual,
+            annual_rent=annual_rent,
+            rent_growth_rate=rent_growth_rate,
+            home_appreciation_rate=_get_ha(price),
+            investment_return_rate=investment_return_rate,
+            inflation_rate=inflation_rate,
+            analysis_years=analysis_years,
+        )
+        return r["summary"]["final_advantage"]
+
+    fa_low = objective(price_low)
+    fa_high = objective(price_high)
+
+    if fa_low * fa_high > 0:
+        return {
+            "found": False,
+            "breakeven_price": None,
+            "message": "no_sign_change",
+            "advantage_at_low": fa_low,
+            "advantage_at_high": fa_high,
+        }
+
+    bp = brentq(objective, price_low, price_high, xtol=100)
+    ha_at_bp = _get_ha(bp)
+    full = run_simple_buy_vs_rent(
+        home_price=bp,
+        down_payment_pct=down_payment_pct,
+        mortgage_term=mortgage_term,
+        mortgage_rate=mortgage_rate,
+        buying_cost_pct=buying_cost_pct,
+        selling_cost_pct=selling_cost_pct,
+        property_tax_pct=property_tax_pct,
+        maintenance_pct=maintenance_pct,
+        insurance_annual=insurance_annual,
+        annual_rent=annual_rent,
+        rent_growth_rate=rent_growth_rate,
+        home_appreciation_rate=ha_at_bp,
+        investment_return_rate=investment_return_rate,
+        inflation_rate=inflation_rate,
+        analysis_years=analysis_years,
+    )
+    result = {
+        "found": True,
+        "breakeven_price": round(bp, -2),
+        "price_to_annual_rent": round(bp / annual_rent, 1),
+        "summary": full["summary"],
+    }
+    if auto_estimate_ha:
+        result["ha_at_breakeven"] = round(ha_at_bp * 100, 2)
+    return result
+
+
+def find_breakeven_price_mc(
+    *,
+    down_payment_pct: float,
+    mortgage_term: int,
+    mortgage_rate_spread: float,
+    buying_cost_pct: float,
+    selling_cost_pct: float,
+    property_tax_pct: float,
+    maintenance_pct: float,
+    insurance_annual: float,
+    annual_rent: float,
+    allocation: dict[str, float],
+    expense_ratios: dict[str, float],
+    analysis_years: int,
+    num_simulations: int,
+    min_block: int,
+    max_block: int,
+    returns_df: pd.DataFrame,
+    seed: int | None = None,
+    country_dfs: dict[str, pd.DataFrame] | None = None,
+    country_weights: dict[str, float] | None = None,
+    override_home_appreciation: float | None = None,
+    override_rent_growth: float | None = None,
+    override_mortgage_rate: float | None = None,
+    leverage: float = 1.0,
+    borrowing_spread: float = 0.0,
+    target_win_pct: float = 0.5,
+    price_low: float | None = None,
+    price_high: float | None = None,
+) -> dict:
+    """Binary search for breakeven home price using MC simulation.
+
+    Samples paths ONCE and reuses them across all binary search iterations.
+    The objective is to find the price where P(buy wins) = target_win_pct.
+    """
+    from scipy.optimize import brentq
+
+    rng = np.random.default_rng(seed)
+
+    if price_low is None:
+        price_low = annual_rent * 1
+    if price_high is None:
+        price_high = annual_rent * 200
+
+    all_home, all_rent, all_mort, all_inv, all_infl = _sample_mc_paths(
+        num_simulations, analysis_years, allocation, expense_ratios,
+        mortgage_rate_spread, min_block, max_block, returns_df, rng,
+        country_dfs=country_dfs, country_weights=country_weights,
+        override_home_appreciation=override_home_appreciation,
+        override_rent_growth=override_rent_growth,
+        override_mortgage_rate=override_mortgage_rate,
+        leverage=leverage, borrowing_spread=borrowing_spread,
+    )
+
+    def objective(price: float) -> float:
+        _, _, adv, _, _, _ = _simulate_paths_batch(
+            num_simulations, price, down_payment_pct, mortgage_term,
+            buying_cost_pct, selling_cost_pct, property_tax_pct,
+            maintenance_pct, insurance_annual, annual_rent, analysis_years,
+            all_home, all_rent, all_mort, all_inv, all_infl,
+        )
+        win_pct = float((adv[:, -1] > 0).mean())
+        return win_pct - target_win_pct
+
+    v_low = objective(price_low)
+    v_high = objective(price_high)
+
+    if v_low * v_high > 0:
+        return {
+            "found": False,
+            "breakeven_price": None,
+            "message": "no_sign_change",
+            "win_pct_at_low": v_low + target_win_pct,
+            "win_pct_at_high": v_high + target_win_pct,
+        }
+
+    bp = brentq(objective, price_low, price_high, xtol=100)
+
+    # Final evaluation at breakeven price
+    buy_nw, rent_nw, adv, be_years, _, _ = _simulate_paths_batch(
+        num_simulations, bp, down_payment_pct, mortgage_term,
+        buying_cost_pct, selling_cost_pct, property_tax_pct,
+        maintenance_pct, insurance_annual, annual_rent, analysis_years,
+        all_home, all_rent, all_mort, all_inv, all_infl,
+    )
+
+    return {
+        "found": True,
+        "breakeven_price": round(bp, -2),
+        "price_to_annual_rent": round(bp / annual_rent, 1),
+        "target_win_pct": target_win_pct,
+        "actual_win_pct": float((adv[:, -1] > 0).mean()),
+        "median_advantage": float(np.median(adv[:, -1])),
+        "median_buy_nw": float(np.median(buy_nw[:, -1])),
+        "median_rent_nw": float(np.median(rent_nw[:, -1])),
     }
