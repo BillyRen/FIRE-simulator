@@ -535,3 +535,40 @@ class BreakevenResponse(BaseModel):
     median_rent_nw: float | None = None
     win_pct_at_low: float | None = None
     win_pct_at_high: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# 8. FIRE 积累阶段计算器
+# ---------------------------------------------------------------------------
+
+class AccumulationRequest(BaseSimulationParams):
+    """FIRE 积累阶段模拟请求。"""
+    current_age: int = Field(30, ge=18, le=80)
+    life_expectancy: int = Field(90, ge=50, le=120)
+    current_portfolio: float = Field(100_000, ge=0)
+    annual_income: float = Field(120_000, gt=0)
+    annual_expenses: float = Field(60_000, ge=0)
+    income_growth_rate: float = Field(0.02, ge=-0.1, le=0.2, description="收入实际年增长率")
+    retirement_spending: float = Field(60_000, gt=0, description="退休后年支出（实际购买力）")
+    target_success_rate: float = Field(0.85, gt=0, lt=1, description="目标成功率")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    dynamic_ceiling: float = Field(0.05, ge=0, le=1)
+    dynamic_floor: float = Field(0.025, ge=0, le=1)
+
+
+class AccumulationResponse(BaseModel):
+    fire_age_p25: int | None = None
+    fire_age_p50: int | None = None
+    fire_age_p75: int | None = None
+    fire_probability: float
+    savings_rate: float
+    annual_savings: float
+    swr_at_fire: float
+    required_portfolio_at_fire: float
+    percentile_trajectories: dict[str, list[float]]
+    required_portfolio_curve: list[float]
+    swr_curve: list[float]
+    fire_prob_by_year: list[float]
+    age_labels: list[int]
+    sensitivity_expenses: list[float]
+    sensitivity_fire_ages: list[int | None]

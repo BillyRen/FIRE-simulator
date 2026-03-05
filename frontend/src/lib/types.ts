@@ -534,6 +534,55 @@ export interface BreakevenResponse {
 }
 
 // ---------------------------------------------------------------------------
+// FIRE 积累阶段计算器
+// ---------------------------------------------------------------------------
+
+export interface AccumulationRequest {
+  current_age: number;
+  life_expectancy: number;
+  current_portfolio: number;
+  annual_income: number;
+  annual_expenses: number;
+  income_growth_rate: number;
+  retirement_spending: number;
+  target_success_rate: number;
+  allocation: Allocation;
+  expense_ratios: ExpenseRatios;
+  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  dynamic_ceiling: number;
+  dynamic_floor: number;
+  retirement_years: number;
+  min_block: number;
+  max_block: number;
+  num_simulations: number;
+  data_start_year: number;
+  country: string;
+  pooling_method: "equal" | "gdp_sqrt";
+  data_source: "jst" | "fire_dataset";
+  leverage: number;
+  borrowing_spread: number;
+  cash_flows: CashFlowItem[];
+}
+
+export interface AccumulationResponse {
+  fire_age_p25: number | null;
+  fire_age_p50: number | null;
+  fire_age_p75: number | null;
+  fire_probability: number;
+  savings_rate: number;
+  annual_savings: number;
+  swr_at_fire: number;
+  required_portfolio_at_fire: number;
+  percentile_trajectories: Record<string, number[]>;
+  required_portfolio_curve: number[];
+  swr_curve: number[];
+  fire_prob_by_year: number[];
+  age_labels: number[];
+  sensitivity_expenses: number[];
+  sensitivity_fire_ages: (number | null)[];
+}
+
+// ---------------------------------------------------------------------------
 // 共享表单状态
 // ---------------------------------------------------------------------------
 

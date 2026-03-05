@@ -16,6 +16,7 @@ export function Navbar() {
     { href: "/guardrail", label: t("guardrail") },
     { href: "/allocation", label: t("allocation") },
     { href: "/buy-vs-rent", label: t("buyVsRent") },
+    { href: "/accumulation", label: t("accumulation") },
   ];
 
   const switchLocale = () => {

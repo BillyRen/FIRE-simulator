@@ -71,6 +71,7 @@ from simulator.sweep import (
     sweep_allocations,
     sweep_withdrawal_rates,
 )
+from simulator.accumulation import run_accumulation
 
 from schemas import (
     AdjustmentEvent,
@@ -106,6 +107,8 @@ from schemas import (
     SweepRequest,
     SweepResponse,
     TargetRateResult,
+    AccumulationRequest,
+    AccumulationResponse,
 )
 
 # ---------------------------------------------------------------------------
@@ -1136,3 +1139,45 @@ def api_breakeven_mc(request: Request, req: BreakevenMCRequest):
         price_high=req.price_high,
     )
     return BreakevenResponse(**result)
+
+
+# ---------------------------------------------------------------------------
+# 9. FIRE 积累阶段计算器
+# ---------------------------------------------------------------------------
+
+@app.post("/api/accumulation", response_model=AccumulationResponse)
+@limiter.limit("5/minute")
+def api_accumulation(request: Request, req: AccumulationRequest):
+    filtered, country_dfs = _resolve_data(req)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
+
+    country_weights = _resolve_country_weights(req, country_dfs)
+    cf = _to_cash_flows(req.cash_flows)
+
+    result = run_accumulation(
+        current_age=req.current_age,
+        life_expectancy=req.life_expectancy,
+        current_portfolio=req.current_portfolio,
+        annual_income=req.annual_income,
+        annual_expenses=req.annual_expenses,
+        income_growth_rate=req.income_growth_rate,
+        retirement_spending=req.retirement_spending,
+        target_success_rate=req.target_success_rate,
+        allocation=_alloc_dict(req.allocation),
+        expense_ratios=_expense_dict(req.expense_ratios),
+        withdrawal_strategy=req.withdrawal_strategy,
+        dynamic_ceiling=req.dynamic_ceiling,
+        dynamic_floor=req.dynamic_floor,
+        num_simulations=req.num_simulations,
+        min_block=req.min_block,
+        max_block=req.max_block,
+        returns_df=filtered,
+        cash_flows=cf,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+        country_dfs=country_dfs,
+        country_weights=country_weights,
+    )
+
+    return AccumulationResponse(**result)

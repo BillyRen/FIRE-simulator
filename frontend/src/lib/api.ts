@@ -25,6 +25,8 @@ import type {
   BreakevenSimpleRequest,
   BreakevenMCRequest,
   BreakevenResponse,
+  AccumulationRequest,
+  AccumulationResponse,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
@@ -121,6 +123,10 @@ export async function fetchHousingCountries(): Promise<HousingCountryInfo[]> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function runAccumulation(req: AccumulationRequest): Promise<AccumulationResponse> {
+  return post<AccumulationRequest, AccumulationResponse>("/api/accumulation", req);
 }
 
 export async function fetchCountries(dataSource: string = "jst"): Promise<CountryInfo[]> {
