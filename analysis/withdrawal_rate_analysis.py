@@ -54,6 +54,8 @@ RATES = np.round(np.arange(RATE_MIN, RATE_MAX + RATE_STEP / 2, RATE_STEP), 4)
 
 OUTPUT_DIR = ROOT / "analysis" / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+WR_OUTPUT_DIR = OUTPUT_DIR / "withdrawal_rate"
+WR_OUTPUT_DIR.mkdir(exist_ok=True)
 
 SCENARIOS = [
     {
@@ -278,9 +280,9 @@ def plot_success_curves(results: dict, rates: np.ndarray) -> None:
     ax.set_ylim(0, 105)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_success_curves.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_success_curves.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_success_curves.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_success_curves.png'}")
 
 
 def plot_success_zoomed(results: dict, rates: np.ndarray) -> None:
@@ -306,9 +308,9 @@ def plot_success_zoomed(results: dict, rates: np.ndarray) -> None:
     ax.set_ylim(0, 105)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_success_zoomed.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_success_zoomed.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_success_zoomed.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_success_zoomed.png'}")
 
 
 def plot_funded_ratio(results: dict, rates: np.ndarray) -> None:
@@ -330,9 +332,9 @@ def plot_funded_ratio(results: dict, rates: np.ndarray) -> None:
     ax.set_xlim(2, 8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_funded_ratio.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_funded_ratio.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_funded_ratio.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_funded_ratio.png'}")
 
 
 def plot_scenario_spread(results: dict, rates: np.ndarray) -> None:
@@ -350,9 +352,9 @@ def plot_scenario_spread(results: dict, rates: np.ndarray) -> None:
     ax.set_xlim(2, 7)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_scenario_spread.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_scenario_spread.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_scenario_spread.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_scenario_spread.png'}")
 
 
 def plot_safe_wr_comparison(safe_wrs: dict) -> None:
@@ -377,9 +379,9 @@ def plot_safe_wr_comparison(safe_wrs: dict) -> None:
 
     fig.suptitle(f"Safe Withdrawal Rates by Scenario ({RETIREMENT_YEARS}-Year)", fontsize=14)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_safe_comparison.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_safe_comparison.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_safe_comparison.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_safe_comparison.png'}")
 
 
 def plot_heatmap(results: dict, rates: np.ndarray) -> None:
@@ -409,9 +411,9 @@ def plot_heatmap(results: dict, rates: np.ndarray) -> None:
 
     fig.colorbar(im, ax=ax, label="Success Rate (%)", shrink=0.8)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_heatmap.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_heatmap.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_heatmap.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_heatmap.png'}")
 
 
 def plot_return_distributions(results: dict) -> None:
@@ -460,9 +462,9 @@ def plot_return_distributions(results: dict) -> None:
     ax2.grid(True, alpha=0.3)
 
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_return_distributions.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_return_distributions.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_return_distributions.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_return_distributions.png'}")
 
 
 def plot_fee_impact(results: dict, rates: np.ndarray) -> None:
@@ -494,9 +496,9 @@ def plot_fee_impact(results: dict, rates: np.ndarray) -> None:
     ax2.axhline(0, color="gray", linewidth=0.5)
 
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_fee_impact.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_fee_impact.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_fee_impact.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_fee_impact.png'}")
 
 
 def plot_us_exceptionalism(results: dict, rates: np.ndarray) -> None:
@@ -534,9 +536,9 @@ def plot_us_exceptionalism(results: dict, rates: np.ndarray) -> None:
     ax2.grid(True, alpha=0.3)
 
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_us_exceptionalism.png", dpi=150)
+    fig.savefig(WR_OUTPUT_DIR / "wr_us_exceptionalism.png", dpi=150)
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_us_exceptionalism.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_us_exceptionalism.png'}")
 
 
 def plot_portfolio_survival(results: dict, rates: np.ndarray) -> None:
@@ -573,9 +575,9 @@ def plot_portfolio_survival(results: dict, rates: np.ndarray) -> None:
     axes[0].legend(fontsize=7, loc="lower left")
     fig.suptitle(f"Portfolio Survival Curves by Year ({RETIREMENT_YEARS}-Year Horizon)", fontsize=14, y=1.02)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "wr_survival_curves.png", dpi=150, bbox_inches="tight")
+    fig.savefig(WR_OUTPUT_DIR / "wr_survival_curves.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved: {OUTPUT_DIR / 'wr_survival_curves.png'}")
+    print(f"  Saved: {WR_OUTPUT_DIR / 'wr_survival_curves.png'}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -706,7 +708,7 @@ def main():
         csv_data[f"{label}_success"] = results[label]["success"]
         csv_data[f"{label}_funded"] = results[label]["funded"]
     csv_df = pd.DataFrame(csv_data)
-    csv_path = OUTPUT_DIR / "wr_analysis.csv"
+    csv_path = WR_OUTPUT_DIR / "wr_analysis.csv"
     csv_df.to_csv(csv_path, index=False, float_format="%.6f")
     print(f"\n  CSV saved: {csv_path}")
 
@@ -772,7 +774,7 @@ def main():
 """)
 
     # ── 写入洞察报告 Markdown ──
-    report_path = OUTPUT_DIR / "wr_analysis_report.md"
+    report_path = WR_OUTPUT_DIR / "wr_analysis_report.md"
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(f"# 提取率-成功率曲线对比分析报告\n\n")
         f.write(f"**参数**: {RETIREMENT_YEARS}年退休期, {NUM_SIMS}条MC路径, 初始资产${INITIAL_PORTFOLIO:,}\n\n")

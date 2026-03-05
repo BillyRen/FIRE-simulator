@@ -65,6 +65,8 @@
     "withdrawalStrategy": "💰 提取策略",
     "fixedWithdrawal": "固定提取",
     "dynamicWithdrawal": "动态提取 (Vanguard)",
+    "decliningWithdrawal": "消费递减 (EBRI)",
+    "retirementAge": "退休年龄",
     "dynamicCeiling": "年度上调上限 %",
     "dynamicFloor": "年度下调上限 %",
     "leverage": "📈 杠杆设置",

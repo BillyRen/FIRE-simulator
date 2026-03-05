@@ -24,6 +24,7 @@ def run_simulation(
     withdrawal_strategy: str = "fixed",
     dynamic_ceiling: float = 0.05,
     dynamic_floor: float = 0.025,
+    retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
@@ -39,6 +40,7 @@ def run_simulation(
        - fixed: 每年固定提取 annual_withdrawal
        - dynamic: Vanguard Dynamic Spending，按初始提取率动态调整，
          受 ceiling/floor 限制
+       - declining: EBRI 消费递减，65 岁后每年实际支出下降 2%
        year_end = year_start * (1 + real_return) - withdrawal + net_cf
        若 value <= 0 则标记失败，后续年份资产为 0
 
@@ -154,6 +156,11 @@ def run_simulation(
                 upper = prev_withdrawal * (1.0 + dynamic_ceiling)
                 lower = prev_withdrawal * (1.0 - dynamic_floor)
                 withdrawal = max(lower, min(target, upper))
+            elif withdrawal_strategy == "declining" and year > 0 and value > 0:
+                if retirement_age + year >= 65:
+                    withdrawal = prev_withdrawal * 0.98
+                else:
+                    withdrawal = annual_withdrawal
             else:
                 withdrawal = annual_withdrawal
 
@@ -185,6 +192,7 @@ def run_simple_historical_backtest(
     withdrawal_strategy: str = "fixed",
     dynamic_ceiling: float = 0.05,
     dynamic_floor: float = 0.025,
+    retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_series: np.ndarray | None = None,
 ) -> dict:
@@ -201,9 +209,11 @@ def run_simple_historical_backtest(
     retirement_years : int
         模拟年数。
     withdrawal_strategy : str
-        "fixed" 或 "dynamic"。
+        "fixed"、"dynamic" 或 "declining"。
     dynamic_ceiling / dynamic_floor : float
         动态提取的上下限比例。
+    retirement_age : int
+        退休年龄（declining 策略在 65 岁后每年实际支出下降 2%）。
     cash_flows : list[CashFlowItem] or None
         自定义现金流。
     inflation_series : np.ndarray or None
@@ -245,6 +255,11 @@ def run_simple_historical_backtest(
             upper = prev_wd * (1.0 + dynamic_ceiling)
             lower = prev_wd * (1.0 - dynamic_floor)
             wd = max(lower, min(target, upper))
+        elif withdrawal_strategy == "declining" and year > 0 and value > 0:
+            if retirement_age + year >= 65:
+                wd = prev_wd * 0.98
+            else:
+                wd = annual_withdrawal
         else:
             wd = annual_withdrawal
 

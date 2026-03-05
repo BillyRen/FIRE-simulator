@@ -65,6 +65,8 @@
     "withdrawalStrategy": "💰 Withdrawal Strategy",
     "fixedWithdrawal": "Fixed Withdrawal",
     "dynamicWithdrawal": "Dynamic (Vanguard)",
+    "decliningWithdrawal": "Spending Decline (EBRI)",
+    "retirementAge": "Retirement Age",
     "dynamicCeiling": "Annual Raise Cap %",
     "dynamicFloor": "Annual Cut Cap %",
     "leverage": "📈 Leverage",

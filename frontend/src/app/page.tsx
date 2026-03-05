@@ -123,6 +123,7 @@ export default function SimulatorPage() {
         withdrawal_strategy: params.withdrawal_strategy,
         dynamic_ceiling: params.dynamic_ceiling,
         dynamic_floor: params.dynamic_floor,
+        retirement_age: params.retirement_age,
         leverage: params.leverage,
         borrowing_spread: params.borrowing_spread,
         cash_flows: params.cash_flows,

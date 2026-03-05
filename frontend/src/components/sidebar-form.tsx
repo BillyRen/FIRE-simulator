@@ -329,7 +329,7 @@ export function SidebarForm({
             <Select
               value={p.withdrawal_strategy}
               onValueChange={(v) =>
-                set("withdrawal_strategy", v as "fixed" | "dynamic")
+                set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining")
               }
             >
               <SelectTrigger className="h-8 text-sm">
@@ -338,6 +338,7 @@ export function SidebarForm({
               <SelectContent>
                 <SelectItem value="fixed">{t("fixedWithdrawal")}</SelectItem>
                 <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
+                <SelectItem value="declining">{t("decliningWithdrawal")}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -358,6 +359,19 @@ export function SidebarForm({
                   min={0}
                   max={100}
                   step={0.5}
+                />
+              </div>
+            )}
+
+            {p.withdrawal_strategy === "declining" && (
+              <div className="mt-2">
+                <NumberField
+                  label={t("retirementAge")}
+                  value={p.retirement_age}
+                  onChange={(v) => set("retirement_age", v)}
+                  min={18}
+                  max={100}
+                  step={1}
                 />
               </div>
             )}

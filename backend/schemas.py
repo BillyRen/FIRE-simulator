@@ -73,7 +73,8 @@ class BaseSimulationParams(BaseModel):
 class SimulationRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
 
@@ -101,7 +102,8 @@ class SimulationResponse(BaseModel):
 class SweepRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     rate_max: float = Field(0.12, gt=0, le=0.5)
@@ -215,7 +217,8 @@ class SimBacktestRequest(BaseSimulationParams):
     """用户选择国家+起始年，用真实历史回报模拟退休路径。"""
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     hist_start_year: int = Field(1990, ge=1871, le=2100)
@@ -240,7 +243,8 @@ class SimBatchBacktestRequest(BaseSimulationParams):
     """批量历史回测 — 自动遍历所有有效 (国家, 起始年) 组合。"""
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
 
@@ -332,7 +336,8 @@ class AllocationSweepRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
     num_simulations: int = Field(1_000, ge=100, le=50_000)  # override: lower default for sweep
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
     allocation_step: float = Field(0.1, ge=0.05, le=0.2)

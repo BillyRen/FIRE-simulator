@@ -38,6 +38,7 @@ def run_sim_batch_backtest(
     withdrawal_strategy: str = "fixed",
     dynamic_ceiling: float = 0.05,
     dynamic_floor: float = 0.025,
+    retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
@@ -99,6 +100,7 @@ def run_sim_batch_backtest(
                 withdrawal_strategy=withdrawal_strategy,
                 dynamic_ceiling=dynamic_ceiling,
                 dynamic_floor=dynamic_floor,
+                retirement_age=retirement_age,
                 cash_flows=cash_flows,
                 inflation_series=inflation_series,
             )

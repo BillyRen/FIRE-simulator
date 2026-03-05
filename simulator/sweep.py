@@ -88,6 +88,7 @@ def _simulate_success_and_funded(
     withdrawal_strategy: str,
     dynamic_ceiling: float,
     dynamic_floor: float,
+    retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_matrix: np.ndarray | None = None,
 ) -> tuple[float, float]:
@@ -102,9 +103,11 @@ def _simulate_success_and_funded(
     annual_withdrawal : float
         年提取金额。
     withdrawal_strategy : str
-        "fixed" 或 "dynamic"。
+        "fixed"、"dynamic" 或 "declining"。
     dynamic_ceiling, dynamic_floor : float
         动态策略的上下限。
+    retirement_age : int
+        退休年龄（declining 策略使用）。
     cash_flows : list[CashFlowItem] or None
         自定义现金流列表。
     inflation_matrix : np.ndarray or None
@@ -157,6 +160,11 @@ def _simulate_success_and_funded(
                 upper = prev_wd * (1.0 + dynamic_ceiling)
                 lower = prev_wd * (1.0 - dynamic_floor)
                 wd = max(lower, min(target, upper))
+            elif withdrawal_strategy == "declining" and year > 0 and value > 0:
+                if retirement_age + year >= 65:
+                    wd = prev_wd * 0.98
+                else:
+                    wd = annual_withdrawal
             else:
                 wd = annual_withdrawal
 
@@ -189,6 +197,7 @@ def sweep_withdrawal_rates(
     withdrawal_strategy: str = "fixed",
     dynamic_ceiling: float = 0.05,
     dynamic_floor: float = 0.025,
+    retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_matrix: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -208,6 +217,8 @@ def sweep_withdrawal_rates(
         提取策略。
     dynamic_ceiling, dynamic_floor : float
         动态策略参数。
+    retirement_age : int
+        退休年龄（declining 策略使用）。
     cash_flows : list[CashFlowItem] or None
         自定义现金流列表。
     inflation_matrix : np.ndarray or None
@@ -231,6 +242,7 @@ def sweep_withdrawal_rates(
             withdrawal_strategy,
             dynamic_ceiling,
             dynamic_floor,
+            retirement_age=retirement_age,
             cash_flows=cash_flows,
             inflation_matrix=inflation_matrix,
         )
@@ -302,6 +314,7 @@ def sweep_allocations(
     withdrawal_strategy: str = "fixed",
     dynamic_ceiling: float = 0.05,
     dynamic_floor: float = 0.025,
+    retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
@@ -401,6 +414,11 @@ def sweep_allocations(
                     upper = prev_wd * (1.0 + dynamic_ceiling)
                     lower = prev_wd * (1.0 - dynamic_floor)
                     wd = max(lower, min(target, upper))
+                elif withdrawal_strategy == "declining" and year > 0 and value > 0:
+                    if retirement_age + year >= 65:
+                        wd = prev_wd * 0.98
+                    else:
+                        wd = annual_withdrawal
                 else:
                     wd = annual_withdrawal
 

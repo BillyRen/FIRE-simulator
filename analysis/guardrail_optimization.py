@@ -59,6 +59,8 @@ SAFETY_THRESHOLD = 0.90
 
 OUTPUT_DIR = ROOT / "analysis" / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+GUARDRAIL_OUTPUT_DIR = OUTPUT_DIR / "guardrail"
+GUARDRAIL_OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 搜索空间
@@ -131,6 +133,106 @@ def prepare_historical_paths(returns_df: pd.DataFrame, expense_ratios: dict | No
 # ═══════════════════════════════════════════════════════════════════════════
 # 评分函数
 # ═══════════════════════════════════════════════════════════════════════════
+
+# v3 评分默认参数
+V3_DEFAULTS = dict(
+    safety_exponent=2.0,
+    smoothness_decay=50.0,
+    cew_gamma=2.0,
+    cew_cap=0.15,
+    p10u_cap=0.05,
+)
+
+
+def compute_v3_score(
+    median_util: float,
+    p10_util: float,
+    median_discounted: float,
+    p10_funded: float,
+    p10_floor_self: float,
+    p10_min_wd: float,
+    median_downside_cv: float,
+    p90_downside_cv: float,
+    p90_max_drawdown: float,
+    p90_years_below_ratio: float,
+    median_cew: float,
+    *,
+    safety_exponent: float = 2.0,
+    smoothness_decay: float = 50.0,
+    cew_cap: float = 0.15,
+    p10u_cap: float = 0.05,
+) -> tuple[float, dict]:
+    """计算 v3 评分（5 维精简归一化），返回 (score_v3, 分项明细)。
+
+    核心原则：CEW (CRRA gamma=2) 已隐含惩罚消费波动和下行风险，
+    保护维度只保留 CEW 无法捕捉的独立风险（绝对贫困、最大暴跌、持续贫困）。
+    去掉与 CEW 冗余的 floor_self、smooth_median、smooth_p90。
+
+    权重: CEW 0.50 + P10消费 0.15 + 底线绝对 0.10 + 无暴跌 0.10 + 无贫困 0.15 = 1.0
+    消费:保护 = 0.65:0.35（CEW 本身是风险调整后的，故属于"消费+保护"混合指标）
+    """
+    baseline_wd = INITIAL_PORTFOLIO * BASELINE_RATE
+
+    safety = p10_funded ** safety_exponent
+
+    norm_cew = min(median_cew / cew_cap, 1.0) if cew_cap > 0 else 0.0
+    norm_p10u = min(p10_util / p10u_cap, 1.0) if p10u_cap > 0 else 0.0
+    norm_floor_abs = min(p10_min_wd / baseline_wd, 1.0) if baseline_wd > 0 else 0.0
+    norm_no_crash = max(1.0 - p90_max_drawdown, 0.0)
+    norm_no_poverty = max(1.0 - p90_years_below_ratio, 0.0)
+
+    # 仍然计算冗余维度（用于诊断输出，但不进入主评分）
+    norm_floor_self = p10_floor_self
+    smooth_median = float(np.exp(-smoothness_decay * median_downside_cv))
+    smooth_p90 = float(np.exp(-smoothness_decay * p90_downside_cv))
+
+    score_v3 = safety * (
+        0.50 * norm_cew
+        + 0.15 * norm_p10u
+        + 0.10 * norm_floor_abs
+        + 0.10 * norm_no_crash
+        + 0.15 * norm_no_poverty
+    )
+
+    detail = dict(
+        v3_safety=safety,
+        v3_norm_cew=norm_cew,
+        v3_norm_p10u=norm_p10u,
+        v3_norm_floor_self=norm_floor_self,
+        v3_norm_floor_abs=norm_floor_abs,
+        v3_smooth_median=smooth_median,
+        v3_smooth_p90=smooth_p90,
+        v3_norm_no_crash=norm_no_crash,
+        v3_norm_no_poverty=norm_no_poverty,
+    )
+    return score_v3, detail
+
+
+def compute_cew(wds_arr: np.ndarray, gamma: float = 2.0) -> np.ndarray:
+    """计算每条路径的确定性等价消费 (Certainty-Equivalent Withdrawal)。
+
+    使用 CRRA (Constant Relative Risk Aversion) 效用函数。
+    返回 shape (n_sims,) 的 CEW 数组。
+    """
+    safe_wds = np.maximum(wds_arr, 1e-10)
+    if abs(gamma - 1.0) < 1e-9:
+        utility = np.log(safe_wds)
+    else:
+        utility = safe_wds ** (1.0 - gamma) / (1.0 - gamma)
+    mean_utility = utility.mean(axis=1)
+    if abs(gamma - 1.0) < 1e-9:
+        cew = np.exp(mean_utility)
+    else:
+        cew = (mean_utility * (1.0 - gamma)) ** (1.0 / (1.0 - gamma))
+    return cew
+
+
+def compute_max_drawdown(wds_arr: np.ndarray) -> np.ndarray:
+    """计算每条路径的消费最大回撤 (peak-to-trough)。返回 shape (n_sims,)。"""
+    cummax = np.maximum.accumulate(wds_arr, axis=1)
+    drawdown = 1.0 - wds_arr / np.maximum(cummax, 1e-10)
+    return drawdown.max(axis=1)
+
 
 def _compute_initial_wd(target_success, table, rate_grid):
     """根据 target_success 从查找表反算初始提取金额。"""
@@ -221,6 +323,12 @@ def evaluate_combo(
         else:
             discounted_wd = 0.0
 
+        # v3 新指标
+        g_wd_np = np.asarray(g_wd, dtype=float)
+        cew_val = float(compute_cew(g_wd_np.reshape(1, -1))[0]) if len(g_wd) > 0 else 0.0
+        md_val = float(compute_max_drawdown(g_wd_np.reshape(1, -1))[0]) if len(g_wd) > 0 else 0.0
+        years_below = int(np.sum(g_wd_np < consumption_floor_val)) if len(g_wd) > 0 else 0
+
         if p["is_complete"]:
             complete_metrics.append({
                 "g_survived": g_survived,
@@ -236,6 +344,10 @@ def evaluate_combo(
                 "downside_cv": downside_cv,
                 "discounted_wd": discounted_wd,
                 "n_adj": n_adj,
+                "cew": cew_val,
+                "max_drawdown": md_val,
+                "years_below": years_below,
+                "n_years": n_years,
             })
 
     if len(complete_metrics) == 0:
@@ -253,6 +365,10 @@ def evaluate_combo(
     min_wd_arr = np.array([m["g_min_wd"] for m in complete_metrics])
     disc_wd_arr = np.array([m["discounted_wd"] for m in complete_metrics])
     adj_arr = np.array([m["n_adj"] for m in complete_metrics])
+    cew_arr = np.array([m["cew"] for m in complete_metrics])
+    md_arr = np.array([m["max_drawdown"] for m in complete_metrics])
+    yb_arr = np.array([m["years_below"] for m in complete_metrics])
+    ny_arr = np.array([m["n_years"] for m in complete_metrics])
 
     # 聚合指标
     success_rate = float(np.mean(survived_arr))
@@ -270,22 +386,28 @@ def evaluate_combo(
 
     median_cv = float(np.median(cv_arr))
     median_downside_cv = float(np.median(dcv_arr))
+    p90_downside_cv = float(np.percentile(dcv_arr, 90))
 
     median_min_wd = float(np.median(min_wd_arr))
     p10_min_wd = float(np.percentile(min_wd_arr, 10))
 
     median_adj = float(np.median(adj_arr))
 
-    # 新指标：portfolio utilization & discounted consumption
     median_util = float(np.median(mean_wd_arr)) / INITIAL_PORTFOLIO
     p10_util = float(np.percentile(mean_wd_arr, 10)) / INITIAL_PORTFOLIO
     median_discounted = float(np.median(disc_wd_arr)) / INITIAL_PORTFOLIO
 
-    # 底线保护（vs 自身初始提取）
     p10_floor_self = float(np.percentile(min_wd_arr / initial_wd, 10))
     p10_floor_self = min(p10_floor_self, 1.0)
 
-    # 五维评分 (v2)
+    # v3 新指标
+    median_cew = float(np.median(cew_arr)) / INITIAL_PORTFOLIO
+    p90_max_drawdown = float(np.percentile(md_arr, 90))
+    yb_ratio = yb_arr / np.maximum(ny_arr, 1).astype(float)
+    p90_years_below_ratio = float(np.percentile(yb_ratio, 90))
+    p10_floor_abs = min(p10_min_wd / (INITIAL_PORTFOLIO * BASELINE_RATE), 1.0)
+
+    # v2 评分（向后兼容）
     safety = p10_funded ** 2
     smoothness = 1.0 / (1.0 + 20.0 * median_downside_cv)
     SCORE_SCALE = 15.0
@@ -295,6 +417,21 @@ def evaluate_combo(
         + 0.20 * median_discounted * SCORE_SCALE
         + 0.20 * p10_floor_self
         + 0.20 * smoothness
+    )
+
+    # v3 评分
+    score_v3, v3_detail = compute_v3_score(
+        median_util=median_util,
+        p10_util=p10_util,
+        median_discounted=median_discounted,
+        p10_funded=p10_funded,
+        p10_floor_self=p10_floor_self,
+        p10_min_wd=p10_min_wd,
+        median_downside_cv=median_downside_cv,
+        p90_downside_cv=p90_downside_cv,
+        p90_max_drawdown=p90_max_drawdown,
+        p90_years_below_ratio=p90_years_below_ratio,
+        median_cew=median_cew,
     )
 
     return {
@@ -313,6 +450,7 @@ def evaluate_combo(
         "p10_avg_wd_ratio": p10_avg_wd_ratio,
         "median_cv": median_cv,
         "median_downside_cv": median_downside_cv,
+        "p90_downside_cv": p90_downside_cv,
         "median_min_wd": median_min_wd,
         "p10_min_wd": p10_min_wd,
         "median_adj": median_adj,
@@ -320,8 +458,14 @@ def evaluate_combo(
         "p10_util": p10_util,
         "median_discounted": median_discounted,
         "p10_floor_self": p10_floor_self,
+        "p10_floor_abs": p10_floor_abs,
+        "median_cew": median_cew,
+        "p90_max_drawdown": p90_max_drawdown,
+        "p90_years_below_ratio": p90_years_below_ratio,
         "smoothness": smoothness,
         "score": score,
+        "score_v3": score_v3,
+        **v3_detail,
     }
 
 
@@ -454,20 +598,29 @@ def evaluate_combo_mc_fast(
     p10_avg_wd_ratio = float(np.percentile(avg_wd_ratio, 10))
     median_cv = float(np.median(g_cv))
     median_downside_cv = float(np.median(g_downside_cv))
+    p90_downside_cv = float(np.percentile(g_downside_cv, 90))
     median_min_wd = float(np.median(g_min_wd))
     p10_min_wd = float(np.percentile(g_min_wd, 10))
     median_adj = float(np.median(n_adj))
 
-    # 新指标：portfolio utilization & discounted consumption
     median_util = float(np.median(g_mean_wd)) / INITIAL_PORTFOLIO
     p10_util = float(np.percentile(g_mean_wd, 10)) / INITIAL_PORTFOLIO
     median_discounted = float(np.median(discounted_wd)) / INITIAL_PORTFOLIO
 
-    # 底线保护（vs 自身初始提取）
     p10_floor_self = float(np.percentile(g_min_wd / initial_wd, 10))
     p10_floor_self = min(p10_floor_self, 1.0)
 
-    # 五维评分 (v2)
+    # v3 新指标
+    cew_per_path = compute_cew(g_wds_arr)
+    median_cew = float(np.median(cew_per_path)) / INITIAL_PORTFOLIO
+    max_dd_per_path = compute_max_drawdown(g_wds_arr)
+    p90_max_drawdown = float(np.percentile(max_dd_per_path, 90))
+    below_floor = g_wds_arr < consumption_floor_val
+    years_below = below_floor.sum(axis=1)
+    p90_years_below_ratio = float(np.percentile(years_below / n_years, 90))
+    p10_floor_abs = min(p10_min_wd / (INITIAL_PORTFOLIO * BASELINE_RATE), 1.0)
+
+    # v2 评分（向后兼容）
     safety = p10_funded ** 2
     smoothness = 1.0 / (1.0 + 20.0 * median_downside_cv)
     SCORE_SCALE = 15.0
@@ -477,6 +630,21 @@ def evaluate_combo_mc_fast(
         + 0.20 * median_discounted * SCORE_SCALE
         + 0.20 * p10_floor_self
         + 0.20 * smoothness
+    )
+
+    # v3 评分
+    score_v3, v3_detail = compute_v3_score(
+        median_util=median_util,
+        p10_util=p10_util,
+        median_discounted=median_discounted,
+        p10_funded=p10_funded,
+        p10_floor_self=p10_floor_self,
+        p10_min_wd=p10_min_wd,
+        median_downside_cv=median_downside_cv,
+        p90_downside_cv=p90_downside_cv,
+        p90_max_drawdown=p90_max_drawdown,
+        p90_years_below_ratio=p90_years_below_ratio,
+        median_cew=median_cew,
     )
 
     return {
@@ -495,6 +663,7 @@ def evaluate_combo_mc_fast(
         "p10_avg_wd_ratio": p10_avg_wd_ratio,
         "median_cv": median_cv,
         "median_downside_cv": median_downside_cv,
+        "p90_downside_cv": p90_downside_cv,
         "median_min_wd": median_min_wd,
         "p10_min_wd": p10_min_wd,
         "median_adj": median_adj,
@@ -502,8 +671,14 @@ def evaluate_combo_mc_fast(
         "p10_util": p10_util,
         "median_discounted": median_discounted,
         "p10_floor_self": p10_floor_self,
+        "p10_floor_abs": p10_floor_abs,
+        "median_cew": median_cew,
+        "p90_max_drawdown": p90_max_drawdown,
+        "p90_years_below_ratio": p90_years_below_ratio,
         "smoothness": smoothness,
         "score": score,
+        "score_v3": score_v3,
+        **v3_detail,
     }
 
 
@@ -775,9 +950,9 @@ def plot_pareto(df: pd.DataFrame, label: str = "FIRE"):
 
     fig.suptitle(f"Pareto Analysis — {label}  (p10_funded >= {SAFETY_THRESHOLD})", fontsize=13)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / f"pareto_{label.lower()}.png", dpi=150)
+    fig.savefig(GUARDRAIL_OUTPUT_DIR / f"pareto_{label.lower()}.png", dpi=150)
     plt.close(fig)
-    print(f"  → {OUTPUT_DIR}/pareto_{label.lower()}.png")
+    print(f"  → {GUARDRAIL_OUTPUT_DIR}/pareto_{label.lower()}.png")
 
 
 def plot_heatmaps(df: pd.DataFrame, label: str = "FIRE"):
@@ -821,9 +996,9 @@ def plot_heatmaps(df: pd.DataFrame, label: str = "FIRE"):
 
     fig.suptitle(f"Parameter Sensitivity Heatmaps — {label}\n(other params fixed at best)", fontsize=13)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / f"heatmaps_{label.lower()}.png", dpi=150)
+    fig.savefig(GUARDRAIL_OUTPUT_DIR / f"heatmaps_{label.lower()}.png", dpi=150)
     plt.close(fig)
-    print(f"  → {OUTPUT_DIR}/heatmaps_{label.lower()}.png")
+    print(f"  → {GUARDRAIL_OUTPUT_DIR}/heatmaps_{label.lower()}.png")
 
 
 def plot_cross_validation(fire_df: pd.DataFrame, jst_df: pd.DataFrame):
@@ -880,9 +1055,9 @@ def plot_cross_validation(fire_df: pd.DataFrame, jst_df: pd.DataFrame):
     rho = _spearman_rho(merged["fire_rank"].values, jst_rank.values)
     fig.suptitle(f"Cross-Validation — Spearman ρ = {rho:.3f}", fontsize=13)
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "cross_validation.png", dpi=150)
+    fig.savefig(GUARDRAIL_OUTPUT_DIR / "cross_validation.png", dpi=150)
     plt.close(fig)
-    print(f"  → {OUTPUT_DIR}/cross_validation.png")
+    print(f"  → {GUARDRAIL_OUTPUT_DIR}/cross_validation.png")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -919,7 +1094,7 @@ def print_top_results(df: pd.DataFrame, label: str, n: int = 20):
 
 def save_results_csv(df: pd.DataFrame, filename: str):
     """保存完整结果到 CSV。"""
-    path = OUTPUT_DIR / filename
+    path = GUARDRAIL_OUTPUT_DIR / filename
     df.to_csv(path, index=False, float_format="%.6f")
     print(f"  → {path}")
 
@@ -1268,7 +1443,7 @@ def main():
               f"  {best['adjustment_mode']:>13}  {int(best['min_remaining_years']):>3}"
               f"  {best['us_std_score']:>8.4f}  {best['mc_1970_score']:>8.4f}  {best['jst_mc_score']:>8.4f}  {best['wgeo3_score']:>8.4f}")
 
-    print(f"\n所有输出保存在: {OUTPUT_DIR}/")
+    print(f"\n所有输出保存在: {GUARDRAIL_OUTPUT_DIR}/")
     print("完成！")
 
 

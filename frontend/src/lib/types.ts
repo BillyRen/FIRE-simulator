@@ -47,7 +47,8 @@ export interface SimulationRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
   leverage: number;
@@ -88,7 +89,8 @@ export interface SweepRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
   rate_max: number;
@@ -231,7 +233,8 @@ export interface SimBacktestRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
   leverage: number;
@@ -337,7 +340,8 @@ export interface AllocationSweepRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
   leverage: number;
@@ -381,7 +385,8 @@ export interface FormParams {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
   leverage: number;
@@ -403,6 +408,7 @@ export const DEFAULT_PARAMS: FormParams = {
   pooling_method: "equal",
   data_source: "jst",
   withdrawal_strategy: "fixed",
+  retirement_age: 45,
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,
   leverage: 1.0,
