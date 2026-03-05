@@ -459,6 +459,7 @@ class BuyVsRentMCResponse(BaseModel):
     breakeven_percentiles: dict
     buy_cost_median: list[float]
     rent_cost_median: list[float]
+    sampled_stats: list[dict[str, str]] = []
     summary: dict
 
 

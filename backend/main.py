@@ -1035,7 +1035,7 @@ def _resolve_country_weights_for_housing(
 ) -> dict[str, float] | None:
     """为有 housing 数据的国家计算池化权重。"""
     if req.pooling_method == "gdp_sqrt":
-        all_weights = get_gdp_weights()
+        all_weights = get_gdp_weights(list(country_dfs.keys()))
         weights = {iso: all_weights.get(iso, 1.0) for iso in country_dfs}
         total = sum(weights.values())
         if total > 0:

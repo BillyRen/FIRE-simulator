@@ -122,6 +122,32 @@ def main() -> None:
             df["_long_rate"] = np.nan
 
         # ----------------------------------------------------------
+        # Fill missing Rent_Growth with inflation (conservative proxy)
+        # corr(Rent_Growth, Inflation) ≈ 0.30 globally, mean diff ≈ +1%,
+        # so inflation slightly underestimates rent growth (conservative).
+        # This preserves extreme Housing_CapGain rows (wars, crises).
+        # ----------------------------------------------------------
+        rent_missing = df["_housing_capgain"].notna() & df["_rent_growth"].isna()
+        n_rent_filled = int(rent_missing.sum())
+        if n_rent_filled > 0:
+            df.loc[rent_missing, "_rent_growth"] = df.loc[rent_missing, "inflation"]
+            years_filled = sorted(df.loc[rent_missing, "year"].astype(int).tolist())
+            print(f"  {iso}: filled Rent_Growth=inflation for {n_rent_filled} rows: {years_filled}")
+
+        # ----------------------------------------------------------
+        # Fill missing Long_Rate with forward/backward fill (within country)
+        # Only affects isolated war-year gaps (~20 rows total across all countries).
+        # ----------------------------------------------------------
+        lr_missing_before = df["_long_rate"].isna() & df["_housing_capgain"].notna()
+        df["_long_rate"] = df["_long_rate"].ffill().bfill()
+        lr_missing_after = df["_long_rate"].isna() & df["_housing_capgain"].notna()
+        n_lr_filled = int(lr_missing_before.sum() - lr_missing_after.sum())
+        if n_lr_filled > 0:
+            filled_mask = lr_missing_before & ~lr_missing_after
+            years_filled = sorted(df.loc[filled_mask, "year"].astype(int).tolist())
+            print(f"  {iso}: filled Long_Rate=ffill/bfill for {n_lr_filled} rows: {years_filled}")
+
+        # ----------------------------------------------------------
         # Inject market-closure rows: set eq_tr = 0 for frozen markets
         # ----------------------------------------------------------
         for mc in MARKET_CLOSURE_ROWS:

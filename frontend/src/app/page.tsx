@@ -19,6 +19,7 @@ import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
+import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { runSimulation, runSimBatchBacktest, runSimBacktest, fetchCountries } from "@/lib/api";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
@@ -306,7 +307,7 @@ export default function SimulatorPage() {
                       <FanChart
                         trajectories={result.withdrawal_percentile_trajectories}
                         title={t("withdrawalTrajectory")}
-                        color="234, 88, 12" // orange
+                        color={CHART_COLORS.orange.rgb}
                         showLogToggle
                       />
                     </CardContent>
@@ -446,7 +447,7 @@ export default function SimulatorPage() {
                           <FanChart
                             trajectories={batchResult.withdrawal_percentile_trajectories}
                             title={t("withdrawalTrajectory")}
-                            color="234, 88, 12"
+                            color={CHART_COLORS.orange.rgb}
                             showLogToggle
                           />
                         </CardContent>
@@ -650,7 +651,7 @@ export default function SimulatorPage() {
                         y: selectedPath.portfolio,
                         type: "scatter", mode: "lines",
                         name: t("portfolioHistory"),
-                        line: { color: "#2563eb", width: 2 },
+                        line: { color: CHART_COLORS.primary.hex, width: 2 },
                         hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
                       }]}
                       layout={{
@@ -661,12 +662,11 @@ export default function SimulatorPage() {
                           type: btLogScale ? "log" : "linear",
                           tickformat: btLogScale ? "$~s" : "$,.0f",
                         },
-                        margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
+                        margin: MARGINS.withTitle(isMobile),
                         height: isMobile ? 260 : 380,
-                        hovermode: "x unified", showlegend: false,
+                        showlegend: false,
                       }}
-                      config={{ responsive: true, displayModeBar: false }}
-                      style={{ width: "100%" }}
+                      config={{ displayModeBar: false }}
                     />
                   </CardContent>
                 </Card>
@@ -690,7 +690,7 @@ export default function SimulatorPage() {
                         y: selectedPath.withdrawals,
                         type: "bar",
                         name: t("withdrawalHistory"),
-                        marker: { color: "#ea580c" },
+                        marker: { color: CHART_COLORS.orange.hex },
                         hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
                       }]}
                       layout={{
@@ -701,12 +701,11 @@ export default function SimulatorPage() {
                           type: btWdLogScale ? "log" : "linear",
                           tickformat: btWdLogScale ? "$~s" : "$,.0f",
                         },
-                        margin: { t: isMobile ? 10 : 40, r: 20, b: 40, l: 70 },
+                        margin: MARGINS.withTitle(isMobile),
                         height: isMobile ? 260 : 380,
-                        hovermode: "x unified", showlegend: false,
+                        showlegend: false,
                       }}
-                      config={{ responsive: true, displayModeBar: false }}
-                      style={{ width: "100%" }}
+                      config={{ displayModeBar: false }}
                     />
                   </CardContent>
                 </Card>

@@ -20,6 +20,7 @@ import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
+import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries } from "@/lib/api";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
@@ -495,7 +496,7 @@ export default function GuardrailPage() {
                         y: mcResult.b_percentile_trajectories["50"],
                         mode: "lines",
                         name: tc("baselineP50"),
-                        line: { color: "rgb(234,88,12)", width: 2, dash: "dash" },
+                        line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
                         type: "scatter",
                       },
                     ]}
@@ -509,7 +510,7 @@ export default function GuardrailPage() {
                   <FanChart
                     trajectories={mcResult.g_withdrawal_percentiles}
                     title={t("withdrawalTrajectory")}
-                    color="16, 185, 129"
+                    color={CHART_COLORS.secondary.rgb}
                     showLogToggle
                     extraTraces={[
                       {
@@ -518,7 +519,7 @@ export default function GuardrailPage() {
                         ).fill(mcResult.baseline_annual_wd),
                         mode: "lines",
                         name: t("baselineP50Withdrawal"),
-                        line: { color: "rgb(234,88,12)", width: 2, dash: "dash" },
+                        line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
                         type: "scatter",
                         hovertemplate: tc.raw("baselineHover"),
                       },
@@ -535,7 +536,7 @@ export default function GuardrailPage() {
                         })(),
                         mode: "lines",
                         name: tc("initialWithdrawalLine", { amount: fmt(mcResult.annual_withdrawal) }),
-                        line: { color: "gray", width: 1, dash: "dot" },
+                        line: { color: CHART_COLORS.neutral.hex, width: 1, dash: "dot" },
                         type: "scatter",
                         hovertemplate: tc.raw("initialWithdrawalHover"),
                       },
@@ -677,12 +678,12 @@ export default function GuardrailPage() {
                             <FanChart
                               trajectories={batchResult.g_withdrawal_percentiles}
                               title={t("withdrawalTrajectory")}
-                              color="16, 185, 129"
-                              showLogToggle
-                            />
-                          </CardContent>
-                        </Card>
-                      )}
+                            color={CHART_COLORS.secondary.rgb}
+                            showLogToggle
+                          />
+                        </CardContent>
+                      </Card>
+                    )}
 
                       {/* Baseline portfolio fan chart */}
                       {Object.keys(batchResult.b_percentile_trajectories).length > 0 && (
@@ -691,7 +692,7 @@ export default function GuardrailPage() {
                             <FanChart
                               trajectories={batchResult.b_percentile_trajectories}
                               title={`${tc("baseline")} - ${t("portfolioComparison")}`}
-                              color="234, 88, 12"
+                              color={CHART_COLORS.orange.rgb}
                               showLogToggle
                             />
                           </CardContent>
@@ -865,14 +866,14 @@ export default function GuardrailPage() {
                             y: selectedPath.g_portfolio,
                             type: "scatter", mode: "lines",
                             name: "Guardrail",
-                            line: { color: "rgb(59,130,246)", width: 2 },
+                            line: { color: CHART_COLORS.primary.hex, width: 2 },
                           },
                           {
                             x: selectedPath.year_labels,
                             y: selectedPath.b_portfolio,
                             type: "scatter", mode: "lines",
                             name: tc("baseline"),
-                            line: { color: "rgb(234,88,12)", width: 2, dash: "dash" },
+                            line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
                           },
                         ]}
                         layout={{
@@ -885,17 +886,14 @@ export default function GuardrailPage() {
                             tickfont: { size: isMobile ? 9 : 12 },
                           },
                           height: isMobile ? 280 : 400,
-                          margin: isMobile ? { l: 45, r: 10, t: 10, b: 30 } : { l: 80, r: 30, t: 80, b: 50 },
+                          margin: MARGINS.withTitle(isMobile),
                           legend: isMobile
                             ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 8 } }
                             : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
-                          hovermode: "x unified",
                         }}
-                        config={{ responsive: true, displayModeBar: isMobile ? false : "hover",
-                          modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
-                          toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                        config={{
+                          displayModeBar: isMobile ? false : ("hover" as const),
                         }}
-                        style={{ width: "100%" }}
                       />
                     </CardContent>
                   </Card>
@@ -917,7 +915,7 @@ export default function GuardrailPage() {
                             y: selectedPath.g_withdrawals,
                             type: "scatter", mode: "lines",
                             name: t("guardrailWithdrawal"),
-                            line: { color: "rgb(59,130,246)", width: 2 },
+                            line: { color: CHART_COLORS.primary.hex, width: 2 },
                             yaxis: "y",
                           },
                           {
@@ -925,7 +923,7 @@ export default function GuardrailPage() {
                             y: selectedPath.b_withdrawals,
                             type: "scatter", mode: "lines",
                             name: t("baselineWithdrawal"),
-                            line: { color: "rgb(234,88,12)", width: 2, dash: "dash" },
+                            line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
                             yaxis: "y",
                           },
                           {
@@ -933,8 +931,8 @@ export default function GuardrailPage() {
                             y: selectedPath.g_success_rates.map((s) => s * 100),
                             type: "scatter", mode: "lines",
                             name: t("successRateLine"),
-                            line: { color: "rgba(100,100,100,0.5)", width: 1 },
-                            fill: "tozeroy", fillcolor: "rgba(100,100,100,0.08)",
+                            line: { color: `rgba(${CHART_COLORS.neutral.rgb},0.5)`, width: 1 },
+                            fill: "tozeroy", fillcolor: `rgba(${CHART_COLORS.neutral.rgb},0.08)`,
                             yaxis: "y2",
                           },
                           {
@@ -942,7 +940,7 @@ export default function GuardrailPage() {
                             y: Array(selectedPath.years_simulated).fill(upperGuardrail * 100),
                             type: "scatter", mode: "lines",
                             name: t("upperGuardrailLine", { pct: (upperGuardrail * 100).toFixed(0) }),
-                            line: { color: "green", width: 1, dash: "dot" },
+                            line: { color: CHART_COLORS.secondary.hex, width: 1, dash: "dot" },
                             yaxis: "y2",
                           },
                           {
@@ -950,7 +948,7 @@ export default function GuardrailPage() {
                             y: Array(selectedPath.years_simulated).fill(lowerGuardrail * 100),
                             type: "scatter", mode: "lines",
                             name: t("lowerGuardrailLine", { pct: (lowerGuardrail * 100).toFixed(0) }),
-                            line: { color: "red", width: 1, dash: "dot" },
+                            line: { color: CHART_COLORS.danger.hex, width: 1, dash: "dot" },
                             yaxis: "y2",
                           },
                         ]}
@@ -969,17 +967,14 @@ export default function GuardrailPage() {
                             tickfont: { size: isMobile ? 9 : 12 },
                           },
                           height: isMobile ? 300 : 450,
-                          margin: isMobile ? { l: 45, r: 35, t: 10, b: 30 } : { l: 80, r: 60, t: 100, b: 50 },
+                          margin: MARGINS.dualAxisWithTitle(isMobile),
                           legend: isMobile
                             ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 7 }, tracegroupgap: 2 }
                             : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
-                          hovermode: "x unified",
                         }}
-                        config={{ responsive: true, displayModeBar: isMobile ? false : "hover",
-                          modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
-                          toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                        config={{
+                          displayModeBar: isMobile ? false : ("hover" as const),
                         }}
-                        style={{ width: "100%" }}
                       />
                     </CardContent>
                   </Card>

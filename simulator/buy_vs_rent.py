@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
@@ -113,10 +115,9 @@ def _simulate_path(
         buy_cost_total[t] = (payment + buy_cost_tax[t]
                              + buy_cost_maintenance[t] + buy_cost_insurance[t])
 
-    # 买房净资产（卖房后）
+    # 买房净资产（假设当年卖房后能拿到的净额）
     buy_net_worth_nominal = np.zeros(analysis_years + 1)
-    buy_net_worth_nominal[0] = -buying_costs  # 沉没成本
-    for t in range(1, analysis_years + 1):
+    for t in range(analysis_years + 1):
         buy_net_worth_nominal[t] = (
             home_value[t] * (1 - selling_cost_pct) - mortgage_balance[t]
         )
@@ -146,12 +147,15 @@ def _simulate_path(
     buy_cost_total_real = buy_cost_total / cum_inflation[:analysis_years]
     rent_cost_real = rent_annual / cum_inflation[:analysis_years]
 
-    # Breakeven: 第一个 advantage_real > 0 的年份（从第 1 年开始）
+    # Breakeven: 买房最终获胜时，最后一次从落后翻转为领先的年份
     breakeven_year = None
-    for t in range(1, analysis_years + 1):
-        if advantage_real[t] > 0:
-            breakeven_year = t
-            break
+    if advantage_real[-1] > 0:
+        for t in range(analysis_years, 0, -1):
+            if advantage_real[t - 1] <= 0:
+                breakeven_year = t
+                break
+        if breakeven_year is None:
+            breakeven_year = 0
 
     return {
         "buy_net_worth_real": buy_net_worth_real.tolist(),
@@ -280,6 +284,19 @@ def run_buy_vs_rent_mc(
     buy_costs_total = np.zeros((num_simulations, analysis_years))
     rent_costs_total = np.zeros((num_simulations, analysis_years))
 
+    # 采样参数统计收集（每条路径 -> 1 个标量）
+    s_home_nom = np.zeros(num_simulations)
+    s_home_real = np.zeros(num_simulations)
+    s_rent_nom = np.zeros(num_simulations)
+    s_rent_real = np.zeros(num_simulations)
+    s_mort_rate = np.zeros(num_simulations)
+    s_inflation = np.zeros(num_simulations)
+    s_inv_nom = np.zeros(num_simulations)
+    s_inv_real = np.zeros(num_simulations)
+    s_home_dd_nom = np.zeros(num_simulations)
+    s_home_dd_real = np.zeros(num_simulations)
+    s_home_vol = np.zeros(num_simulations)
+
     for sim in range(num_simulations):
         # Block bootstrap: 联合采样所有列
         if country_dfs is not None:
@@ -328,13 +345,51 @@ def run_buy_vs_rent_mc(
             mort_rates = sampled["Long_Rate"].values + mortgage_rate_spread
             mort_rates = np.maximum(mort_rates, 0.001)
 
-        # 处理采样数据中可能的 NaN（个别年份缺失时用中位数填充）
-        if np.any(np.isnan(home_appr)):
-            home_appr = np.nan_to_num(home_appr, nan=np.nanmedian(home_appr))
-        if np.any(np.isnan(rent_gr)):
-            rent_gr = np.nan_to_num(rent_gr, nan=np.nanmedian(rent_gr))
-        if np.any(np.isnan(mort_rates)):
-            mort_rates = np.nan_to_num(mort_rates, nan=np.nanmedian(mort_rates))
+        # Defensive safety net: NaN should already be filled at build time
+        # (Rent_Growth→inflation, Long_Rate→ffill). Warn if triggered.
+        def _safe_fill(arr, name, fallback=0.0):
+            n_nan = int(np.isnan(arr).sum())
+            if n_nan == 0:
+                return arr
+            warnings.warn(
+                f"Unexpected NaN in {name}: {n_nan}/{len(arr)} values "
+                f"(sim #{sim}). Filling with nanmedian or fallback={fallback}.",
+                stacklevel=2,
+            )
+            m = np.nanmedian(arr)
+            fill_val = fallback if np.isnan(m) else float(m)
+            return np.nan_to_num(arr, nan=fill_val)
+
+        home_appr = _safe_fill(home_appr, "home_appr", 0.0)
+        rent_gr = _safe_fill(rent_gr, "rent_gr", 0.0)
+        mort_rates = _safe_fill(mort_rates, "mort_rates", 0.05)
+
+        # --- 采样参数统计 ---
+        n = analysis_years
+        s_home_nom[sim] = np.prod(1.0 + home_appr) ** (1.0 / n) - 1.0
+        s_rent_nom[sim] = np.prod(1.0 + rent_gr) ** (1.0 / n) - 1.0
+        s_inflation[sim] = np.prod(1.0 + inflation) ** (1.0 / n) - 1.0
+        s_inv_nom[sim] = np.prod(1.0 + nominal_return) ** (1.0 / n) - 1.0
+
+        home_real = (1.0 + home_appr) / (1.0 + inflation) - 1.0
+        rent_real = (1.0 + rent_gr) / (1.0 + inflation) - 1.0
+        inv_real = (1.0 + nominal_return) / (1.0 + inflation) - 1.0
+        s_home_real[sim] = np.prod(1.0 + home_real) ** (1.0 / n) - 1.0
+        s_rent_real[sim] = np.prod(1.0 + rent_real) ** (1.0 / n) - 1.0
+        s_inv_real[sim] = np.prod(1.0 + inv_real) ** (1.0 / n) - 1.0
+
+        s_mort_rate[sim] = mort_rates.mean()
+        s_home_vol[sim] = home_appr.std(ddof=1) if n > 1 else 0.0
+
+        # 房价最大回撤（名义）
+        cum_nom = np.cumprod(1.0 + home_appr)
+        peak_nom = np.maximum.accumulate(cum_nom)
+        s_home_dd_nom[sim] = np.min(cum_nom / peak_nom - 1.0)
+
+        # 房价最大回撤（实际）
+        cum_real_hp = np.cumprod(1.0 + home_real)
+        peak_real_hp = np.maximum.accumulate(cum_real_hp)
+        s_home_dd_real[sim] = np.min(cum_real_hp / peak_real_hp - 1.0)
 
         result = _simulate_path(
             home_price=home_price,
@@ -372,7 +427,7 @@ def run_buy_vs_rent_mc(
 
     buy_wins_prob = (advantage > 0).mean(axis=0).tolist()
 
-    # Breakeven 分布
+    # Breakeven 分布（仅在买房最终获胜的模拟中统计）
     valid_be = breakeven_years[~np.isnan(breakeven_years)]
     breakeven_stats: dict = {}
     if len(valid_be) > 0:
@@ -385,6 +440,27 @@ def run_buy_vs_rent_mc(
     else:
         breakeven_stats["pct_reached"] = 0.0
 
+    # --- 采样参数分位数表 ---
+    _stats_metrics = [
+        ("ann_home_appreciation_nominal", s_home_nom),
+        ("ann_home_appreciation_real", s_home_real),
+        ("ann_rent_growth_nominal", s_rent_nom),
+        ("ann_rent_growth_real", s_rent_real),
+        ("avg_mortgage_rate", s_mort_rate),
+        ("ann_inflation", s_inflation),
+        ("ann_investment_nominal", s_inv_nom),
+        ("ann_investment_real", s_inv_real),
+        ("max_home_drawdown_nominal", s_home_dd_nom),
+        ("max_home_drawdown_real", s_home_dd_real),
+        ("home_price_volatility", s_home_vol),
+    ]
+    sampled_stats: list[dict[str, str]] = []
+    for key, values in _stats_metrics:
+        row: dict[str, str] = {"metric": key}
+        for p in percentiles:
+            row[f"P{p}"] = f"{float(np.percentile(values, p)):.2%}"
+        sampled_stats.append(row)
+
     return {
         "num_simulations": num_simulations,
         "analysis_years": analysis_years,
@@ -395,6 +471,7 @@ def run_buy_vs_rent_mc(
         "breakeven_percentiles": breakeven_stats,
         "buy_cost_median": np.median(buy_costs_total, axis=0).tolist(),
         "rent_cost_median": np.median(rent_costs_total, axis=0).tolist(),
+        "sampled_stats": sampled_stats,
         "summary": {
             "final_buy_median": float(np.median(buy_nw[:, -1])),
             "final_rent_median": float(np.median(rent_nw[:, -1])),

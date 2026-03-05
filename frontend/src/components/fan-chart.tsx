@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "./ui/button";
 import PlotlyChart from "./plotly-chart";
+import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 
 export function useIsMobile(breakpoint = 640) {
   const [isMobile, setIsMobile] = useState(false);
@@ -24,19 +25,6 @@ export function useIsMobile(breakpoint = 640) {
   return isMobile;
 }
 
-export function mobileMargin(isMobile: boolean) {
-  return isMobile
-    ? { l: 45, r: 10, t: 10, b: 30 }
-    : { l: 80, r: 30, t: 80, b: 50 };
-}
-
-export function mobileMarginDualAxis(isMobile: boolean) {
-  return isMobile
-    ? { l: 45, r: 35, t: 10, b: 30 }
-    : { l: 80, r: 60, t: 100, b: 50 };
-}
-
-/** Mobile-friendly title: rendered as HTML above the chart on mobile */
 export function MobileChartTitle({ title, isMobile }: { title: string; isMobile: boolean }) {
   if (!isMobile) return null;
   return (
@@ -76,7 +64,7 @@ export function FanChart({
   xLabels,
   extraTraces = [],
   height = 450,
-  color = "59, 130, 246", // blue-500 RGB
+  color = CHART_COLORS.primary.rgb,
   showLogToggle = false,
 }: FanChartProps) {
   const t = useTranslations();
@@ -169,21 +157,14 @@ export function FanChart({
             tickfont: { size: isMobile ? 9 : 12 },
           },
           height: chartHeight,
-          margin: isMobile
-            ? { l: 45, r: 10, t: 10, b: 30 }
-            : { l: 80, r: 30, t: 80, b: 50 },
+          margin: MARGINS.withTitle(isMobile),
           legend: isMobile
             ? { x: 0.5, y: 1.02, xanchor: "center", yanchor: "bottom", orientation: "h", font: { size: 8 } }
             : { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },
-          hovermode: "x unified",
         }}
         config={{
-          responsive: true,
-          displayModeBar: isMobile ? false : "hover",
-          modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] as Plotly.ModeBarDefaultButtons[],
-          toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+          displayModeBar: isMobile ? false : ("hover" as const),
         }}
-        style={{ width: "100%" }}
       />
     </div>
   );

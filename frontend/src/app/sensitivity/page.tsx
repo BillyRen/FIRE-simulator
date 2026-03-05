@@ -17,6 +17,7 @@ import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/components/fan-chart";
+import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { runSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
@@ -202,7 +203,7 @@ export default function SensitivityPage() {
                       type: "scatter",
                       mode: "lines+markers",
                       marker: { size: 4 },
-                      line: { color: "rgb(59,130,246)", width: 2 },
+                      line: { color: CHART_COLORS.primary.hex, width: 2 },
                       name: metricLabel,
                     },
                   ]}
@@ -210,16 +211,11 @@ export default function SensitivityPage() {
                     xaxis: { title: { text: t("analysis1XAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                     yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
                     height: isMobile ? 280 : 400,
-                    margin: isMobile ? { l: 35, r: 10, t: 20, b: 40 } : { l: 60, r: 30, t: 30, b: 50 },
-                    hovermode: "x unified",
+                    margin: MARGINS.default(isMobile),
                   }}
                   config={{
-                    responsive: true,
-                    displayModeBar: isMobile ? false : "hover",
-                    modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
-                    toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                    displayModeBar: isMobile ? false : ("hover" as const),
                   }}
-                  style={{ width: "100%" }}
                 />
               </CardContent>
             </Card>
@@ -261,7 +257,7 @@ export default function SensitivityPage() {
                         type: "scatter",
                         mode: "lines+markers",
                         marker: { size: 4 },
-                        line: { color: "rgb(16,185,129)", width: 2 },
+                        line: { color: CHART_COLORS.secondary.hex, width: 2 },
                         name: metricLabel,
                       },
                     ]}
@@ -274,16 +270,11 @@ export default function SensitivityPage() {
                       },
                       yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
                       height: isMobile ? 280 : 400,
-                      margin: isMobile ? { l: 35, r: 10, t: 20, b: 40 } : { l: 60, r: 30, t: 30, b: 50 },
-                      hovermode: "x unified",
+                      margin: MARGINS.default(isMobile),
                     }}
                     config={{
-                      responsive: true,
-                      displayModeBar: isMobile ? false : "hover",
-                      modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
-                      toImageButtonOptions: { format: "png", height: 800, width: 1200, scale: 2 },
+                      displayModeBar: isMobile ? false : ("hover" as const),
                     }}
-                    style={{ width: "100%" }}
                   />
                 </CardContent>
               </Card>

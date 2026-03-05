@@ -219,19 +219,19 @@ export default function AllocationPage() {
                         title: { text: t("ternaryDomStock") },
                         min: 0,
                         linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.1)",
+                        gridcolor: "rgba(0,0,0,0.08)",
                       },
                       baxis: {
                         title: { text: t("ternaryGlobalStock") },
                         min: 0,
                         linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.1)",
+                        gridcolor: "rgba(0,0,0,0.08)",
                       },
                       caxis: {
                         title: { text: t("ternaryDomBond") },
                         min: 0,
                         linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.1)",
+                        gridcolor: "rgba(0,0,0,0.08)",
                       },
                     },
                     margin: isMobile ? { t: 20, b: 20, l: 10, r: 10 } : { t: 40, b: 40, l: 60, r: 60 },
@@ -240,11 +240,6 @@ export default function AllocationPage() {
                   }}
                   config={{
                     displayModeBar: isMobile ? false : ("hover" as const),
-                    modeBarButtonsToRemove: [
-                      "select2d",
-                      "lasso2d",
-                      "autoScale2d",
-                    ],
                     toImageButtonOptions: {
                       format: "png",
                       filename: "allocation_ternary",
@@ -252,7 +247,7 @@ export default function AllocationPage() {
                       height: 800,
                     },
                   }}
-                  style={{ width: "100%", height: isMobile ? "350px" : "500px" }}
+                  style={{ height: isMobile ? "350px" : "500px" }}
                 />
               </CardContent>
             </Card>

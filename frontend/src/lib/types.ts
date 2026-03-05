@@ -445,6 +445,7 @@ export interface BuyVsRentMCResponse {
   breakeven_percentiles: Record<string, number>;
   buy_cost_median: number[];
   rent_cost_median: number[];
+  sampled_stats: Array<Record<string, string>>;
   summary: Record<string, number | null>;
 }
 
