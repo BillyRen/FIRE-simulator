@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,11 +21,11 @@ import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
-import { runSimulation, runSimBatchBacktest, runSimBacktest, fetchCountries } from "@/lib/api";
+import { runSimulation, runSimBatchBacktest, runSimBacktest, runSimScenarios, runSimSensitivity, fetchCountries } from "@/lib/api";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { useSharedParams } from "@/lib/params-context";
-import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo } from "@/lib/types";
+import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
 
 export default function SimulatorPage() {
@@ -35,8 +36,8 @@ export default function SimulatorPage() {
   const isMobile = useIsMobile();
 
   const { params, setParams, histStartYear, setHistStartYear, singleCountry, setSingleCountry } = useSharedParams();
-  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
+  const [portfolio, setPortfolio] = usePersistedState("fire:main:portfolio", params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = usePersistedState("fire:main:withdrawal", params.annual_withdrawal);
 
   // MC state
   const [result, setResult] = useState<SimulationResponse | null>(null);
@@ -62,6 +63,16 @@ export default function SimulatorPage() {
   // Single backtest state
   const [singleBtLoading, setSingleBtLoading] = useState(false);
   const [countries, setCountries] = useState<CountryInfo[]>([]);
+
+  // Analysis state
+  const [scenarioResult, setScenarioResult] = useState<ScenarioAnalysisResponse | null>(null);
+  const [scenarioLoading, setScenarioLoading] = useState(false);
+  const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
+  const [sensitivityLoading, setSensitivityLoading] = useState(false);
+
+  const hasProbabilisticCF = useMemo(() => {
+    return params.cash_flows.some((cf: { group?: string | null }) => cf.group != null);
+  }, [params.cash_flows]);
 
   useEffect(() => {
     fetchCountries(params.data_source).then(setCountries).catch(() => {});
@@ -148,6 +159,38 @@ export default function SimulatorPage() {
       setBtError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setSingleBtLoading(false);
+    }
+  };
+
+  const simReqBase = () => ({
+    ...params,
+    initial_portfolio: portfolio,
+    annual_withdrawal: withdrawal,
+  });
+
+  const handleRunScenarios = async () => {
+    setScenarioLoading(true);
+    setError(null);
+    try {
+      const res = await runSimScenarios(simReqBase());
+      setScenarioResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tc("unknownError"));
+    } finally {
+      setScenarioLoading(false);
+    }
+  };
+
+  const handleRunSensitivity = async () => {
+    setSensitivityLoading(true);
+    setError(null);
+    try {
+      const res = await runSimSensitivity(simReqBase());
+      setSensitivityResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tc("unknownError"));
+    } finally {
+      setSensitivityLoading(false);
     }
   };
 
@@ -250,6 +293,7 @@ export default function SimulatorPage() {
           <TabsList className="mb-4">
             <TabsTrigger value="mc">{t("tabMonteCarlo")}</TabsTrigger>
             <TabsTrigger value="backtest">{t("tabBacktest")}</TabsTrigger>
+            <TabsTrigger value="analysis">{t("tabAnalysis")}</TabsTrigger>
           </TabsList>
 
           {/* ── MC Tab ── */}
@@ -730,6 +774,266 @@ export default function SimulatorPage() {
               <div className="flex items-center justify-center h-64 text-muted-foreground">
                 {t("backtestPlaceholder")}
               </div>
+            )}
+          </TabsContent>
+
+          {/* ── Analysis Tab ── */}
+          <TabsContent value="analysis" className="space-y-6">
+            {!result ? (
+              <div className="flex items-center justify-center h-64 text-muted-foreground">
+                {t("analysisRequiresSim")}
+              </div>
+            ) : (
+              <>
+                {/* Scenario Analysis */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">{t("scenarioTitle")}</CardTitle>
+                    <p className="text-sm text-muted-foreground">{t("scenarioDesc")}</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {hasProbabilisticCF ? (
+                      <Button
+                        onClick={handleRunScenarios}
+                        disabled={scenarioLoading}
+                        size="sm"
+                      >
+                        {scenarioLoading ? t("scenarioRunning") : t("runScenarioAnalysis")}
+                      </Button>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">{t("scenarioNoProbCF")}</p>
+                    )}
+
+                    {scenarioLoading && <LoadingOverlay />}
+
+                    {scenarioResult && (
+                      <>
+                        {/* Scenario bar chart */}
+                        <PlotlyChart
+                          data={(() => {
+                            const sorted = [...scenarioResult.scenarios].sort(
+                              (a, b) => a.success_rate - b.success_rate
+                            );
+                            const labels = sorted.map((s) => s.label);
+                            const values = sorted.map((s) => s.success_rate * 100);
+                            const colors = sorted.map((s) =>
+                              s.success_rate >= scenarioResult.base_case.success_rate
+                                ? CHART_COLORS.secondary.hex
+                                : CHART_COLORS.danger.hex
+                            );
+                            return [
+                              {
+                                type: "bar" as const,
+                                orientation: "h" as const,
+                                y: labels,
+                                x: values,
+                                marker: { color: colors },
+                                text: values.map((v) => `${v.toFixed(1)}%`),
+                                textposition: "outside" as const,
+                                hovertemplate: "%{y}<br>" + t("scenarioSuccessRate") + ": %{x:.1f}%<extra></extra>",
+                              },
+                            ];
+                          })()}
+                          layout={{
+                            title: isMobile ? undefined : { text: t("scenarioComparisonTitle"), font: { size: 14 } },
+                            xaxis: {
+                              title: { text: t("scenarioSuccessRate") },
+                              type: "linear" as const,
+                              ticksuffix: "%",
+                              range: (() => {
+                                const all = scenarioResult.scenarios.map((s) => s.success_rate * 100);
+                                all.push(scenarioResult.base_case.success_rate * 100);
+                                const min = Math.min(...all);
+                                const max = Math.max(...all);
+                                const pad = Math.max((max - min) * 0.3, 2);
+                                return [Math.max(0, min - pad), Math.min(100, max + pad + 2)];
+                              })(),
+                            },
+                            margin: isMobile
+                              ? { l: 160, r: 50, t: 10, b: 40 }
+                              : { l: 260, r: 60, t: 40, b: 50 },
+                            height: Math.max(isMobile ? 250 : 300, scenarioResult.scenarios.length * (isMobile ? 26 : 30) + 80),
+                            shapes: [
+                              {
+                                type: "line",
+                                x0: scenarioResult.base_case.success_rate * 100,
+                                x1: scenarioResult.base_case.success_rate * 100,
+                                y0: -0.5,
+                                y1: scenarioResult.scenarios.length - 0.5,
+                                line: { color: CHART_COLORS.primary.hex, width: 2, dash: "dash" },
+                              },
+                            ],
+                            annotations: [
+                              {
+                                x: scenarioResult.base_case.success_rate * 100,
+                                y: scenarioResult.scenarios.length - 0.5,
+                                text: `${t("scenarioBaseCase")}: ${(scenarioResult.base_case.success_rate * 100).toFixed(1)}%`,
+                                showarrow: false,
+                                yanchor: "bottom" as const,
+                                font: { size: 11, color: CHART_COLORS.primary.hex },
+                              },
+                            ],
+                          }}
+                        />
+
+                        {/* Scenario table */}
+                        <Card>
+                          <CardContent className="pt-4 overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b">
+                                  <th className="text-left py-2 px-2 font-medium">{t("scenarioLabel")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioProbability")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioSuccessRate")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioFundedRatio")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianFinal")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianConsumption")}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr className="border-b bg-muted/50 font-medium">
+                                  <td className="py-1.5 px-2">{t("scenarioBaseCase")}</td>
+                                  <td className="text-right py-1.5 px-2">—</td>
+                                  <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.success_rate)}</td>
+                                  <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.funded_ratio)}</td>
+                                  <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_final_portfolio)}</td>
+                                  <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_total_consumption)}</td>
+                                </tr>
+                                {scenarioResult.scenarios.map((s, i) => (
+                                  <tr key={i} className="border-b hover:bg-muted/30">
+                                    <td className="py-1.5 px-2 max-w-[200px] truncate" title={s.label}>{s.label}</td>
+                                    <td className="text-right py-1.5 px-2">{(s.probability * 100).toFixed(1)}%</td>
+                                    <td className="text-right py-1.5 px-2">{pct(s.success_rate)}</td>
+                                    <td className="text-right py-1.5 px-2">{pct(s.funded_ratio)}</td>
+                                    <td className="text-right py-1.5 px-2">{fmt(s.median_final_portfolio)}</td>
+                                    <td className="text-right py-1.5 px-2">{fmt(s.median_total_consumption)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </CardContent>
+                        </Card>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Parameter Sensitivity */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">{t("sensitivityTitle")}</CardTitle>
+                    <p className="text-sm text-muted-foreground">{t("sensitivityDesc")}</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <Button
+                      onClick={handleRunSensitivity}
+                      disabled={sensitivityLoading}
+                      size="sm"
+                    >
+                      {sensitivityLoading ? t("sensitivityRunning") : t("runSensitivity")}
+                    </Button>
+
+                    {sensitivityLoading && <LoadingOverlay />}
+
+                    {sensitivityResult && (
+                      <>
+                        {/* Tornado chart */}
+                        <PlotlyChart
+                          data={(() => {
+                            const baseSR = sensitivityResult.base_success_rate * 100;
+                            const sorted = [...sensitivityResult.deltas].sort(
+                              (a, b) =>
+                                Math.abs(a.high_success_rate - a.low_success_rate) -
+                                Math.abs(b.high_success_rate - b.low_success_rate)
+                            );
+                            return [
+                              {
+                                type: "bar" as const,
+                                orientation: "h" as const,
+                                y: sorted.map((d) => d.param_label),
+                                x: sorted.map((d) => (d.low_success_rate - sensitivityResult.base_success_rate) * 100),
+                                base: Array(sorted.length).fill(baseSR),
+                                marker: { color: CHART_COLORS.danger.hex },
+                                name: t("sensitivityLow"),
+                                hovertemplate: "%{y}: %{x:+.1f}pp<extra></extra>",
+                              },
+                              {
+                                type: "bar" as const,
+                                orientation: "h" as const,
+                                y: sorted.map((d) => d.param_label),
+                                x: sorted.map((d) => (d.high_success_rate - sensitivityResult.base_success_rate) * 100),
+                                base: Array(sorted.length).fill(baseSR),
+                                marker: { color: CHART_COLORS.secondary.hex },
+                                name: t("sensitivityHigh"),
+                                hovertemplate: "%{y}: %{x:+.1f}pp<extra></extra>",
+                              },
+                            ];
+                          })()}
+                          layout={{
+                            title: isMobile ? undefined : { text: t("sensitivityChartTitle"), font: { size: 14 } },
+                            barmode: "overlay",
+                            xaxis: { title: { text: t("sensitivityImpact") }, type: "linear" as const, ticksuffix: "%" },
+                            margin: isMobile ? { l: 100, r: 30, t: 10, b: 40 } : { l: 140, r: 40, t: 40, b: 50 },
+                            height: isMobile ? 250 : 300,
+                            shapes: [
+                              {
+                                type: "line",
+                                x0: sensitivityResult.base_success_rate * 100,
+                                x1: sensitivityResult.base_success_rate * 100,
+                                y0: -0.5,
+                                y1: sensitivityResult.deltas.length - 0.5,
+                                line: { color: CHART_COLORS.neutral.hex, width: 1, dash: "dash" },
+                              },
+                            ],
+                          }}
+                        />
+
+                        {/* Parameter table */}
+                        <Card>
+                          <CardContent className="pt-4 overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b">
+                                  <th className="text-left py-2 px-2 font-medium">{t("sensitivityParam")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityBaseValue")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityRange")}</th>
+                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityImpact")}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sensitivityResult.deltas.map((d, i) => {
+                                  const fmtVal = (v: number, key: string) => {
+                                    if (key === "initial_portfolio" || key === "annual_withdrawal")
+                                      return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                                    if (key === "retirement_years") return `${v.toFixed(0)}`;
+                                    if (key === "stock_allocation" || key === "target_success")
+                                      return `${(v * 100).toFixed(0)}%`;
+                                    return v.toFixed(2);
+                                  };
+                                  const loD = ((d.low_success_rate - sensitivityResult.base_success_rate) * 100).toFixed(1);
+                                  const hiD = ((d.high_success_rate - sensitivityResult.base_success_rate) * 100).toFixed(1);
+                                  return (
+                                    <tr key={i} className="border-b hover:bg-muted/30">
+                                      <td className="py-1.5 px-2">{d.param_label}</td>
+                                      <td className="text-right py-1.5 px-2">{fmtVal(d.base_value, d.param_key)}</td>
+                                      <td className="text-right py-1.5 px-2">{fmtVal(d.low_value, d.param_key)} ~ {fmtVal(d.high_value, d.param_key)}</td>
+                                      <td className="text-right py-1.5 px-2">
+                                        <span className={Number(loD) < 0 ? "text-red-500" : "text-green-500"}>{loD}pp</span>
+                                        {" / "}
+                                        <span className={Number(hiD) < 0 ? "text-red-500" : "text-green-500"}>{hiD}pp</span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </CardContent>
+                        </Card>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
             )}
           </TabsContent>
         </Tabs>

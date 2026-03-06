@@ -231,6 +231,11 @@ def run_guardrail_batch_backtest(
     cash_flows: list[CashFlowItem] | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
+    cf_table: np.ndarray | None = None,
+    cf_rate_grid: np.ndarray | None = None,
+    cf_scale_grid: np.ndarray | None = None,
+    cf_ref: float = 0.0,
+    last_cf_year: int = -1,
 ) -> dict:
     """遍历所有有效 (国家, 起始年) 运行 guardrail 历史回测。
 
@@ -285,6 +290,11 @@ def run_guardrail_batch_backtest(
                 adjustment_mode=adjustment_mode,
                 cash_flows=cash_flows,
                 inflation_series=inflation_series,
+                cf_table=cf_table,
+                cf_rate_grid=cf_rate_grid,
+                cf_scale_grid=cf_scale_grid,
+                cf_ref=cf_ref,
+                last_cf_year=last_cf_year,
             )
 
             pm = compute_single_path_metrics(

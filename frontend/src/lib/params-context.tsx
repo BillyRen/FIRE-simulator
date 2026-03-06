@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { DEFAULT_PARAMS } from "./types";
 import type { FormParams } from "./types";
+import { usePersistedState } from "./use-persisted-state";
 
 interface SharedParamsState {
   params: FormParams;
@@ -46,28 +47,28 @@ interface SharedParamsState {
 const ParamsContext = createContext<SharedParamsState | null>(null);
 
 export function ParamsProvider({ children }: { children: ReactNode }) {
-  const [params, setParams] = useState<FormParams>(DEFAULT_PARAMS);
+  const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
 
   // Guardrail
-  const [guardrailTargetSuccess, setGuardrailTargetSuccess] = useState(0.85);
-  const [guardrailUpperGuardrail, setGuardrailUpperGuardrail] = useState(0.99);
-  const [guardrailLowerGuardrail, setGuardrailLowerGuardrail] = useState(0.6);
-  const [guardrailAdjustmentPct, setGuardrailAdjustmentPct] = useState(0.1);
-  const [guardrailAdjustmentMode, setGuardrailAdjustmentMode] = useState<"amount" | "success_rate">("amount");
-  const [guardrailMinRemainingYears, setGuardrailMinRemainingYears] = useState(5);
-  const [guardrailBaselineRate, setGuardrailBaselineRate] = useState(0.033);
+  const [guardrailTargetSuccess, setGuardrailTargetSuccess] = usePersistedState("fire:guardrailTargetSuccess", 0.85);
+  const [guardrailUpperGuardrail, setGuardrailUpperGuardrail] = usePersistedState("fire:guardrailUpperGuardrail", 0.99);
+  const [guardrailLowerGuardrail, setGuardrailLowerGuardrail] = usePersistedState("fire:guardrailLowerGuardrail", 0.6);
+  const [guardrailAdjustmentPct, setGuardrailAdjustmentPct] = usePersistedState("fire:guardrailAdjustmentPct", 0.1);
+  const [guardrailAdjustmentMode, setGuardrailAdjustmentMode] = usePersistedState<"amount" | "success_rate">("fire:guardrailAdjustmentMode", "amount");
+  const [guardrailMinRemainingYears, setGuardrailMinRemainingYears] = usePersistedState("fire:guardrailMinRemainingYears", 5);
+  const [guardrailBaselineRate, setGuardrailBaselineRate] = usePersistedState("fire:guardrailBaselineRate", 0.033);
 
   // Sensitivity
-  const [sensitivityRateMax, setSensitivityRateMax] = useState(0.12);
-  const [sensitivityRateStep, setSensitivityRateStep] = useState(0.002);
-  const [sensitivityMetric, setSensitivityMetric] = useState<"success_rate" | "funded_ratio">("success_rate");
+  const [sensitivityRateMax, setSensitivityRateMax] = usePersistedState("fire:sensitivityRateMax", 0.12);
+  const [sensitivityRateStep, setSensitivityRateStep] = usePersistedState("fire:sensitivityRateStep", 0.002);
+  const [sensitivityMetric, setSensitivityMetric] = usePersistedState<"success_rate" | "funded_ratio">("fire:sensitivityMetric", "success_rate");
 
   // Allocation
-  const [allocationAllocStep, setAllocationAllocStep] = useState(0.1);
+  const [allocationAllocStep, setAllocationAllocStep] = usePersistedState("fire:allocationAllocStep", 0.1);
 
   // Backtest common
-  const [histStartYear, setHistStartYear] = useState(1990);
-  const [singleCountry, setSingleCountry] = useState("USA");
+  const [histStartYear, setHistStartYear] = usePersistedState("fire:histStartYear", 1990);
+  const [singleCountry, setSingleCountry] = usePersistedState("fire:singleCountry", "USA");
 
   return (
     <ParamsContext.Provider

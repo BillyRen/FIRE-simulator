@@ -588,6 +588,51 @@ export interface AccumulationResponse {
 }
 
 // ---------------------------------------------------------------------------
+// 现金流情景分析
+// ---------------------------------------------------------------------------
+
+export interface ScenarioResult {
+  label: string;
+  probability: number;
+  success_rate: number;
+  funded_ratio: number;
+  median_final_portfolio: number;
+  median_total_consumption: number;
+  annual_withdrawal: number;
+  initial_portfolio: number;
+}
+
+export interface ScenarioAnalysisResponse {
+  base_case: ScenarioResult;
+  scenarios: ScenarioResult[];
+}
+
+// ---------------------------------------------------------------------------
+// 参数敏感性分析（龙卷风图）
+// ---------------------------------------------------------------------------
+
+export interface SensitivityDelta {
+  param_label: string;
+  param_key: string;
+  low_value: number;
+  high_value: number;
+  base_value: number;
+  low_success_rate: number;
+  high_success_rate: number;
+  low_funded_ratio: number;
+  high_funded_ratio: number;
+  low_withdrawal?: number;
+  high_withdrawal?: number;
+}
+
+export interface SensitivityAnalysisResponse {
+  base_success_rate: number;
+  base_funded_ratio: number;
+  base_withdrawal?: number;
+  deltas: SensitivityDelta[];
+}
+
+// ---------------------------------------------------------------------------
 // 共享表单状态
 // ---------------------------------------------------------------------------
 

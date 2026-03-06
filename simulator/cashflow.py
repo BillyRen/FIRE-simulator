@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -137,6 +137,115 @@ def build_expected_cf_schedule(
             schedule += cf.probability * single
 
     return schedule
+
+
+def enumerate_cf_scenarios(
+    cash_flows: list[CashFlowItem],
+    max_combinations: int = 64,
+) -> list[tuple[str, list[CashFlowItem], float]]:
+    """枚举概率分组的所有确定性组合。
+
+    每个组合是一种"如果 A 组选了变体 x，B 组选了变体 y …"的确定性场景。
+    确定性（group=None）现金流出现在每个场景中。
+
+    Parameters
+    ----------
+    cash_flows : list[CashFlowItem]
+        完整的现金流列表。
+    max_combinations : int
+        安全阀：组合数超过此值时返回空列表。
+
+    Returns
+    -------
+    list[tuple[str, list[CashFlowItem], float]]
+        每个元素为 (场景描述, 确定性现金流列表, 联合概率)。
+        如果不存在概率分组，返回空列表。
+    """
+    ungrouped = [cf for cf in cash_flows if cf.group is None]
+
+    groups: dict[str, list[CashFlowItem]] = {}
+    for cf in cash_flows:
+        if cf.group is not None:
+            groups.setdefault(cf.group, []).append(cf)
+
+    if not groups:
+        return []
+
+    group_options: list[list[tuple[str, CashFlowItem | None, float]]] = []
+    for group_name, variants in groups.items():
+        total_prob = sum(v.probability for v in variants)
+        options: list[tuple[str, CashFlowItem | None, float]] = [
+            (f"{group_name}: {v.name}", v, v.probability) for v in variants
+        ]
+        if total_prob < 1.0 - 1e-9:
+            options.append((f"{group_name}: (none)", None, 1.0 - total_prob))
+        group_options.append(options)
+
+    total_combos = 1
+    for opts in group_options:
+        total_combos *= len(opts)
+        if total_combos > max_combinations:
+            return []
+
+    from itertools import product as itertools_product
+
+    scenarios: list[tuple[str, list[CashFlowItem], float]] = []
+    for combo in itertools_product(*group_options):
+        label_parts = []
+        active_cfs = list(ungrouped)
+        joint_prob = 1.0
+        for desc, cf_item, prob in combo:
+            label_parts.append(desc)
+            if cf_item is not None:
+                active_cfs.append(replace(cf_item, group=None))
+            joint_prob *= prob
+        label = " + ".join(label_parts)
+        scenarios.append((label, active_cfs, joint_prob))
+
+    return scenarios
+
+
+def build_representative_cf_schedule(
+    cash_flows: list[CashFlowItem],
+    retirement_years: int,
+    inflation_matrix: np.ndarray | None = None,
+) -> np.ndarray:
+    """构建代表性现金流时间表，用于 3D 查找表构建。
+
+    - 确定性通胀调整 CF：直接构建 schedule。
+    - 名义 CF：使用 inflation_matrix 的中位数通胀率折算。
+    - 概率分组 CF：使用概率加权的期望时间表。
+
+    Parameters
+    ----------
+    cash_flows : list[CashFlowItem]
+        完整的现金流列表。
+    retirement_years : int
+        退休总年数。
+    inflation_matrix : np.ndarray or None
+        shape (num_sims, retirement_years) 的通胀率矩阵。
+
+    Returns
+    -------
+    np.ndarray
+        shape (retirement_years,) 的代表性现金流时间表。
+    """
+    median_infl = None
+    if inflation_matrix is not None:
+        n = min(inflation_matrix.shape[1], retirement_years)
+        median_infl = np.median(inflation_matrix, axis=0)[:n]
+        if len(median_infl) < retirement_years:
+            median_infl = np.pad(median_infl, (0, retirement_years - len(median_infl)))
+
+    if has_probabilistic_cf(cash_flows):
+        return build_expected_cf_schedule(cash_flows, retirement_years, median_infl)
+
+    has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
+    if has_nominal and median_infl is not None:
+        return build_cf_schedule(cash_flows, retirement_years, median_infl)
+
+    adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
+    return build_cf_schedule(adj_cfs, retirement_years) if adj_cfs else np.zeros(retirement_years)
 
 
 def build_cf_schedule(

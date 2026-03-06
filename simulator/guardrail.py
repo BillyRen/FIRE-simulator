@@ -9,7 +9,10 @@ from __future__ import annotations
 import numpy as np
 
 from simulator.cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
-from simulator.config import GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP
+from simulator.config import (
+    GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
+    GUARDRAIL_CF_RATE_STEP, GUARDRAIL_CF_SCALE_MAX, GUARDRAIL_CF_SCALE_STEP,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +128,252 @@ def find_rate_for_target(
 
 
 # ---------------------------------------------------------------------------
+# 3b. 现金流感知 3D 查找表
+# ---------------------------------------------------------------------------
+#
+# 当存在自定义现金流时，标准 2D 表 (rate, remaining_years) 无法精确建模
+# 绝对金额的现金流。3D 表新增两个维度：
+#   - cf_scale = C_ref / V（现金流相对于组合的强度）
+#   - start_year（不同起始年面对的未来现金流不同）
+#
+# 归一化公式：v_{t+1} = v_t * (1+r_t) - rate + normalized_cf[t] * cf_scale
+# 与用户手动跑 MC 数学上等价。
+
+_CF_TABLE_RATE_BATCH = 10
+_CF_TABLE_MAX_START_YEARS = 15
+
+
+def _select_cf_start_years(
+    normalized_cf: np.ndarray,
+    last_cf_year: int,
+    max_start_years: int = _CF_TABLE_MAX_START_YEARS,
+) -> list[int]:
+    """选择代表性的 start_year 子集用于 3D 表构建。
+
+    当总 start_year 数超过阈值时，优先保留 CF 转折点附近的年份，
+    其余均匀采样，未被选中的年份在构建后线性插值。
+    """
+    num_all = last_cf_year + 1
+    if num_all <= max_start_years:
+        return list(range(num_all))
+
+    selected: set[int] = {0, last_cf_year}
+
+    for y in range(1, num_all):
+        if abs(normalized_cf[y] - normalized_cf[y - 1]) > 1e-12:
+            selected.add(y)
+            selected.add(max(0, y - 1))
+
+    remaining_budget = max_start_years - len(selected)
+    if remaining_budget > 0:
+        candidates = [y for y in range(num_all) if y not in selected]
+        step = max(1, len(candidates) // (remaining_budget + 1))
+        for i in range(0, len(candidates), step):
+            if len(selected) >= max_start_years:
+                break
+            selected.add(candidates[i])
+
+    return sorted(selected)
+
+
+def build_cf_aware_table(
+    scenarios: np.ndarray,
+    cf_schedule: np.ndarray,
+    rate_min: float = GUARDRAIL_RATE_MIN,
+    rate_max: float = GUARDRAIL_RATE_MAX,
+    rate_step: float = GUARDRAIL_CF_RATE_STEP,
+    cf_scale_max: float = GUARDRAIL_CF_SCALE_MAX,
+    cf_scale_step: float = GUARDRAIL_CF_SCALE_STEP,
+    max_sims: int = 5000,
+    max_start_years: int = _CF_TABLE_MAX_START_YEARS,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, int] | None:
+    """构建现金流感知的 3D 成功率查找表。
+
+    Parameters
+    ----------
+    scenarios : np.ndarray
+        shape (num_sims, max_years) 的实际组合回报率矩阵。
+    cf_schedule : np.ndarray
+        shape (retirement_years,) 的代表性现金流时间表。
+    rate_min, rate_max, rate_step : float
+        提取率网格范围。默认 rate_step 比 2D 表粗一倍以控制构建时间。
+    cf_scale_max, cf_scale_step : float
+        cf_scale = C_ref / V 的网格范围。
+    max_sims : int
+        构建 3D 表时使用的最大场景数。5000 条路径的存活率标准误 < 0.5%，
+        足以满足插值精度要求。
+    max_start_years : int
+        start_year 维度最多直接计算的年份数，其余插值。
+
+    Returns
+    -------
+    tuple | None
+        (rate_grid, cf_scale_grid, table_3d, cf_ref, last_cf_year)
+        如果 cf_schedule 全为零，返回 None。
+    """
+    num_sims, max_years = scenarios.shape
+    if num_sims > max_sims:
+        rng = np.random.default_rng(0)
+        scenarios = scenarios[rng.choice(num_sims, max_sims, replace=False)]
+        num_sims = max_sims
+    n_years = min(len(cf_schedule), max_years)
+
+    cf_ref = float(np.max(np.abs(cf_schedule[:n_years])))
+    if cf_ref < 1e-10:
+        return None
+
+    normalized_cf = np.zeros(n_years)
+    normalized_cf[:n_years] = cf_schedule[:n_years] / cf_ref
+
+    last_cf_year = 0
+    for y in range(n_years - 1, -1, -1):
+        if abs(normalized_cf[y]) > 1e-12:
+            last_cf_year = y
+            break
+
+    rate_grid = np.arange(rate_min, rate_max + rate_step / 2, rate_step)
+    cf_scale_grid = np.arange(0.0, cf_scale_max + cf_scale_step / 2, cf_scale_step)
+    num_rates = len(rate_grid)
+    num_cs = len(cf_scale_grid)
+    num_start_years = last_cf_year + 1
+
+    table_3d = np.zeros((num_rates, num_cs, num_start_years))
+    batch = _CF_TABLE_RATE_BATCH
+
+    selected_years = _select_cf_start_years(normalized_cf, last_cf_year, max_start_years)
+
+    for sy in selected_years:
+        remaining = n_years - sy
+        if remaining <= 0:
+            table_3d[:, :, sy] = 1.0
+            continue
+
+        for r_start in range(0, num_rates, batch):
+            r_end = min(r_start + batch, num_rates)
+            batch_rates = rate_grid[r_start:r_end]
+            values = np.ones((r_end - r_start, num_cs, num_sims))
+            for t in range(remaining):
+                y = sy + t
+                returns = scenarios[:, y]
+                cf_contrib = normalized_cf[y] * cf_scale_grid
+                values = (
+                    values * (1.0 + returns[np.newaxis, np.newaxis, :])
+                    - batch_rates[:, np.newaxis, np.newaxis]
+                    + cf_contrib[np.newaxis, :, np.newaxis]
+                )
+                alive = values > 0
+                values = np.where(alive, values, 0.0)
+            table_3d[r_start:r_end, :, sy] = np.mean(values > 0, axis=2)
+
+    # 对未直接计算的 start_year 做线性插值
+    if len(selected_years) < num_start_years:
+        selected_set = set(selected_years)
+        for sy in range(num_start_years):
+            if sy in selected_set:
+                continue
+            lo = max(s for s in selected_years if s <= sy)
+            hi = min(s for s in selected_years if s >= sy)
+            if lo == hi:
+                table_3d[:, :, sy] = table_3d[:, :, lo]
+            else:
+                frac = (sy - lo) / (hi - lo)
+                table_3d[:, :, sy] = (
+                    table_3d[:, :, lo] + frac * (table_3d[:, :, hi] - table_3d[:, :, lo])
+                )
+
+    return rate_grid, cf_scale_grid, table_3d, cf_ref, last_cf_year
+
+
+def lookup_cf_aware_success_rate(
+    cf_table: np.ndarray,
+    rate_grid: np.ndarray,
+    cf_scale_grid: np.ndarray,
+    rate: float,
+    cf_scale: float,
+    start_year: int,
+) -> float:
+    """从 3D 查找表中插值查询成功率。
+
+    对 rate 和 cf_scale 两个维度做线性插值，start_year 取整数索引。
+    """
+    max_sy = cf_table.shape[2] - 1
+    start_year = max(0, min(start_year, max_sy))
+
+    # rate 维度插值
+    if rate <= rate_grid[0]:
+        r_idx, r_frac = 0, 0.0
+    elif rate >= rate_grid[-1]:
+        r_idx, r_frac = len(rate_grid) - 2, 1.0
+    else:
+        r_idx = int(np.searchsorted(rate_grid, rate)) - 1
+        r_idx = max(0, min(r_idx, len(rate_grid) - 2))
+        r_frac = (rate - rate_grid[r_idx]) / (rate_grid[r_idx + 1] - rate_grid[r_idx])
+
+    # cf_scale 维度插值
+    if cf_scale <= cf_scale_grid[0]:
+        cs_idx, cs_frac = 0, 0.0
+    elif cf_scale >= cf_scale_grid[-1]:
+        cs_idx, cs_frac = len(cf_scale_grid) - 2, 1.0
+    else:
+        cs_idx = int(np.searchsorted(cf_scale_grid, cf_scale)) - 1
+        cs_idx = max(0, min(cs_idx, len(cf_scale_grid) - 2))
+        cs_frac = (cf_scale - cf_scale_grid[cs_idx]) / (
+            cf_scale_grid[cs_idx + 1] - cf_scale_grid[cs_idx]
+        )
+
+    # 双线性插值
+    v00 = cf_table[r_idx, cs_idx, start_year]
+    v10 = cf_table[r_idx + 1, cs_idx, start_year]
+    v01 = cf_table[r_idx, cs_idx + 1, start_year]
+    v11 = cf_table[r_idx + 1, cs_idx + 1, start_year]
+
+    v0 = v00 + r_frac * (v10 - v00)
+    v1 = v01 + r_frac * (v11 - v01)
+    return float(v0 + cs_frac * (v1 - v0))
+
+
+def find_rate_for_target_cf_aware(
+    cf_table: np.ndarray,
+    rate_grid: np.ndarray,
+    cf_scale_grid: np.ndarray,
+    target_success: float,
+    cf_scale: float,
+    start_year: int,
+) -> float:
+    """3D 表反向查找：给定目标成功率、cf_scale 和 start_year，找到对应提取率。"""
+    max_sy = cf_table.shape[2] - 1
+    start_year = max(0, min(start_year, max_sy))
+
+    # 先对 cf_scale 插值，得到一条 rate vs success 曲线
+    if cf_scale <= cf_scale_grid[0]:
+        cs_idx, cs_frac = 0, 0.0
+    elif cf_scale >= cf_scale_grid[-1]:
+        cs_idx, cs_frac = len(cf_scale_grid) - 2, 1.0
+    else:
+        cs_idx = int(np.searchsorted(cf_scale_grid, cf_scale)) - 1
+        cs_idx = max(0, min(cs_idx, len(cf_scale_grid) - 2))
+        cs_frac = (cf_scale - cf_scale_grid[cs_idx]) / (
+            cf_scale_grid[cs_idx + 1] - cf_scale_grid[cs_idx]
+        )
+
+    col_lo = cf_table[:, cs_idx, start_year]
+    col_hi = cf_table[:, cs_idx + 1, start_year]
+    col = col_lo + cs_frac * (col_hi - col_lo)
+
+    if col[0] < target_success:
+        return 0.0
+    if col[-1] >= target_success:
+        return float(rate_grid[-1])
+
+    for i in range(len(col) - 1):
+        if col[i] >= target_success and col[i + 1] < target_success:
+            frac = (target_success - col[i + 1]) / (col[i] - col[i + 1])
+            return float(rate_grid[i + 1] + frac * (rate_grid[i] - rate_grid[i + 1]))
+
+    return float(rate_grid[0])
+
+
+# ---------------------------------------------------------------------------
 # 4. 护栏调整辅助函数
 # ---------------------------------------------------------------------------
 
@@ -139,33 +388,50 @@ def _apply_guardrail_adjustment(
     table: np.ndarray,
     rate_grid: np.ndarray,
     future_cf_avg: float = 0.0,
+    cf_table: np.ndarray | None = None,
+    cf_scale_grid: np.ndarray | None = None,
+    cf_scale: float = 0.0,
+    start_year: int = 0,
 ) -> float:
     """根据调整模式计算护栏触发后的新提取金额。
 
-    Parameters
-    ----------
-    future_cf_avg : float
-        未来现金流年均值（负值=支出，正值=收入）。
-        查找表中的 rate 代表"总等效提取率"，包含现金流的影响。
-        target_wd 需要减去现金流部分，还原为基础提取额。
+    当 cf_table 提供时，使用 3D 表做精确查找（rate = wd/value，CFs 已烘焙进表）。
+    否则使用 2D 表 + future_cf_avg 近似（向后兼容）。
     """
-    if adjustment_mode == "success_rate":
-        adjusted_success = current_success + adjustment_pct * (
-            target_success - current_success
-        )
-        adjusted_rate = find_rate_for_target(
-            table, rate_grid, adjusted_success, remaining
-        )
-        # rate 是总等效提取率，还原为基础提取额：wd = value * rate + cf_avg
-        return value * adjusted_rate + future_cf_avg
+    if cf_table is not None and cf_scale_grid is not None:
+        # 3D 表模式：rate = wd/value，表已包含现金流影响
+        if adjustment_mode == "success_rate":
+            adjusted_success = current_success + adjustment_pct * (
+                target_success - current_success
+            )
+            adjusted_rate = find_rate_for_target_cf_aware(
+                cf_table, rate_grid, cf_scale_grid,
+                adjusted_success, cf_scale, start_year,
+            )
+            return value * adjusted_rate
+        else:
+            target_rate = find_rate_for_target_cf_aware(
+                cf_table, rate_grid, cf_scale_grid,
+                target_success, cf_scale, start_year,
+            )
+            target_wd = value * target_rate
+            return wd + adjustment_pct * (target_wd - wd)
     else:
-        # 默认 "amount" 模式
-        target_rate = find_rate_for_target(
-            table, rate_grid, target_success, remaining
-        )
-        # rate 是总等效提取率，还原为基础提取额：target_wd = value * rate + cf_avg
-        target_wd = value * target_rate + future_cf_avg
-        return wd + adjustment_pct * (target_wd - wd)
+        # 2D 表模式（向后兼容）
+        if adjustment_mode == "success_rate":
+            adjusted_success = current_success + adjustment_pct * (
+                target_success - current_success
+            )
+            adjusted_rate = find_rate_for_target(
+                table, rate_grid, adjusted_success, remaining
+            )
+            return value * adjusted_rate + future_cf_avg
+        else:
+            target_rate = find_rate_for_target(
+                table, rate_grid, target_success, remaining
+            )
+            target_wd = value * target_rate + future_cf_avg
+            return wd + adjustment_pct * (target_wd - wd)
 
 
 # ---------------------------------------------------------------------------
@@ -353,11 +619,19 @@ def run_guardrail_simulation(
     inflation_matrix: np.ndarray | None = None,
     initial_portfolio: float | None = None,
     annual_withdrawal: float | None = None,
+    cf_table: np.ndarray | None = None,
+    cf_rate_grid: np.ndarray | None = None,
+    cf_scale_grid: np.ndarray | None = None,
+    cf_ref: float = 0.0,
+    last_cf_year: int = -1,
 ) -> tuple[float, float, np.ndarray, np.ndarray]:
     """运行 Risk-based Guardrail 模拟。
 
     提供 initial_portfolio 或 annual_withdrawal 中的一个，函数根据
     target_success 反算另一个。
+
+    当提供 cf_table 时，对 year <= last_cf_year 使用 3D 表精确查找成功率；
+    之后的年份回退到标准 2D 表。
 
     Returns
     -------
@@ -409,74 +683,97 @@ def run_guardrail_simulation(
         cf_matrix = None
 
     # 2. 反算缺失的 initial_portfolio 或 annual_withdrawal
-    initial_rate = find_rate_for_target(table, rate_grid, target_success, retirement_years)
-    if initial_rate <= 0:
-        initial_rate = rate_grid[1] if len(rate_grid) > 1 else 0.01
-
-    if initial_portfolio is not None:
-        # portfolio 模式：已知资产，反算提取额
-        if has_cf:
-            initial_guess = initial_portfolio * initial_rate
-            annual_withdrawal = _find_withdrawal_for_success(
-                scenarios, initial_portfolio, target_success, retirement_years,
-                cf_matrix, initial_guess,
-            )
-        else:
-            annual_withdrawal = initial_portfolio * initial_rate
+    #    如果两者都已提供，跳过反算（用于敏感性分析等固定双参数的场景）
+    if initial_portfolio is not None and annual_withdrawal is not None:
+        pass
     else:
-        # withdrawal 模式：已知提取额，反算资产
-        if has_cf:
-            median_cf = float(np.median(np.mean(cf_matrix, axis=1)))
-            init_cf_avg = median_cf if median_cf != 0 else (
-                float(np.mean(fixed_cf_schedule)) if len(fixed_cf_schedule) > 0 else 0.0
-            )
-            effective_wd = annual_withdrawal - init_cf_avg
-            initial_guess = max(effective_wd, annual_withdrawal * 0.1) / initial_rate
-            initial_portfolio = _find_portfolio_for_success(
-                scenarios, annual_withdrawal, target_success, retirement_years,
-                cf_matrix, initial_guess,
-            )
+        initial_rate = find_rate_for_target(table, rate_grid, target_success, retirement_years)
+        if initial_rate <= 0:
+            initial_rate = rate_grid[1] if len(rate_grid) > 1 else 0.01
+
+        if initial_portfolio is not None:
+            if has_cf:
+                initial_guess = initial_portfolio * initial_rate
+                annual_withdrawal = _find_withdrawal_for_success(
+                    scenarios, initial_portfolio, target_success, retirement_years,
+                    cf_matrix, initial_guess,
+                )
+            else:
+                annual_withdrawal = initial_portfolio * initial_rate
         else:
-            initial_portfolio = annual_withdrawal / initial_rate
+            if has_cf:
+                median_cf = float(np.median(np.mean(cf_matrix, axis=1)))
+                init_cf_avg = median_cf if median_cf != 0 else (
+                    float(np.mean(fixed_cf_schedule)) if len(fixed_cf_schedule) > 0 else 0.0
+                )
+                effective_wd = annual_withdrawal - init_cf_avg
+                initial_guess = max(effective_wd, annual_withdrawal * 0.1) / initial_rate
+                initial_portfolio = _find_portfolio_for_success(
+                    scenarios, annual_withdrawal, target_success, retirement_years,
+                    cf_matrix, initial_guess,
+                )
+            else:
+                initial_portfolio = annual_withdrawal / initial_rate
 
     # 3. 逐年模拟
     trajectories = np.zeros((num_sims, retirement_years + 1))
     trajectories[:, 0] = initial_portfolio
     withdrawals = np.zeros((num_sims, retirement_years))
 
+    has_3d = cf_table is not None and cf_rate_grid is not None and cf_scale_grid is not None and last_cf_year >= 0
+
     for i in range(num_sims):
         value = initial_portfolio
         wd = annual_withdrawal
 
-        # 使用预计算的现金流 schedule
         cf_schedule = cf_matrix[i] if cf_matrix is not None else None
 
         for year in range(retirement_years):
             remaining = max(min_remaining_years, retirement_years - year)
+            use_3d = (has_3d and year <= last_cf_year
+                      and retirement_years - year >= min_remaining_years)
 
             if value > 0:
-                # 将未来现金流折算为等效提取率
-                if cf_schedule is not None:
-                    actual_remaining = retirement_years - year
-                    future_slice = cf_schedule[year:year + actual_remaining]
-                    future_cf_avg = float(np.mean(future_slice)) if len(future_slice) > 0 else 0.0
-                    effective_rate = max((wd - future_cf_avg) / value, 0.0)
-                else:
-                    effective_rate = wd / value
+                rate = wd / value
 
-                current_rate = effective_rate
-                current_success = lookup_success_rate(
-                    table, rate_grid, current_rate, remaining
-                )
+                if use_3d:
+                    cf_scale_val = cf_ref / value
+                    current_success = lookup_cf_aware_success_rate(
+                        cf_table, cf_rate_grid, cf_scale_grid,
+                        rate, cf_scale_val, year,
+                    )
+                else:
+                    if cf_schedule is not None:
+                        actual_remaining = retirement_years - year
+                        future_slice = cf_schedule[year:year + actual_remaining]
+                        future_cf_avg = float(np.mean(future_slice)) if len(future_slice) > 0 else 0.0
+                        effective_rate = max((wd - future_cf_avg) / value, 0.0)
+                    else:
+                        effective_rate = rate
+                        future_cf_avg = 0.0
+                    current_success = lookup_success_rate(
+                        table, rate_grid, effective_rate, remaining
+                    )
 
                 if current_success < lower_guardrail or current_success > upper_guardrail:
-                    _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
-                    wd = _apply_guardrail_adjustment(
-                        wd, value, current_success, target_success,
-                        adjustment_pct, adjustment_mode, remaining,
-                        table, rate_grid,
-                        future_cf_avg=_cf_avg,
-                    )
+                    if use_3d:
+                        wd = _apply_guardrail_adjustment(
+                            wd, value, current_success, target_success,
+                            adjustment_pct, adjustment_mode, remaining,
+                            table, cf_rate_grid,
+                            cf_table=cf_table,
+                            cf_scale_grid=cf_scale_grid,
+                            cf_scale=cf_ref / value,
+                            start_year=year,
+                        )
+                    else:
+                        _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
+                        wd = _apply_guardrail_adjustment(
+                            wd, value, current_success, target_success,
+                            adjustment_pct, adjustment_mode, remaining,
+                            table, rate_grid,
+                            future_cf_avg=_cf_avg,
+                        )
 
             withdrawals[i, year] = wd
             value = value * (1.0 + scenarios[i, year]) - wd
@@ -616,6 +913,11 @@ def run_historical_backtest(
     adjustment_mode: str = "amount",
     cash_flows: list[CashFlowItem] | None = None,
     inflation_series: np.ndarray | None = None,
+    cf_table: np.ndarray | None = None,
+    cf_rate_grid: np.ndarray | None = None,
+    cf_scale_grid: np.ndarray | None = None,
+    cf_ref: float = 0.0,
+    last_cf_year: int = -1,
 ) -> dict:
     """在单条历史回报路径上运行 guardrail 策略和固定基准策略。
 
@@ -677,6 +979,8 @@ def run_historical_backtest(
         cf_schedule = None
 
     # Guardrail 策略
+    has_3d = cf_table is not None and cf_rate_grid is not None and cf_scale_grid is not None and last_cf_year >= 0
+
     g_portfolio = np.zeros(n_years + 1)
     g_portfolio[0] = initial_portfolio
     g_withdrawals = np.zeros(n_years)
@@ -688,40 +992,63 @@ def run_historical_backtest(
 
     for year in range(n_years):
         remaining = max(min_remaining_years, retirement_years - year)
+        use_3d = (has_3d and year <= last_cf_year
+                  and retirement_years - year >= min_remaining_years)
 
         if value > 0:
-            # 将未来现金流折算为等效提取率
-            if cf_schedule is not None:
-                actual_remaining = retirement_years - year
-                future_slice = cf_schedule[year:year + actual_remaining]
-                future_cf_avg = float(np.mean(future_slice)) if len(future_slice) > 0 else 0.0
-                effective_rate = max((wd - future_cf_avg) / value, 0.0)
-            else:
-                effective_rate = wd / value
+            rate = wd / value
 
-            current_rate = effective_rate
-            current_success = lookup_success_rate(
-                table, rate_grid, current_rate, remaining
-            )
+            if use_3d:
+                cf_scale_val = cf_ref / value
+                current_success = lookup_cf_aware_success_rate(
+                    cf_table, cf_rate_grid, cf_scale_grid,
+                    rate, cf_scale_val, year,
+                )
+            else:
+                if cf_schedule is not None:
+                    actual_remaining = retirement_years - year
+                    future_slice = cf_schedule[year:year + actual_remaining]
+                    future_cf_avg = float(np.mean(future_slice)) if len(future_slice) > 0 else 0.0
+                    effective_rate = max((wd - future_cf_avg) / value, 0.0)
+                else:
+                    effective_rate = rate
+                    future_cf_avg = 0.0
+                current_success = lookup_success_rate(
+                    table, rate_grid, effective_rate, remaining
+                )
             g_success_rates[year] = current_success
 
             if current_success < lower_guardrail or current_success > upper_guardrail:
                 old_wd = wd
-                _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
-                wd = _apply_guardrail_adjustment(
-                    wd, value, current_success, target_success,
-                    adjustment_pct, adjustment_mode, remaining,
-                    table, rate_grid,
-                    future_cf_avg=_cf_avg,
-                )
-                # 计算调整后的成功率
-                if cf_schedule is not None:
-                    new_effective_rate = max((wd - future_cf_avg) / value, 0.0)
+                if use_3d:
+                    wd = _apply_guardrail_adjustment(
+                        wd, value, current_success, target_success,
+                        adjustment_pct, adjustment_mode, remaining,
+                        table, cf_rate_grid,
+                        cf_table=cf_table,
+                        cf_scale_grid=cf_scale_grid,
+                        cf_scale=cf_ref / value,
+                        start_year=year,
+                    )
+                    new_success = lookup_cf_aware_success_rate(
+                        cf_table, cf_rate_grid, cf_scale_grid,
+                        wd / value, cf_ref / value, year,
+                    )
                 else:
-                    new_effective_rate = wd / value
-                new_success = lookup_success_rate(
-                    table, rate_grid, new_effective_rate, remaining
-                )
+                    _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
+                    wd = _apply_guardrail_adjustment(
+                        wd, value, current_success, target_success,
+                        adjustment_pct, adjustment_mode, remaining,
+                        table, rate_grid,
+                        future_cf_avg=_cf_avg,
+                    )
+                    if cf_schedule is not None:
+                        new_effective_rate = max((wd - future_cf_avg) / value, 0.0)
+                    else:
+                        new_effective_rate = wd / value
+                    new_success = lookup_success_rate(
+                        table, rate_grid, new_effective_rate, remaining
+                    )
                 adjustment_events.append({
                     "year": year,
                     "old_wd": float(old_wd),

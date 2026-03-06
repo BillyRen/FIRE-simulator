@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +22,7 @@ import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
-import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries } from "@/lib/api";
+import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries, runGuardrailScenarios, runGuardrailSensitivity } from "@/lib/api";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { useSharedParams } from "@/lib/params-context";
@@ -30,6 +31,8 @@ import type {
   GuardrailBatchBacktestResponse,
   GuardrailBatchPathSummary,
   CountryInfo,
+  ScenarioAnalysisResponse,
+  SensitivityAnalysisResponse,
 } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
 
@@ -51,9 +54,9 @@ export default function GuardrailPage() {
     histStartYear, setHistStartYear,
     singleCountry, setSingleCountry,
   } = useSharedParams();
-  const [inputMode, setInputMode] = useState<"portfolio" | "withdrawal">("portfolio");
-  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
+  const [inputMode, setInputMode] = usePersistedState<"portfolio" | "withdrawal">("fire:guardrail:inputMode", "portfolio");
+  const [portfolio, setPortfolio] = usePersistedState("fire:guardrail:portfolio", params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = usePersistedState("fire:guardrail:withdrawal", params.annual_withdrawal);
 
   // Results
   const [mcResult, setMcResult] = useState<GuardrailResponse | null>(null);
@@ -77,6 +80,13 @@ export default function GuardrailPage() {
   // Single backtest state
   const [singleBtLoading, setSingleBtLoading] = useState(false);
   const [countries, setCountries] = useState<CountryInfo[]>([]);
+
+  // Scenario analysis state
+  const [scenarioResult, setScenarioResult] = useState<ScenarioAnalysisResponse | null>(null);
+  const [scenarioLoading, setScenarioLoading] = useState(false);
+  // Sensitivity analysis state
+  const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
+  const [sensitivityLoading, setSensitivityLoading] = useState(false);
 
   useEffect(() => {
     fetchCountries(params.data_source).then(setCountries).catch(() => {});
@@ -188,6 +198,46 @@ export default function GuardrailPage() {
       setSingleBtLoading(false);
     }
   };
+
+  const handleRunScenarios = async () => {
+    if (!mcResult) return;
+    setScenarioLoading(true);
+    setError(null);
+    try {
+      const res = await runGuardrailScenarios({
+        ...guardrailReqBase(),
+        initial_portfolio: mcResult.initial_portfolio,
+        annual_withdrawal: mcResult.annual_withdrawal,
+      });
+      setScenarioResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tc("unknownError"));
+    } finally {
+      setScenarioLoading(false);
+    }
+  };
+
+  const handleRunSensitivity = async () => {
+    if (!mcResult) return;
+    setSensitivityLoading(true);
+    setError(null);
+    try {
+      const res = await runGuardrailSensitivity({
+        ...guardrailReqBase(),
+        initial_portfolio: mcResult.initial_portfolio,
+        annual_withdrawal: mcResult.annual_withdrawal,
+      });
+      setSensitivityResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tc("unknownError"));
+    } finally {
+      setSensitivityLoading(false);
+    }
+  };
+
+  const hasProbabilisticCF = useMemo(() => {
+    return params.cash_flows.some((cf) => cf.group != null);
+  }, [params.cash_flows]);
 
   // Unique countries from batch result (for filter chips)
   const availableCountries = useMemo(() => {
@@ -376,6 +426,7 @@ export default function GuardrailPage() {
             <TabsList className="mb-4">
               <TabsTrigger value="mc">{t("mcTab")}</TabsTrigger>
               <TabsTrigger value="backtest">{t("backtestTab")}</TabsTrigger>
+              <TabsTrigger value="scenario">{t("scenarioTab")}</TabsTrigger>
             </TabsList>
 
             {/* ═══ MC Tab ═══ */}
@@ -879,7 +930,10 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: isMobile ? undefined : { text: t("historicalPortfolioComparison"), font: { size: 14 } },
+                          title: isMobile ? undefined : {
+                            text: t("historicalPortfolioComparison"), font: { size: 14 },
+                            y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "bottom" as const,
+                          },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: {
                             title: isMobile ? undefined : { text: t("assetAxis") },
@@ -955,7 +1009,10 @@ export default function GuardrailPage() {
                           },
                         ]}
                         layout={{
-                          title: isMobile ? undefined : { text: t("withdrawalAmountAndSuccess"), font: { size: 14 } },
+                          title: isMobile ? undefined : {
+                            text: t("withdrawalAmountAndSuccess"), font: { size: 14 },
+                            y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "bottom" as const,
+                          },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: {
                             title: isMobile ? undefined : { text: t("withdrawalAmount") },
@@ -965,6 +1022,7 @@ export default function GuardrailPage() {
                           },
                           yaxis2: {
                             title: isMobile ? undefined : { text: t("successRateAxis") },
+                            type: "linear" as const,
                             overlaying: "y", side: "right", range: [0, 105],
                             tickfont: { size: isMobile ? 9 : 12 },
                           },
@@ -1044,6 +1102,311 @@ export default function GuardrailPage() {
                 <div className="flex items-center justify-center h-32 text-muted-foreground">
                   {t("backtestPlaceholder")}
                 </div>
+              )}
+            </TabsContent>
+
+            {/* ═══ Scenario Analysis Tab ═══ */}
+            <TabsContent value="scenario" className="space-y-6">
+              {/* Section 1: Cash Flow Scenario Decomposition */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">{t("scenarioTitle")}</CardTitle>
+                  <p className="text-xs text-muted-foreground">{t("scenarioDesc")}</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {hasProbabilisticCF ? (
+                    <Button
+                      onClick={handleRunScenarios}
+                      disabled={scenarioLoading}
+                      size="sm"
+                    >
+                      {scenarioLoading ? t("scenarioRunning") : t("runScenarioAnalysis")}
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">
+                      {t("scenarioNoProbCF")}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {scenarioLoading && <LoadingOverlay message={t("scenarioLoading")} />}
+
+              {scenarioResult && !scenarioLoading && (
+                <>
+                  {/* Comparison horizontal bar chart */}
+                  <Card>
+                    <CardContent className="pt-4">
+                      <PlotlyChart
+                        data={(() => {
+                          const baseSR = scenarioResult.base_case.success_rate * 100;
+                          const sorted = [...scenarioResult.scenarios].sort(
+                            (a, b) => a.success_rate - b.success_rate
+                          );
+                          const labels = sorted.map((s) => {
+                            const short = s.label.length > 40 ? s.label.slice(0, 37) + "…" : s.label;
+                            return `${short} (${(s.probability * 100).toFixed(0)}%)`;
+                          });
+                          const values = sorted.map((s) => +(s.success_rate * 100).toFixed(1));
+                          const colors = sorted.map((s) =>
+                            s.success_rate >= scenarioResult.base_case.success_rate
+                              ? CHART_COLORS.secondary.hex
+                              : CHART_COLORS.danger.hex
+                          );
+                          return [
+                            {
+                              type: "bar" as const,
+                              orientation: "h" as const,
+                              y: labels,
+                              x: values,
+                              marker: { color: colors },
+                              text: values.map((v) => `${v.toFixed(1)}%`),
+                              textposition: "outside" as const,
+                              hovertemplate: "%{y}<br>" + t("scenarioSuccessRate") + ": %{x:.1f}%<extra></extra>",
+                            },
+                          ];
+                        })()}
+                        layout={{
+                          title: isMobile ? undefined : { text: t("scenarioComparisonTitle"), font: { size: 14 } },
+                          xaxis: {
+                            title: { text: t("scenarioSuccessRate") },
+                            type: "linear" as const,
+                            ticksuffix: "%",
+                            range: (() => {
+                              const all = scenarioResult.scenarios.map((s) => s.success_rate * 100);
+                              all.push(scenarioResult.base_case.success_rate * 100);
+                              const min = Math.min(...all);
+                              const max = Math.max(...all);
+                              const pad = Math.max((max - min) * 0.3, 2);
+                              return [Math.max(0, min - pad), Math.min(100, max + pad + 2)];
+                            })(),
+                          },
+                          margin: isMobile
+                            ? { l: 160, r: 50, t: 10, b: 40 }
+                            : { l: 260, r: 60, t: 40, b: 50 },
+                          height: Math.max(isMobile ? 250 : 300, scenarioResult.scenarios.length * (isMobile ? 26 : 30) + 80),
+                          shapes: [
+                            {
+                              type: "line",
+                              x0: scenarioResult.base_case.success_rate * 100,
+                              x1: scenarioResult.base_case.success_rate * 100,
+                              y0: -0.5,
+                              y1: scenarioResult.scenarios.length - 0.5,
+                              line: { color: CHART_COLORS.primary.hex, width: 2, dash: "dash" },
+                            },
+                          ],
+                          annotations: [
+                            {
+                              x: scenarioResult.base_case.success_rate * 100,
+                              y: scenarioResult.scenarios.length - 0.5,
+                              text: `${t("scenarioBaseCase")}: ${(scenarioResult.base_case.success_rate * 100).toFixed(1)}%`,
+                              showarrow: false,
+                              yanchor: "bottom" as const,
+                              font: { size: 11, color: CHART_COLORS.primary.hex },
+                            },
+                          ],
+                        }}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  {/* Results table */}
+                  <Card>
+                    <CardContent className="pt-4 overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 px-2 font-medium">{t("scenarioLabel")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("scenarioProbability")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("scenarioSuccessRate")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("scenarioFundedRatio")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("scenarioAnnualWD")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianFinal")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianConsumption")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {/* Base case row */}
+                          <tr className="border-b bg-muted/50 font-medium">
+                            <td className="py-1.5 px-2">{t("scenarioBaseCase")}</td>
+                            <td className="text-right py-1.5 px-2">—</td>
+                            <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.success_rate)}</td>
+                            <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.funded_ratio)}</td>
+                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.annual_withdrawal)}</td>
+                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_final_portfolio)}</td>
+                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_total_consumption)}</td>
+                          </tr>
+                          {scenarioResult.scenarios.map((s, i) => (
+                            <tr key={i} className="border-b hover:bg-muted/30">
+                              <td className="py-1.5 px-2 max-w-[200px] truncate" title={s.label}>{s.label}</td>
+                              <td className="text-right py-1.5 px-2">{(s.probability * 100).toFixed(1)}%</td>
+                              <td className="text-right py-1.5 px-2">{pct(s.success_rate)}</td>
+                              <td className="text-right py-1.5 px-2">{pct(s.funded_ratio)}</td>
+                              <td className="text-right py-1.5 px-2">{fmt(s.annual_withdrawal)}</td>
+                              <td className="text-right py-1.5 px-2">{fmt(s.median_final_portfolio)}</td>
+                              <td className="text-right py-1.5 px-2">{fmt(s.median_total_consumption)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+
+              <Separator />
+
+              {/* Section 2: Parameter Sensitivity (Tornado) */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">{t("sensitivityTitle")}</CardTitle>
+                  <p className="text-xs text-muted-foreground">{t("sensitivityDesc")}</p>
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    onClick={handleRunSensitivity}
+                    disabled={sensitivityLoading}
+                    size="sm"
+                  >
+                    {sensitivityLoading ? t("sensitivityRunning") : t("runSensitivity")}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {sensitivityLoading && <LoadingOverlay message={t("sensitivityLoading")} />}
+
+              {sensitivityResult && !sensitivityLoading && (
+                <>
+                  {/* Tornado chart — withdrawal delta */}
+                  <Card>
+                    <CardContent className="pt-4">
+                      <PlotlyChart
+                        data={(() => {
+                          const baseWD = sensitivityResult.base_withdrawal ?? 0;
+                          const sorted = [...sensitivityResult.deltas].sort(
+                            (a, b) =>
+                              Math.abs((a.high_withdrawal ?? baseWD) - (a.low_withdrawal ?? baseWD)) -
+                              Math.abs((b.high_withdrawal ?? baseWD) - (b.low_withdrawal ?? baseWD))
+                          );
+                          const labels = sorted.map((d) => d.param_label);
+
+                          return [
+                            {
+                              type: "bar" as const,
+                              orientation: "h" as const,
+                              y: labels,
+                              x: sorted.map((d) => (d.low_withdrawal ?? baseWD) - baseWD),
+                              base: Array(sorted.length).fill(baseWD),
+                              marker: { color: CHART_COLORS.danger.hex },
+                              name: t("sensitivityLow"),
+                              text: sorted.map((d) => `$${(d.low_withdrawal ?? baseWD).toLocaleString("en-US", { maximumFractionDigits: 0 })}`),
+                              textposition: "outside" as const,
+                              hovertemplate: "%{y}<br>" + t("sensitivityLow") + ": %{text}<extra></extra>",
+                            },
+                            {
+                              type: "bar" as const,
+                              orientation: "h" as const,
+                              y: labels,
+                              x: sorted.map((d) => (d.high_withdrawal ?? baseWD) - baseWD),
+                              base: Array(sorted.length).fill(baseWD),
+                              marker: { color: CHART_COLORS.secondary.hex },
+                              name: t("sensitivityHigh"),
+                              text: sorted.map((d) => `$${(d.high_withdrawal ?? baseWD).toLocaleString("en-US", { maximumFractionDigits: 0 })}`),
+                              textposition: "outside" as const,
+                              hovertemplate: "%{y}<br>" + t("sensitivityHigh") + ": %{text}<extra></extra>",
+                            },
+                          ];
+                        })()}
+                        layout={{
+                          title: { text: t("sensitivityChartTitle"), font: { size: 14 } },
+                          xaxis: {
+                            title: { text: t("sensitivityImpact") },
+                            type: "linear" as const,
+                            tickprefix: "$",
+                          },
+                          barmode: "overlay",
+                          margin: isMobile
+                            ? { l: 100, r: 60, t: 40, b: 40 }
+                            : { l: 140, r: 80, t: 50, b: 50 },
+                          height: isMobile ? 320 : 400,
+                          shapes: [
+                            {
+                              type: "line",
+                              x0: sensitivityResult.base_withdrawal ?? 0,
+                              x1: sensitivityResult.base_withdrawal ?? 0,
+                              y0: -0.5,
+                              y1: sensitivityResult.deltas.length - 0.5,
+                              line: { color: CHART_COLORS.neutral.hex, width: 2, dash: "dash" },
+                            },
+                          ],
+                          annotations: [
+                            {
+                              x: sensitivityResult.base_withdrawal ?? 0,
+                              y: sensitivityResult.deltas.length - 0.5,
+                              text: `${t("sensitivityBase")}: $${(sensitivityResult.base_withdrawal ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+                              showarrow: false,
+                              yanchor: "bottom" as const,
+                              font: { size: 11 },
+                            },
+                          ],
+                        }}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  {/* Sensitivity detail table — withdrawal delta */}
+                  <Card>
+                    <CardContent className="pt-4 overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 px-2 font-medium">{t("sensitivityParam")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityBaseValue")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityRange")}</th>
+                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityImpact")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sensitivityResult.deltas.map((d, i) => {
+                            const baseWD = sensitivityResult.base_withdrawal ?? 0;
+                            const fmtVal = (v: number, key: string) => {
+                              if (key === "initial_portfolio" || key === "annual_withdrawal")
+                                return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                              if (key === "retirement_years") return `${v.toFixed(0)}`;
+                              if (key === "stock_allocation" || key === "target_success")
+                                return `${(v * 100).toFixed(0)}%`;
+                              return v.toFixed(2);
+                            };
+                            const loD = (d.low_withdrawal ?? baseWD) - baseWD;
+                            const hiD = (d.high_withdrawal ?? baseWD) - baseWD;
+                            const fmtDelta = (v: number) => {
+                              const sign = v >= 0 ? "+" : "";
+                              return `${sign}$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                            };
+                            return (
+                              <tr key={i} className="border-b hover:bg-muted/30">
+                                <td className="py-1.5 px-2">{d.param_label}</td>
+                                <td className="text-right py-1.5 px-2">{fmtVal(d.base_value, d.param_key)}</td>
+                                <td className="text-right py-1.5 px-2">
+                                  {fmtVal(d.low_value, d.param_key)} ~ {fmtVal(d.high_value, d.param_key)}
+                                </td>
+                                <td className="text-right py-1.5 px-2">
+                                  <span className={loD < 0 ? "text-red-600" : "text-green-600"}>
+                                    {fmtDelta(loD)}
+                                  </span>
+                                  {" / "}
+                                  <span className={hiD < 0 ? "text-red-600" : "text-green-600"}>
+                                    {fmtDelta(hiD)}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </CardContent>
+                  </Card>
+                </>
               )}
             </TabsContent>
           </Tabs>

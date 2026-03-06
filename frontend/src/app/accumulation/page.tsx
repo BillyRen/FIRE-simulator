@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,16 +35,16 @@ export default function AccumulationPage() {
 
   const { params, setParams } = useSharedParams();
 
-  const [currentAge, setCurrentAge] = useState(30);
-  const [lifeExpectancy, setLifeExpectancy] = useState(90);
-  const [currentPortfolio, setCurrentPortfolio] = useState(100_000);
-  const [annualIncome, setAnnualIncome] = useState(120_000);
-  const [annualExpenses, setAnnualExpenses] = useState(60_000);
-  const [incomeGrowthRate, setIncomeGrowthRate] = useState(2);
-  const [expenseGrowthRate, setExpenseGrowthRate] = useState(2);
-  const [retirementSpending, setRetirementSpending] = useState(60_000);
-  const [autoRetirementSpending, setAutoRetirementSpending] = useState(false);
-  const [riskTolerance, setRiskTolerance] = useState("moderate");
+  const [currentAge, setCurrentAge] = usePersistedState("fire:accumulation:currentAge", 30);
+  const [lifeExpectancy, setLifeExpectancy] = usePersistedState("fire:accumulation:lifeExpectancy", 90);
+  const [currentPortfolio, setCurrentPortfolio] = usePersistedState("fire:accumulation:currentPortfolio", 100_000);
+  const [annualIncome, setAnnualIncome] = usePersistedState("fire:accumulation:annualIncome", 120_000);
+  const [annualExpenses, setAnnualExpenses] = usePersistedState("fire:accumulation:annualExpenses", 60_000);
+  const [incomeGrowthRate, setIncomeGrowthRate] = usePersistedState("fire:accumulation:incomeGrowthRate", 2);
+  const [expenseGrowthRate, setExpenseGrowthRate] = usePersistedState("fire:accumulation:expenseGrowthRate", 2);
+  const [retirementSpending, setRetirementSpending] = usePersistedState("fire:accumulation:retirementSpending", 60_000);
+  const [autoRetirementSpending, setAutoRetirementSpending] = usePersistedState("fire:accumulation:autoRetirementSpending", false);
+  const [riskTolerance, setRiskTolerance] = usePersistedState("fire:accumulation:riskTolerance", "moderate");
 
   const [result, setResult] = useState<AccumulationResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -398,10 +399,12 @@ export default function AccumulationPage() {
                   layout={{
                     xaxis: {
                       title: { text: t("age") },
+                      type: "linear" as const,
                       tickfont: { size: isMobile ? 9 : 12 },
                     },
                     yaxis: {
                       title: isMobile ? undefined : { text: t("probability") },
+                      type: "linear" as const,
                       range: [0, 105],
                       tickfont: { size: isMobile ? 9 : 12 },
                     },
@@ -438,11 +441,13 @@ export default function AccumulationPage() {
                     layout={{
                       xaxis: {
                         title: { text: t("annualExpense") },
+                        type: "linear" as const,
                         tickformat: "$~s",
                         tickfont: { size: isMobile ? 9 : 12 },
                       },
                       yaxis: {
                         title: isMobile ? undefined : { text: t("fireAge") },
+                        type: "linear" as const,
                         tickfont: { size: isMobile ? 9 : 12 },
                       },
                       height: isMobile ? 260 : 350,

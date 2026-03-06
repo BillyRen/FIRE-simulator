@@ -55,6 +55,8 @@ def _split_cashflows_at_year(
                 start_year=cf.start_year - fire_year,
                 duration=cf.duration,
                 inflation_adjusted=cf.inflation_adjusted,
+                probability=cf.probability,
+                group=cf.group,
             ))
         else:
             pre_duration = fire_year - cf.start_year + 1
@@ -65,6 +67,8 @@ def _split_cashflows_at_year(
                 start_year=cf.start_year,
                 duration=pre_duration,
                 inflation_adjusted=cf.inflation_adjusted,
+                probability=cf.probability,
+                group=cf.group,
             ))
             if post_duration > 0:
                 post_fire.append(CashFlowItem(
@@ -73,6 +77,8 @@ def _split_cashflows_at_year(
                     start_year=1,
                     duration=post_duration,
                     inflation_adjusted=cf.inflation_adjusted,
+                    probability=cf.probability,
+                    group=cf.group,
                 ))
 
     return pre_fire, post_fire
@@ -95,30 +101,7 @@ def _binary_search_required_portfolio(
     max_iterations: int = 20,
     tolerance: float = 0.005,
 ) -> float:
-    """二分搜索满足目标成功率的最小初始资产。
-
-    Parameters
-    ----------
-    return_scenarios : ndarray, shape (num_sims, retirement_years)
-    inflation_matrix : ndarray, shape (num_sims, retirement_years)
-    annual_withdrawal : float
-        退休后年支出。
-    target_success : float
-        目标成功率 (0-1)。
-    withdrawal_strategy, retirement_age, dynamic_ceiling, dynamic_floor
-        提取策略参数。
-    cash_flows : list[CashFlowItem] or None
-        退休阶段现金流（已重新索引为退休第 1 年起）。
-    max_iterations : int
-        二分搜索最大迭代次数。
-    tolerance : float
-        成功率误差容忍度。
-
-    Returns
-    -------
-    float
-        满足目标成功率的最小初始资产（保守取上界）。
-    """
+    """二分搜索满足目标成功率的最小初始资产。"""
     lo = annual_withdrawal * 2
     hi = annual_withdrawal * 120
 
@@ -187,54 +170,7 @@ def run_accumulation(
     expense_growth_rate: float = 0.0,
     auto_retirement_spending: bool = False,
 ) -> dict:
-    """运行 FIRE 积累阶段蒙特卡洛模拟。
-
-    Parameters
-    ----------
-    current_age : int
-        当前年龄。
-    life_expectancy : int
-        预期寿命。
-    current_portfolio : float
-        当前投资组合价值。
-    annual_income : float
-        年税后收入（实际购买力）。
-    annual_expenses : float
-        年支出（实际购买力）。
-    income_growth_rate : float
-        年收入实际增长率（如 0.02 = 2%）。
-    retirement_spending : float
-        退休后年支出（实际购买力）。
-    target_success_rate : float
-        目标成功率（如 0.85）。
-    allocation, expense_ratios : dict
-        资产配置和费用率。
-    withdrawal_strategy : str
-        退休阶段提取策略。
-    dynamic_ceiling, dynamic_floor : float
-        动态提取上下限。
-    num_simulations : int
-        积累阶段 MC 模拟次数。
-    min_block, max_block : int
-        Block bootstrap 窗口。
-    returns_df : pd.DataFrame
-        历史回报数据。
-    cash_flows : list[CashFlowItem] or None
-        统一时间线现金流（年份从现在起）。
-    leverage, borrowing_spread : float
-        杠杆参数。
-    country_dfs, country_weights : dict or None
-        池化 bootstrap 参数。
-    num_sims_swr : int
-        SWR 二分查找使用的模拟次数（默认 500）。
-    swr_sample_interval : int
-        SWR 采样间隔年数（默认 5）。
-
-    Returns
-    -------
-    dict
-        包含 FIRE 年龄分位数、概率曲线、资产轨迹、SWR 曲线、敏感性数据等。
-    """
+    """运行 FIRE 积累阶段蒙特卡洛模拟。"""
     min_retirement_years = 5
     max_working_years = max(1, life_expectancy - current_age - min_retirement_years)
     max_retirement_years = life_expectancy - current_age

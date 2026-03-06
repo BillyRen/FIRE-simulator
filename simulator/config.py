@@ -19,6 +19,17 @@ GUARDRAIL_RATE_MIN = 0.0
 GUARDRAIL_RATE_MAX = 0.20
 GUARDRAIL_RATE_STEP = 0.001
 
+# 3D 现金流感知查找表 — cf_scale = C_ref / portfolio
+GUARDRAIL_CF_RATE_STEP = 0.002
+GUARDRAIL_CF_SCALE_MAX = 0.50
+GUARDRAIL_CF_SCALE_STEP = 0.10
+
+# 场景分析专用：更粗的 3D 表网格以加速多场景对比
+SCENARIO_CF_RATE_STEP = 0.004
+SCENARIO_CF_MAX_SIMS = 2000
+SCENARIO_CF_SCALE_STEP = 0.10
+SCENARIO_MAX_START_YEARS = 10
+
 # ---------------------------------------------------------------------------
 # 敏感性分析
 # ---------------------------------------------------------------------------

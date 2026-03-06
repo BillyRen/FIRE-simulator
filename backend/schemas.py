@@ -347,6 +347,51 @@ class GuardrailBatchBacktestResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 4e. 现金流情景分析
+# ---------------------------------------------------------------------------
+
+class ScenarioResult(BaseModel):
+    label: str
+    probability: float
+    success_rate: float
+    funded_ratio: float
+    median_final_portfolio: float
+    median_total_consumption: float
+    annual_withdrawal: float
+    initial_portfolio: float
+
+
+class ScenarioAnalysisResponse(BaseModel):
+    base_case: ScenarioResult
+    scenarios: list[ScenarioResult]
+
+
+# ---------------------------------------------------------------------------
+# 4f. 参数敏感性分析（龙卷风图）
+# ---------------------------------------------------------------------------
+
+class SensitivityDelta(BaseModel):
+    param_label: str
+    param_key: str
+    low_value: float
+    high_value: float
+    base_value: float
+    low_success_rate: float
+    high_success_rate: float
+    low_funded_ratio: float
+    high_funded_ratio: float
+    low_withdrawal: float | None = None
+    high_withdrawal: float | None = None
+
+
+class SensitivityAnalysisResponse(BaseModel):
+    base_success_rate: float
+    base_funded_ratio: float
+    base_withdrawal: float | None = None
+    deltas: list[SensitivityDelta]
+
+
+# ---------------------------------------------------------------------------
 # 5. 资产配置扫描
 # ---------------------------------------------------------------------------
 

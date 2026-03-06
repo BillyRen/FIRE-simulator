@@ -49,11 +49,11 @@ export const MARGINS = {
   default: (mobile: boolean) =>
     mobile ? { l: 45, r: 10, t: 10, b: 30 } : { l: 60, r: 20, t: 10, b: 40 },
   withTitle: (mobile: boolean) =>
-    mobile ? { l: 45, r: 10, t: 10, b: 30 } : { l: 70, r: 20, t: 50, b: 40 },
+    mobile ? { l: 45, r: 10, t: 10, b: 30 } : { l: 70, r: 20, t: 80, b: 40 },
   dualAxis: (mobile: boolean) =>
     mobile ? { l: 45, r: 35, t: 10, b: 30 } : { l: 60, r: 60, t: 10, b: 40 },
   dualAxisWithTitle: (mobile: boolean) =>
-    mobile ? { l: 45, r: 35, t: 10, b: 30 } : { l: 70, r: 60, t: 50, b: 40 },
+    mobile ? { l: 45, r: 35, t: 10, b: 30 } : { l: 70, r: 60, t: 80, b: 40 },
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

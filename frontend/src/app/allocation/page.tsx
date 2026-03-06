@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,8 +34,8 @@ export default function AllocationPage() {
     params, setParams,
     allocationAllocStep: allocStep, setAllocationAllocStep: setAllocStep,
   } = useSharedParams();
-  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
+  const [portfolio, setPortfolio] = usePersistedState("fire:allocation:portfolio", params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = usePersistedState("fire:allocation:withdrawal", params.annual_withdrawal);
   const [result, setResult] = useState<AllocationSweepResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

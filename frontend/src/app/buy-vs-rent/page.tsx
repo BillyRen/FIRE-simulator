@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,32 +71,32 @@ export default function BuyVsRentPage() {
   // Market preset
   const defaultPreset: PresetKey = locale === "zh" ? "cn" : "us";
   const initP = PRESETS[defaultPreset];
-  const [preset, setPreset] = useState<PresetKey>(defaultPreset);
+  const [preset, setPreset] = usePersistedState<PresetKey>("fire:bvr:preset", defaultPreset);
 
   // Home params
-  const [homePrice, setHomePrice] = useState(initP.homePrice);
-  const [downPaymentPct, setDownPaymentPct] = useState(initP.downPaymentPct);
-  const [mortgageTerm, setMortgageTerm] = useState(initP.mortgageTerm);
-  const [buyingCostPct, setBuyingCostPct] = useState(initP.buyingCostPct);
-  const [sellingCostPct, setSellingCostPct] = useState(initP.sellingCostPct);
-  const [propertyTaxPct, setPropertyTaxPct] = useState(initP.propertyTaxPct);
-  const [maintenancePct, setMaintenancePct] = useState(initP.maintenancePct);
-  const [insuranceAnnual, setInsuranceAnnual] = useState(initP.insuranceAnnual);
-  const [annualRent, setAnnualRent] = useState(initP.annualRent);
-  const [analysisYears, setAnalysisYears] = useState(30);
+  const [homePrice, setHomePrice] = usePersistedState("fire:bvr:homePrice", initP.homePrice);
+  const [downPaymentPct, setDownPaymentPct] = usePersistedState("fire:bvr:downPaymentPct", initP.downPaymentPct);
+  const [mortgageTerm, setMortgageTerm] = usePersistedState("fire:bvr:mortgageTerm", initP.mortgageTerm);
+  const [buyingCostPct, setBuyingCostPct] = usePersistedState("fire:bvr:buyingCostPct", initP.buyingCostPct);
+  const [sellingCostPct, setSellingCostPct] = usePersistedState("fire:bvr:sellingCostPct", initP.sellingCostPct);
+  const [propertyTaxPct, setPropertyTaxPct] = usePersistedState("fire:bvr:propertyTaxPct", initP.propertyTaxPct);
+  const [maintenancePct, setMaintenancePct] = usePersistedState("fire:bvr:maintenancePct", initP.maintenancePct);
+  const [insuranceAnnual, setInsuranceAnnual] = usePersistedState("fire:bvr:insuranceAnnual", initP.insuranceAnnual);
+  const [annualRent, setAnnualRent] = usePersistedState("fire:bvr:annualRent", initP.annualRent);
+  const [analysisYears, setAnalysisYears] = usePersistedState("fire:bvr:analysisYears", 30);
 
   // Simple mode rates
-  const [mortgageRate, setMortgageRate] = useState(initP.mortgageRate);
-  const [rentGrowthRate, setRentGrowthRate] = useState(initP.rentGrowthRate);
-  const [homeAppreciationRate, setHomeAppreciationRate] = useState(initP.homeAppreciationRate);
-  const [investmentReturnRate, setInvestmentReturnRate] = useState(initP.investmentReturnRate);
-  const [inflationRate, setInflationRate] = useState(initP.inflationRate);
+  const [mortgageRate, setMortgageRate] = usePersistedState("fire:bvr:mortgageRate", initP.mortgageRate);
+  const [rentGrowthRate, setRentGrowthRate] = usePersistedState("fire:bvr:rentGrowthRate", initP.rentGrowthRate);
+  const [homeAppreciationRate, setHomeAppreciationRate] = usePersistedState("fire:bvr:homeAppreciationRate", initP.homeAppreciationRate);
+  const [investmentReturnRate, setInvestmentReturnRate] = usePersistedState("fire:bvr:investmentReturnRate", initP.investmentReturnRate);
+  const [inflationRate, setInflationRate] = usePersistedState("fire:bvr:inflationRate", initP.inflationRate);
 
   // Auto-estimate home appreciation
-  const [autoEstimateHA, setAutoEstimateHA] = useState(false);
-  const [fairPE, setFairPE] = useState(30);
-  const [reversionYears, setReversionYears] = useState(20);
-  const [autoFairPE, setAutoFairPE] = useState(false);
+  const [autoEstimateHA, setAutoEstimateHA] = usePersistedState("fire:bvr:autoEstimateHA", false);
+  const [fairPE, setFairPE] = usePersistedState("fire:bvr:fairPE", 30);
+  const [reversionYears, setReversionYears] = usePersistedState("fire:bvr:reversionYears", 20);
+  const [autoFairPE, setAutoFairPE] = usePersistedState("fire:bvr:autoFairPE", false);
 
   const derivedFairPE = useMemo(() => {
     const spread = mortgageRate / 100 - rentGrowthRate / 100;
@@ -125,10 +126,10 @@ export default function BuyVsRentPage() {
   }, [autoEstimateHA, estimatedHA]);
 
   // Auto-estimate investment return
-  const [autoEstimateIR, setAutoEstimateIR] = useState(false);
-  const [baseReturn, setBaseReturn] = useState(6);
-  const [fullEquityReturn, setFullEquityReturn] = useState(8);
-  const [borrowingSpread, setBorrowingSpread] = useState(1);
+  const [autoEstimateIR, setAutoEstimateIR] = usePersistedState("fire:bvr:autoEstimateIR", false);
+  const [baseReturn, setBaseReturn] = usePersistedState("fire:bvr:baseReturn", 6);
+  const [fullEquityReturn, setFullEquityReturn] = usePersistedState("fire:bvr:fullEquityReturn", 8);
+  const [borrowingSpread, setBorrowingSpread] = usePersistedState("fire:bvr:borrowingSpread", 1);
 
   const currentLeverage = downPaymentPct > 0 ? 1 / (downPaymentPct / 100) : 1;
   const estimatedIR = useMemo(() => {
@@ -181,33 +182,33 @@ export default function BuyVsRentPage() {
   }, []);
 
   // MC mode — allocation & expense ratios (local state, initialized from shared params)
-  const [allocation, setAllocation] = useState({
+  const [allocation, setAllocation] = usePersistedState("fire:bvr:allocation", {
     domestic_stock: params.allocation.domestic_stock,
     global_stock: params.allocation.global_stock,
     domestic_bond: params.allocation.domestic_bond,
   });
-  const [expenseRatios, setExpenseRatios] = useState({
+  const [expenseRatios, setExpenseRatios] = usePersistedState("fire:bvr:expenseRatios", {
     domestic_stock: params.expense_ratios.domestic_stock,
     global_stock: params.expense_ratios.global_stock,
     domestic_bond: params.expense_ratios.domestic_bond,
   });
 
   // MC mode params
-  const [mortgageRateSpread, setMortgageRateSpread] = useState(1.7);
-  const [mcCountry, setMcCountry] = useState("USA");
-  const [mcPooling, setMcPooling] = useState<"equal" | "gdp_sqrt">("gdp_sqrt");
-  const [mcDataStartYear, setMcDataStartYear] = useState(1900);
-  const [mcNumSim, setMcNumSim] = useState(2000);
-  const [mcMinBlock, setMcMinBlock] = useState(5);
-  const [mcMaxBlock, setMcMaxBlock] = useState(15);
+  const [mortgageRateSpread, setMortgageRateSpread] = usePersistedState("fire:bvr:mortgageRateSpread", 1.7);
+  const [mcCountry, setMcCountry] = usePersistedState("fire:bvr:mcCountry", "USA");
+  const [mcPooling, setMcPooling] = usePersistedState<"equal" | "gdp_sqrt">("fire:bvr:mcPooling", "gdp_sqrt");
+  const [mcDataStartYear, setMcDataStartYear] = usePersistedState("fire:bvr:mcDataStartYear", 1900);
+  const [mcNumSim, setMcNumSim] = usePersistedState("fire:bvr:mcNumSim", 2000);
+  const [mcMinBlock, setMcMinBlock] = usePersistedState("fire:bvr:mcMinBlock", 5);
+  const [mcMaxBlock, setMcMaxBlock] = usePersistedState("fire:bvr:mcMaxBlock", 15);
 
   // Override toggles
-  const [overrideHA, setOverrideHA] = useState(false);
-  const [overrideRG, setOverrideRG] = useState(false);
-  const [overrideMR, setOverrideMR] = useState(false);
-  const [overrideHAVal, setOverrideHAVal] = useState(3.5);
-  const [overrideRGVal, setOverrideRGVal] = useState(3);
-  const [overrideMRVal, setOverrideMRVal] = useState(6.5);
+  const [overrideHA, setOverrideHA] = usePersistedState("fire:bvr:overrideHA", false);
+  const [overrideRG, setOverrideRG] = usePersistedState("fire:bvr:overrideRG", false);
+  const [overrideMR, setOverrideMR] = usePersistedState("fire:bvr:overrideMR", false);
+  const [overrideHAVal, setOverrideHAVal] = usePersistedState("fire:bvr:overrideHAVal", 3.5);
+  const [overrideRGVal, setOverrideRGVal] = usePersistedState("fire:bvr:overrideRGVal", 3);
+  const [overrideMRVal, setOverrideMRVal] = usePersistedState("fire:bvr:overrideMRVal", 6.5);
 
   // Countries
   const [countries, setCountries] = useState<HousingCountryInfo[]>([]);
@@ -216,7 +217,7 @@ export default function BuyVsRentPage() {
   }, []);
 
   // MC breakeven target win pct
-  const [targetWinPct, setTargetWinPct] = useState(50);
+  const [targetWinPct, setTargetWinPct] = usePersistedState("fire:bvr:targetWinPct", 50);
 
   // Results
   const [simpleResult, setSimpleResult] = useState<BuyVsRentSimpleResponse | null>(null);
@@ -685,8 +686,8 @@ function SimpleResults({
             layout={{
               height: isMobile ? 280 : 360,
               margin: MARGINS.default(isMobile),
-              xaxis: { title: { text: t("years") } },
-              yaxis: { title: { text: "$" }, tickformat: ",.0f" },
+              xaxis: { title: { text: t("years") }, type: "linear" as const },
+              yaxis: { title: { text: "$" }, type: "linear" as const, tickformat: ",.0f" },
               legend: { x: 0, y: 1 },
             }}
           />
@@ -710,8 +711,8 @@ function SimpleResults({
               height: isMobile ? 280 : 360,
               barmode: "stack",
               margin: { ...MARGINS.default(isMobile), b: 60 },
-              xaxis: { title: { text: t("years") } },
-              yaxis: { title: { text: "$" }, tickformat: ",.0f" },
+              xaxis: { title: { text: t("years") }, type: "linear" as const },
+              yaxis: { title: { text: "$" }, type: "linear" as const, tickformat: ",.0f" },
               legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.2 },
             }}
           />
@@ -863,7 +864,7 @@ function MCResults({
               margin: MARGINS.dualAxis(isMobile),
               xaxis: { title: { text: t("years") } },
               yaxis: { ...yaxLog(advLog), side: "left" as const },
-              yaxis2: { title: { text: "%" }, overlaying: "y" as const, side: "right" as const, range: [0, 105], ticksuffix: "%" },
+              yaxis2: { title: { text: "%" }, type: "linear" as const, overlaying: "y" as const, side: "right" as const, range: [0, 105], ticksuffix: "%" },
               legend: { x: 0, y: 1 },
             }}
           />

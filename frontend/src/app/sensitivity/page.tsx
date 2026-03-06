@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,8 +36,8 @@ export default function SensitivityPage() {
     sensitivityRateStep: rateStep, setSensitivityRateStep: setRateStep,
     sensitivityMetric: metric, setSensitivityMetric: setMetric,
   } = useSharedParams();
-  const [portfolio, setPortfolio] = useState(params.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(params.annual_withdrawal);
+  const [portfolio, setPortfolio] = usePersistedState("fire:sensitivity:portfolio", params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = usePersistedState("fire:sensitivity:withdrawal", params.annual_withdrawal);
   const [result, setResult] = useState<SweepResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,8 +211,8 @@ export default function SensitivityPage() {
                     },
                   ]}
                   layout={{
-                    xaxis: { title: { text: t("analysis1XAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
-                    yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
+                    xaxis: { title: { text: t("analysis1XAxis") }, type: "linear" as const, tickfont: { size: isMobile ? 9 : 12 } },
+                    yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, type: "linear" as const, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
                     height: isMobile ? 280 : 400,
                     margin: MARGINS.default(isMobile),
                   }}
@@ -270,7 +271,7 @@ export default function SensitivityPage() {
                         range: [0, analysis2Data.xMax],
                         tickfont: { size: isMobile ? 9 : 12 },
                       },
-                      yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
+                      yaxis: { title: isMobile ? undefined : { text: `${metricLabel} (%)` }, type: "linear" as const, range: [0, 105], tickfont: { size: isMobile ? 9 : 12 } },
                       height: isMobile ? 280 : 400,
                       margin: MARGINS.default(isMobile),
                     }}

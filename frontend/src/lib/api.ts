@@ -27,6 +27,8 @@ import type {
   BreakevenResponse,
   AccumulationRequest,
   AccumulationResponse,
+  ScenarioAnalysisResponse,
+  SensitivityAnalysisResponse,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
@@ -88,6 +90,26 @@ export async function runSimBatchBacktest(params: FormParams): Promise<SimBatchB
 // 批量历史回测：Guardrail 页
 export async function runGuardrailBatchBacktest(req: Record<string, unknown>): Promise<GuardrailBatchBacktestResponse> {
   return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req);
+}
+
+// 情景分析：现金流情景分解（护栏页）
+export async function runGuardrailScenarios(req: GuardrailRequest): Promise<ScenarioAnalysisResponse> {
+  return post<GuardrailRequest, ScenarioAnalysisResponse>("/api/guardrail/scenarios", req);
+}
+
+// 参数敏感性分析（护栏页 — 龙卷风图）
+export async function runGuardrailSensitivity(req: GuardrailRequest): Promise<SensitivityAnalysisResponse> {
+  return post<GuardrailRequest, SensitivityAnalysisResponse>("/api/guardrail/sensitivity", req);
+}
+
+// 情景分析：现金流情景分解（退休模拟页）
+export async function runSimScenarios(req: SimulationRequest): Promise<ScenarioAnalysisResponse> {
+  return post<SimulationRequest, ScenarioAnalysisResponse>("/api/simulate/scenarios", req);
+}
+
+// 参数敏感性分析（退休模拟页 — 龙卷风图）
+export async function runSimSensitivity(req: SimulationRequest): Promise<SensitivityAnalysisResponse> {
+  return post<SimulationRequest, SensitivityAnalysisResponse>("/api/simulate/sensitivity", req);
 }
 
 // 买房 vs 租房

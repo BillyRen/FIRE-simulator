@@ -18,11 +18,18 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from simulator.cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf
+from simulator.cashflow import CashFlowItem, build_cf_schedule, build_representative_cf_schedule, enumerate_cf_scenarios, has_probabilistic_cf
+from concurrent.futures import ThreadPoolExecutor
+
 from simulator.config import (
+    GUARDRAIL_CF_RATE_STEP,
     GUARDRAIL_RATE_MAX,
     GUARDRAIL_RATE_MIN,
     GUARDRAIL_RATE_STEP,
+    SCENARIO_CF_MAX_SIMS,
+    SCENARIO_CF_RATE_STEP,
+    SCENARIO_CF_SCALE_STEP,
+    SCENARIO_MAX_START_YEARS,
     TARGET_SUCCESS_RATES,
     get_gdp_weights,
 )
@@ -43,8 +50,11 @@ from simulator.data_loader import (
 )
 from simulator.guardrail import (
     _apply_guardrail_adjustment,
+    build_cf_aware_table,
     build_success_rate_table,
     find_rate_for_target,
+    find_rate_for_target_cf_aware,
+    lookup_cf_aware_success_rate,
     run_fixed_baseline,
     run_guardrail_simulation,
     run_historical_backtest,
@@ -95,6 +105,10 @@ from schemas import (
     GuardrailRequest,
     GuardrailResponse,
     HousingCountriesResponse,
+    ScenarioAnalysisResponse,
+    ScenarioResult,
+    SensitivityAnalysisResponse,
+    SensitivityDelta,
     HousingCountryInfo,
     ReturnsResponse,
     SimBatchBacktestRequest,
@@ -436,6 +450,196 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
 
 
 # ---------------------------------------------------------------------------
+# 1d. POST /api/simulate/scenarios — 现金流情景分解（通用策略）
+# ---------------------------------------------------------------------------
+
+@app.post("/api/simulate/scenarios", response_model=ScenarioAnalysisResponse)
+@limiter.limit("5/minute")
+def api_simulate_scenarios(request: Request, req: SimulationRequest):
+    """枚举概率现金流的所有确定性组合，用用户选择的提取策略模拟。"""
+    filtered, country_dfs = _resolve_data(req)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
+
+    cash_flows = _to_cash_flows(req.cash_flows)
+    if not cash_flows:
+        raise HTTPException(400, "需要至少一个自定义现金流")
+
+    cf_scenarios = enumerate_cf_scenarios(cash_flows, max_combinations=32)
+    if not cf_scenarios:
+        raise HTTPException(
+            400,
+            "没有概率分组现金流，或组合数过多（>32）。请检查现金流设置。"
+        )
+
+    country_weights = _resolve_country_weights(req, country_dfs)
+
+    def _sim_kwargs_base():
+        return dict(
+            initial_portfolio=req.initial_portfolio,
+            annual_withdrawal=req.annual_withdrawal,
+            allocation=_alloc_dict(req.allocation),
+            expense_ratios=_expense_dict(req.expense_ratios),
+            retirement_years=req.retirement_years,
+            min_block=req.min_block,
+            max_block=req.max_block,
+            num_simulations=req.num_simulations,
+            returns_df=filtered,
+            withdrawal_strategy=req.withdrawal_strategy,
+            dynamic_ceiling=req.dynamic_ceiling,
+            dynamic_floor=req.dynamic_floor,
+            retirement_age=req.retirement_age,
+            leverage=req.leverage,
+            borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs,
+            country_weights=country_weights,
+        )
+
+    def _run_scenario(
+        scenario_cfs: list[CashFlowItem] | None,
+        label: str,
+    ) -> ScenarioResult:
+        kw = _sim_kwargs_base()
+        kw["cash_flows"] = scenario_cfs
+        traj, wd, _, _ = run_simulation(**kw)
+        sr = float(np.mean(traj[:, -1] > 0))
+        fr = compute_funded_ratio(traj, req.retirement_years)
+        total = np.sum(wd, axis=1)
+        return ScenarioResult(
+            label=label,
+            probability=0.0,
+            success_rate=sr,
+            funded_ratio=fr,
+            median_final_portfolio=float(np.median(traj[:, -1])),
+            median_total_consumption=float(np.median(total)),
+            annual_withdrawal=req.annual_withdrawal,
+            initial_portfolio=req.initial_portfolio,
+        )
+
+    max_workers = max(1, os.cpu_count() or 1)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        future_base = pool.submit(_run_scenario, cash_flows, "base_case")
+        futures = {
+            pool.submit(_run_scenario, cfs, label): (label, prob)
+            for label, cfs, prob in cf_scenarios
+        }
+        base = future_base.result()
+        results = []
+        for fut, (label, prob) in futures.items():
+            r = fut.result()
+            r.probability = prob
+            results.append(r)
+
+    return ScenarioAnalysisResponse(base_case=base, scenarios=results)
+
+
+# ---------------------------------------------------------------------------
+# 1e. POST /api/simulate/sensitivity — 参数敏感性分析（通用策略）
+# ---------------------------------------------------------------------------
+
+@app.post("/api/simulate/sensitivity", response_model=SensitivityAnalysisResponse)
+@limiter.limit("5/minute")
+def api_simulate_sensitivity(request: Request, req: SimulationRequest):
+    """核心参数 ±delta 对成功率的影响（使用用户选择的提取策略）。"""
+    filtered, country_dfs = _resolve_data(req)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
+
+    country_weights = _resolve_country_weights(req, country_dfs)
+    cash_flows = _to_cash_flows(req.cash_flows)
+
+    def _run_sim(ip, aw, yrs, alloc=None, er=None, cfs=None):
+        kw = dict(
+            initial_portfolio=ip,
+            annual_withdrawal=aw,
+            allocation=alloc or _alloc_dict(req.allocation),
+            expense_ratios=er or _expense_dict(req.expense_ratios),
+            retirement_years=yrs,
+            min_block=req.min_block,
+            max_block=req.max_block,
+            num_simulations=req.num_simulations,
+            returns_df=filtered,
+            withdrawal_strategy=req.withdrawal_strategy,
+            dynamic_ceiling=req.dynamic_ceiling,
+            dynamic_floor=req.dynamic_floor,
+            retirement_age=req.retirement_age,
+            cash_flows=cfs if cfs is not None else cash_flows,
+            leverage=req.leverage,
+            borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs,
+            country_weights=country_weights,
+        )
+        traj, _, _, _ = run_simulation(**kw)
+        sr = float(np.mean(traj[:, -1] > 0))
+        fr = compute_funded_ratio(traj, yrs)
+        return sr, fr
+
+    base_ip = req.initial_portfolio
+    base_aw = req.annual_withdrawal
+    base_years = req.retirement_years
+    stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
+
+    base_sr, base_fr = _run_sim(base_ip, base_aw, base_years)
+
+    param_specs = [
+        ("initial_portfolio", "初始资产", base_ip, base_ip * 0.8, base_ip * 1.2),
+        ("annual_withdrawal", "年提取额", base_aw, base_aw * 0.8, base_aw * 1.2),
+        ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
+        ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
+    ]
+
+    deltas = []
+    for key, label, base_val, lo_val, hi_val in param_specs:
+        lo_sr, lo_fr, hi_sr, hi_fr = base_sr, base_fr, base_sr, base_fr
+
+        for side, side_val in [("low", lo_val), ("high", hi_val)]:
+            sr, fr = base_sr, base_fr
+
+            if key == "initial_portfolio":
+                sr, fr = _run_sim(side_val, base_aw, base_years)
+            elif key == "annual_withdrawal":
+                sr, fr = _run_sim(base_ip, side_val, base_years)
+            elif key == "retirement_years":
+                sr, fr = _run_sim(base_ip, base_aw, int(side_val))
+            elif key == "stock_allocation":
+                new_stock = side_val
+                old_stock = stock_pct
+                if old_stock > 0:
+                    ratio = new_stock / old_stock
+                    dom_new = req.allocation.domestic_stock * ratio
+                    glb_new = req.allocation.global_stock * ratio
+                else:
+                    dom_new = new_stock / 2.0
+                    glb_new = new_stock / 2.0
+                bond_new = max(0.0, 1.0 - dom_new - glb_new)
+                new_alloc = {"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new}
+                sr, fr = _run_sim(base_ip, base_aw, base_years, alloc=new_alloc)
+
+            if side == "low":
+                lo_sr, lo_fr = sr, fr
+            else:
+                hi_sr, hi_fr = sr, fr
+
+        deltas.append(SensitivityDelta(
+            param_label=label,
+            param_key=key,
+            low_value=lo_val,
+            high_value=hi_val,
+            base_value=base_val,
+            low_success_rate=lo_sr,
+            high_success_rate=hi_sr,
+            low_funded_ratio=lo_fr,
+            high_funded_ratio=hi_fr,
+        ))
+
+    return SensitivityAnalysisResponse(
+        base_success_rate=base_sr,
+        base_funded_ratio=base_fr,
+        deltas=deltas,
+    )
+
+
+# ---------------------------------------------------------------------------
 # 2. POST /api/sweep
 # ---------------------------------------------------------------------------
 
@@ -560,6 +764,23 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 
     cash_flows = _to_cash_flows(req.cash_flows)
 
+    # 3D 现金流感知查找表
+    cf_table_result = None
+    if cash_flows:
+        rep_schedule = build_representative_cf_schedule(
+            cash_flows, req.retirement_years, inflation_matrix,
+        )
+        cf_table_result = build_cf_aware_table(
+            scenarios, rep_schedule,
+            GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
+        )
+
+    _cf_tbl = cf_table_result[2] if cf_table_result else None
+    _cf_rg = cf_table_result[0] if cf_table_result else None
+    _cf_sg = cf_table_result[1] if cf_table_result else None
+    _cf_ref = cf_table_result[3] if cf_table_result else 0.0
+    _last_cf_y = cf_table_result[4] if cf_table_result else -1
+
     sim_kwargs = dict(
         scenarios=scenarios,
         target_success=req.target_success,
@@ -573,6 +794,11 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         adjustment_mode=req.adjustment_mode,
         cash_flows=cash_flows,
         inflation_matrix=inflation_matrix,
+        cf_table=_cf_tbl,
+        cf_rate_grid=_cf_rg,
+        cf_scale_grid=_cf_sg,
+        cf_ref=_cf_ref,
+        last_cf_year=_last_cf_y,
     )
     if req.input_mode == "withdrawal":
         sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
@@ -633,62 +859,66 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     port_metrics = compute_portfolio_metrics(scenarios, inflation_matrix)
 
     # 初始护栏触发阈值：反算触发上/下护栏时的资产值和调整后提取额
-    # 计算 year-0 的 future_cf_avg（与模拟中一致）
-    _cf_avg_y0 = 0.0
-    if cash_flows:
-        if has_probabilistic_cf(cash_flows):
-            # 概率加权的期望现金流
-            ungrouped = [cf for cf in cash_flows if cf.group is None]
-            groups: dict[str, list[CashFlowItem]] = {}
-            for cf in cash_flows:
-                if cf.group is not None:
-                    groups.setdefault(cf.group, []).append(cf)
-            _expected_sched = np.zeros(req.retirement_years)
-            median_infl = np.median(inflation_matrix, axis=0) if inflation_matrix is not None else None
-            for cf in ungrouped:
-                if cf.inflation_adjusted:
-                    _expected_sched += build_cf_schedule([cf], req.retirement_years)
-                elif median_infl is not None:
-                    _expected_sched += build_cf_schedule([cf], req.retirement_years, median_infl)
-            for variants in groups.values():
-                for cf in variants:
-                    if cf.inflation_adjusted:
-                        _expected_sched += cf.probability * build_cf_schedule([cf], req.retirement_years)
-                    elif median_infl is not None:
-                        _expected_sched += cf.probability * build_cf_schedule([cf], req.retirement_years, median_infl)
-            _cf_avg_y0 = float(np.mean(_expected_sched))
-        else:
-            has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
-            if has_nominal and inflation_matrix is not None:
-                median_inflation = np.median(inflation_matrix, axis=0)
-                _cf_sched = build_cf_schedule(cash_flows, req.retirement_years, median_inflation)
-            else:
-                adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
-                _cf_sched = build_cf_schedule(adj_cfs, req.retirement_years)
-            _cf_avg_y0 = float(np.mean(_cf_sched))
-
     remaining_y0 = min(req.retirement_years, table.shape[1] - 1)
-    upper_rate = find_rate_for_target(table, rate_grid, req.upper_guardrail, remaining_y0)
-    lower_rate = find_rate_for_target(table, rate_grid, req.lower_guardrail, remaining_y0)
-    # effective_rate = (wd - cf_avg) / portfolio  =>  portfolio = (wd - cf_avg) / rate
-    net_wd = annual_wd - _cf_avg_y0
-    upper_trigger_port = net_wd / upper_rate if upper_rate > 0 else 0.0
-    lower_trigger_port = net_wd / lower_rate if lower_rate > 0 else 0.0
 
-    upper_trigger_wd = _apply_guardrail_adjustment(
-        wd=annual_wd, value=upper_trigger_port,
-        current_success=req.upper_guardrail, target_success=req.target_success,
-        adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
-        remaining=remaining_y0, table=table, rate_grid=rate_grid,
-        future_cf_avg=_cf_avg_y0,
-    ) if upper_trigger_port > 0 else 0.0
-    lower_trigger_wd = _apply_guardrail_adjustment(
-        wd=annual_wd, value=lower_trigger_port,
-        current_success=req.lower_guardrail, target_success=req.target_success,
-        adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
-        remaining=remaining_y0, table=table, rate_grid=rate_grid,
-        future_cf_avg=_cf_avg_y0,
-    ) if lower_trigger_port > 0 else 0.0
+    if cf_table_result is not None:
+        # 3D 表模式：用二分法找到 V 使 success_rate(wd/V, cf_ref/V, 0) = target
+        def _find_trigger_port_3d(target_sr: float) -> float:
+            r0 = find_rate_for_target(table, rate_grid, target_sr, remaining_y0)
+            v_guess = annual_wd / r0 if r0 > 0 else init_portfolio * 5
+            lo, hi = v_guess * 0.1, v_guess * 10
+            for _ in range(40):
+                v_mid = (lo + hi) / 2
+                sr = lookup_cf_aware_success_rate(
+                    _cf_tbl, _cf_rg, _cf_sg,
+                    annual_wd / v_mid, _cf_ref / v_mid, 0,
+                )
+                if sr < target_sr:
+                    lo = v_mid
+                else:
+                    hi = v_mid
+            return (lo + hi) / 2
+
+        upper_trigger_port = _find_trigger_port_3d(req.upper_guardrail)
+        lower_trigger_port = _find_trigger_port_3d(req.lower_guardrail)
+
+        _cs_upper = _cf_ref / upper_trigger_port if upper_trigger_port > 0 else 0.0
+        upper_trigger_wd = _apply_guardrail_adjustment(
+            wd=annual_wd, value=upper_trigger_port,
+            current_success=req.upper_guardrail, target_success=req.target_success,
+            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+            remaining=remaining_y0, table=table, rate_grid=_cf_rg,
+            cf_table=_cf_tbl, cf_scale_grid=_cf_sg,
+            cf_scale=_cs_upper, start_year=0,
+        ) if upper_trigger_port > 0 else 0.0
+
+        _cs_lower = _cf_ref / lower_trigger_port if lower_trigger_port > 0 else 0.0
+        lower_trigger_wd = _apply_guardrail_adjustment(
+            wd=annual_wd, value=lower_trigger_port,
+            current_success=req.lower_guardrail, target_success=req.target_success,
+            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+            remaining=remaining_y0, table=table, rate_grid=_cf_rg,
+            cf_table=_cf_tbl, cf_scale_grid=_cf_sg,
+            cf_scale=_cs_lower, start_year=0,
+        ) if lower_trigger_port > 0 else 0.0
+    else:
+        upper_rate = find_rate_for_target(table, rate_grid, req.upper_guardrail, remaining_y0)
+        lower_rate = find_rate_for_target(table, rate_grid, req.lower_guardrail, remaining_y0)
+        upper_trigger_port = annual_wd / upper_rate if upper_rate > 0 else 0.0
+        lower_trigger_port = annual_wd / lower_rate if lower_rate > 0 else 0.0
+
+        upper_trigger_wd = _apply_guardrail_adjustment(
+            wd=annual_wd, value=upper_trigger_port,
+            current_success=req.upper_guardrail, target_success=req.target_success,
+            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+            remaining=remaining_y0, table=table, rate_grid=rate_grid,
+        ) if upper_trigger_port > 0 else 0.0
+        lower_trigger_wd = _apply_guardrail_adjustment(
+            wd=annual_wd, value=lower_trigger_port,
+            current_success=req.lower_guardrail, target_success=req.target_success,
+            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+            remaining=remaining_y0, table=table, rate_grid=rate_grid,
+        ) if lower_trigger_port > 0 else 0.0
 
     return GuardrailResponse(
         initial_portfolio=init_portfolio,
@@ -709,6 +939,292 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         lower_trigger_withdrawal=lower_trigger_wd,
         metrics=metrics,
         portfolio_metrics=port_metrics,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3b. POST /api/guardrail/scenarios — 现金流情景分解
+# ---------------------------------------------------------------------------
+
+@app.post("/api/guardrail/scenarios", response_model=ScenarioAnalysisResponse)
+@limiter.limit("5/minute")
+def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
+    """枚举概率现金流的所有确定性组合，对比各场景对退休结果的影响。"""
+    filtered, country_dfs = _resolve_data(req)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
+
+    cash_flows = _to_cash_flows(req.cash_flows)
+    if not cash_flows:
+        raise HTTPException(400, "需要至少一个自定义现金流")
+
+    cf_scenarios = enumerate_cf_scenarios(cash_flows, max_combinations=32)
+    if not cf_scenarios:
+        raise HTTPException(
+            400,
+            "没有概率分组现金流，或组合数过多（>32）。请检查现金流设置。"
+        )
+
+    country_weights = _resolve_country_weights(req, country_dfs)
+
+    scenarios, inflation_matrix = pregenerate_return_scenarios(
+        allocation=_alloc_dict(req.allocation),
+        expense_ratios=_expense_dict(req.expense_ratios),
+        retirement_years=req.retirement_years,
+        min_block=req.min_block,
+        max_block=req.max_block,
+        num_simulations=req.num_simulations,
+        returns_df=filtered,
+        leverage=req.leverage,
+        borrowing_spread=req.borrowing_spread,
+        country_dfs=country_dfs,
+        country_weights=country_weights,
+    )
+
+    rate_grid, table = build_success_rate_table(
+        scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
+    )
+
+    def _run_scenario(
+        scenario_cfs: list[CashFlowItem] | None,
+        label: str,
+    ) -> ScenarioResult:
+        cf_table_r = None
+        if scenario_cfs:
+            rep_schedule = build_representative_cf_schedule(
+                scenario_cfs, req.retirement_years, inflation_matrix,
+            )
+            cf_table_r = build_cf_aware_table(
+                scenarios, rep_schedule,
+                GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX,
+                rate_step=SCENARIO_CF_RATE_STEP,
+                cf_scale_step=SCENARIO_CF_SCALE_STEP,
+                max_sims=SCENARIO_CF_MAX_SIMS,
+                max_start_years=SCENARIO_MAX_START_YEARS,
+            )
+
+        _cf_t = cf_table_r[2] if cf_table_r else None
+        _cf_r = cf_table_r[0] if cf_table_r else None
+        _cf_s = cf_table_r[1] if cf_table_r else None
+        _cf_ref = cf_table_r[3] if cf_table_r else 0.0
+        _last_y = cf_table_r[4] if cf_table_r else -1
+
+        sim_kwargs = dict(
+            scenarios=scenarios,
+            target_success=req.target_success,
+            upper_guardrail=req.upper_guardrail,
+            lower_guardrail=req.lower_guardrail,
+            adjustment_pct=req.adjustment_pct,
+            retirement_years=req.retirement_years,
+            min_remaining_years=req.min_remaining_years,
+            table=table,
+            rate_grid=rate_grid,
+            adjustment_mode=req.adjustment_mode,
+            cash_flows=scenario_cfs,
+            inflation_matrix=inflation_matrix,
+            cf_table=_cf_t,
+            cf_rate_grid=_cf_r,
+            cf_scale_grid=_cf_s,
+            cf_ref=_cf_ref,
+            last_cf_year=_last_y,
+        )
+        if req.input_mode == "withdrawal":
+            sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
+        else:
+            sim_kwargs["initial_portfolio"] = req.initial_portfolio
+
+        ip, aw, traj, wd = run_guardrail_simulation(**sim_kwargs)
+
+        g_fr, g_sr = compute_effective_funded_ratio(
+            wd, aw, req.retirement_years, trajectories=traj,
+        )
+        g_total = np.sum(wd, axis=1)
+        return ScenarioResult(
+            label=label,
+            probability=0.0,
+            success_rate=g_sr,
+            funded_ratio=g_fr,
+            median_final_portfolio=float(np.median(traj[:, -1])),
+            median_total_consumption=float(np.median(g_total)),
+            annual_withdrawal=aw,
+            initial_portfolio=ip,
+        )
+
+    max_workers = max(1, os.cpu_count() or 1)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        future_base = pool.submit(_run_scenario, cash_flows, "base_case")
+        futures = {
+            pool.submit(_run_scenario, cfs, label): (label, prob)
+            for label, cfs, prob in cf_scenarios
+        }
+        base = future_base.result()
+        results = []
+        for fut, (label, prob) in futures.items():
+            r = fut.result()
+            r.probability = prob
+            results.append(r)
+
+    return ScenarioAnalysisResponse(base_case=base, scenarios=results)
+
+
+# ---------------------------------------------------------------------------
+# 3c. POST /api/guardrail/sensitivity — 参数敏感性分析（龙卷风图）
+# ---------------------------------------------------------------------------
+
+@app.post("/api/guardrail/sensitivity", response_model=SensitivityAnalysisResponse)
+@limiter.limit("5/minute")
+def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
+    """固定目标成功率，变动参数后用护栏策略计算最优提取额/初始资产。"""
+    filtered, country_dfs = _resolve_data(req)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
+
+    country_weights = _resolve_country_weights(req, country_dfs)
+    cash_flows = _to_cash_flows(req.cash_flows)
+
+    base_years = req.retirement_years
+    stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
+
+    def _build_and_run(
+        scen_alloc=None, scen_er=None, yrs=None,
+        ip_override=None, aw_override=None, target_override=None,
+    ):
+        """Pre-generate scenarios/tables and run guardrail simulation."""
+        alloc = scen_alloc or _alloc_dict(req.allocation)
+        er = scen_er or _expense_dict(req.expense_ratios)
+        years = yrs or base_years
+
+        scen, infl = pregenerate_return_scenarios(
+            allocation=alloc, expense_ratios=er,
+            retirement_years=years,
+            min_block=req.min_block, max_block=req.max_block,
+            num_simulations=req.num_simulations, returns_df=filtered,
+            leverage=req.leverage, borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs, country_weights=country_weights,
+        )
+        rg, tbl = build_success_rate_table(
+            scen, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
+        )
+        cf_tbl_r = None
+        if cash_flows:
+            rep = build_representative_cf_schedule(cash_flows, years, infl)
+            cf_tbl_r = build_cf_aware_table(
+                scen, rep, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX,
+                rate_step=SCENARIO_CF_RATE_STEP,
+                cf_scale_step=SCENARIO_CF_SCALE_STEP,
+                max_sims=SCENARIO_CF_MAX_SIMS,
+                max_start_years=SCENARIO_MAX_START_YEARS,
+            )
+
+        sim_kw = dict(
+            scenarios=scen,
+            target_success=target_override or req.target_success,
+            upper_guardrail=req.upper_guardrail,
+            lower_guardrail=req.lower_guardrail,
+            adjustment_pct=req.adjustment_pct,
+            retirement_years=years,
+            min_remaining_years=req.min_remaining_years,
+            table=tbl, rate_grid=rg,
+            adjustment_mode=req.adjustment_mode,
+            cash_flows=cash_flows, inflation_matrix=infl,
+            cf_table=cf_tbl_r[2] if cf_tbl_r else None,
+            cf_rate_grid=cf_tbl_r[0] if cf_tbl_r else None,
+            cf_scale_grid=cf_tbl_r[1] if cf_tbl_r else None,
+            cf_ref=cf_tbl_r[3] if cf_tbl_r else 0.0,
+            last_cf_year=cf_tbl_r[4] if cf_tbl_r else -1,
+        )
+        if ip_override is not None:
+            sim_kw["initial_portfolio"] = ip_override
+        elif aw_override is not None:
+            sim_kw["annual_withdrawal"] = aw_override
+        elif req.input_mode == "withdrawal":
+            sim_kw["annual_withdrawal"] = req.annual_withdrawal
+        else:
+            sim_kw["initial_portfolio"] = req.initial_portfolio
+
+        r_ip, r_aw, r_traj, r_wd = run_guardrail_simulation(**sim_kw)
+        _, r_sr = compute_effective_funded_ratio(r_wd, r_aw, years, trajectories=r_traj)
+        r_fr = compute_funded_ratio(r_traj, years)
+        return r_ip, r_aw, r_sr, r_fr
+
+    base_ip, base_aw, base_sr, base_fr = _build_and_run()
+
+    is_portfolio_mode = req.input_mode != "withdrawal"
+    if is_portfolio_mode:
+        param_specs = [
+            ("initial_portfolio", "初始资产", base_ip, base_ip * 0.8, base_ip * 1.2),
+            ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
+            ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
+            ("target_success", "目标成功率", req.target_success, max(0.5, req.target_success - 0.05), min(0.99, req.target_success + 0.05)),
+        ]
+    else:
+        param_specs = [
+            ("annual_withdrawal", "年提取额", base_aw, base_aw * 0.8, base_aw * 1.2),
+            ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
+            ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
+            ("target_success", "目标成功率", req.target_success, max(0.5, req.target_success - 0.05), min(0.99, req.target_success + 0.05)),
+        ]
+
+    deltas = []
+    for key, label, base_val, lo_val, hi_val in param_specs:
+        lo_sr = hi_sr = base_sr
+        lo_fr = hi_fr = base_fr
+        lo_wd = hi_wd = base_aw
+
+        for side, side_val in [("low", lo_val), ("high", hi_val)]:
+            r_ip, r_aw, sr, fr = base_ip, base_aw, base_sr, base_fr
+
+            if key == "initial_portfolio":
+                r_ip, r_aw, sr, fr = _build_and_run(ip_override=side_val)
+            elif key == "annual_withdrawal":
+                r_ip, r_aw, sr, fr = _build_and_run(aw_override=side_val)
+            elif key == "target_success":
+                r_ip, r_aw, sr, fr = _build_and_run(target_override=side_val)
+            elif key == "retirement_years":
+                r_ip, r_aw, sr, fr = _build_and_run(yrs=int(side_val))
+            elif key == "stock_allocation":
+                new_stock = side_val
+                if stock_pct > 0:
+                    ratio = new_stock / stock_pct
+                    dom_new = req.allocation.domestic_stock * ratio
+                    glb_new = req.allocation.global_stock * ratio
+                else:
+                    dom_new = new_stock / 2.0
+                    glb_new = new_stock / 2.0
+                bond_new = max(0.0, 1.0 - dom_new - glb_new)
+                if bond_new < 0:
+                    total_s = dom_new + glb_new
+                    dom_new /= total_s
+                    glb_new /= total_s
+                    bond_new = 0.0
+                r_ip, r_aw, sr, fr = _build_and_run(
+                    scen_alloc={"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new},
+                )
+
+            if side == "low":
+                lo_sr, lo_fr, lo_wd = sr, fr, r_aw
+            else:
+                hi_sr, hi_fr, hi_wd = sr, fr, r_aw
+
+        deltas.append(SensitivityDelta(
+            param_label=label,
+            param_key=key,
+            low_value=lo_val,
+            high_value=hi_val,
+            base_value=base_val,
+            low_success_rate=lo_sr,
+            high_success_rate=hi_sr,
+            low_funded_ratio=lo_fr,
+            high_funded_ratio=hi_fr,
+            low_withdrawal=lo_wd,
+            high_withdrawal=hi_wd,
+        ))
+
+    return SensitivityAnalysisResponse(
+        base_success_rate=base_sr,
+        base_funded_ratio=base_fr,
+        base_withdrawal=base_aw,
+        deltas=deltas,
     )
 
 
@@ -766,6 +1282,27 @@ def api_backtest(request: Request, req: BacktestRequest):
 
     cash_flows = _to_cash_flows(req.cash_flows)
 
+    # 3D 现金流感知查找表
+    _bt_cf_tbl = None
+    _bt_cf_rg = None
+    _bt_cf_sg = None
+    _bt_cf_ref = 0.0
+    _bt_last_cf_y = -1
+    if cash_flows:
+        rep_schedule = build_representative_cf_schedule(
+            cash_flows, req.retirement_years,
+        )
+        bt_cf_result = build_cf_aware_table(
+            scenarios, rep_schedule,
+            GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
+        )
+        if bt_cf_result is not None:
+            _bt_cf_tbl = bt_cf_result[2]
+            _bt_cf_rg = bt_cf_result[0]
+            _bt_cf_sg = bt_cf_result[1]
+            _bt_cf_ref = bt_cf_result[3]
+            _bt_last_cf_y = bt_cf_result[4]
+
     result = run_historical_backtest(
         real_returns=hist_returns,
         initial_portfolio=req.initial_portfolio,
@@ -782,6 +1319,11 @@ def api_backtest(request: Request, req: BacktestRequest):
         adjustment_mode=req.adjustment_mode,
         cash_flows=cash_flows,
         inflation_series=hist_inflation,
+        cf_table=_bt_cf_tbl,
+        cf_rate_grid=_bt_cf_rg,
+        cf_scale_grid=_bt_cf_sg,
+        cf_ref=_bt_cf_ref,
+        last_cf_year=_bt_last_cf_y,
     )
 
     n = result["years_simulated"]
@@ -839,6 +1381,29 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
     )
 
+    batch_cash_flows = _to_cash_flows(req.cash_flows)
+
+    # 3D 现金流感知查找表
+    _batch_cf_tbl = None
+    _batch_cf_rg = None
+    _batch_cf_sg = None
+    _batch_cf_ref = 0.0
+    _batch_last_cf_y = -1
+    if batch_cash_flows:
+        rep_schedule = build_representative_cf_schedule(
+            batch_cash_flows, req.retirement_years,
+        )
+        batch_cf_result = build_cf_aware_table(
+            scenarios, rep_schedule,
+            GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
+        )
+        if batch_cf_result is not None:
+            _batch_cf_tbl = batch_cf_result[2]
+            _batch_cf_rg = batch_cf_result[0]
+            _batch_cf_sg = batch_cf_result[1]
+            _batch_cf_ref = batch_cf_result[3]
+            _batch_last_cf_y = batch_cf_result[4]
+
     # 确定回测用的国家数据
     if country_dfs is not None:
         bt_country_dfs = country_dfs
@@ -864,9 +1429,14 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         baseline_rate=req.baseline_rate,
         table=table,
         rate_grid=rate_grid,
-        cash_flows=_to_cash_flows(req.cash_flows),
+        cash_flows=batch_cash_flows,
         leverage=req.leverage,
         borrowing_spread=req.borrowing_spread,
+        cf_table=_batch_cf_tbl,
+        cf_rate_grid=_batch_cf_rg,
+        cf_scale_grid=_batch_cf_sg,
+        cf_ref=_batch_cf_ref,
+        last_cf_year=_batch_last_cf_y,
     )
 
     # 构建路径摘要
