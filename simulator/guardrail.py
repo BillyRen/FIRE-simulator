@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from simulator.cashflow import CashFlowItem, build_cf_schedule
+from simulator.cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from simulator.config import GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP
 
 
@@ -371,8 +371,25 @@ def run_guardrail_simulation(
 
     # 1. 预计算现金流 schedule
     has_cf = cash_flows is not None and len(cash_flows) > 0
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
 
-    if has_cf:
+    rng = np.random.default_rng() if has_groups else None
+
+    if has_groups:
+        cf_matrix = np.zeros((num_sims, retirement_years))
+        for i in range(num_sims):
+            active_cfs = sample_cash_flows(cash_flows, rng)
+            if active_cfs:
+                _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                if _nom and inflation_matrix is not None:
+                    _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_matrix[i])
+                    cf_matrix[i] = _adj_sched + _nom_sched
+                else:
+                    cf_matrix[i] = _adj_sched
+        fixed_cf_schedule = None
+    elif has_cf:
         adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
         has_nominal = len(nominal_cfs) > 0
@@ -515,13 +532,18 @@ def run_fixed_baseline(
 
     # 预计算现金流
     has_cf = cash_flows is not None and len(cash_flows) > 0
-    if has_cf:
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+    if has_cf and not has_groups:
         adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
         has_nominal = len(nominal_cfs) > 0
         fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
     else:
         fixed_cf_schedule = None
+        nominal_cfs = []
+        has_nominal = False
+
+    rng = np.random.default_rng() if has_groups else None
 
     trajectories = np.zeros((num_sims, retirement_years + 1))
     trajectories[:, 0] = initial_portfolio
@@ -531,7 +553,20 @@ def run_fixed_baseline(
         value = initial_portfolio
 
         # 计算该路径的现金流
-        if has_cf:
+        if has_groups:
+            active_cfs = sample_cash_flows(cash_flows, rng)
+            if active_cfs:
+                _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                if _nom and inflation_matrix is not None:
+                    _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_matrix[i])
+                    cf_schedule = _adj_sched + _nom_sched
+                else:
+                    cf_schedule = _adj_sched
+            else:
+                cf_schedule = None
+        elif has_cf:
             if has_nominal and inflation_matrix is not None:
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_matrix[i]
@@ -626,16 +661,18 @@ def run_historical_backtest(
     # 计算现金流 schedule（历史回测只有一条路径）
     has_cf = cash_flows is not None and len(cash_flows) > 0
     if has_cf:
-        if any(not cf.inflation_adjusted for cf in cash_flows):
-            if inflation_series is None:
-                raise ValueError(
-                    "历史回测中存在非通胀调整现金流，但未提供 inflation_series"
-                )
-            cf_schedule = build_cf_schedule(
-                cash_flows, n_years, inflation_series[:n_years]
-            )
+        infl = inflation_series[:n_years] if inflation_series is not None else None
+        if has_probabilistic_cf(cash_flows):
+            cf_schedule = build_expected_cf_schedule(cash_flows, n_years, infl)
         else:
-            cf_schedule = build_cf_schedule(cash_flows, n_years)
+            if any(not cf.inflation_adjusted for cf in cash_flows):
+                if inflation_series is None:
+                    raise ValueError(
+                        "历史回测中存在非通胀调整现金流，但未提供 inflation_series"
+                    )
+                cf_schedule = build_cf_schedule(cash_flows, n_years, infl)
+            else:
+                cf_schedule = build_cf_schedule(cash_flows, n_years)
     else:
         cf_schedule = None
 

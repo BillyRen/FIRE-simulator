@@ -28,6 +28,8 @@ export interface CashFlowItem {
   duration: number;
   inflation_adjusted: boolean;
   enabled?: boolean; // 默认 true
+  probability?: number; // 组内概率权重 (0,1], 默认 1.0
+  group?: string | null; // 互斥组名, null=确定事件
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -35,6 +37,8 @@ class CashFlowSchema(BaseModel):
     duration: int = Field(10, ge=1, le=100)
     inflation_adjusted: bool = True
     enabled: bool = True
+    probability: float = Field(1.0, gt=0, le=1, description="组内概率权重")
+    group: str | None = Field(None, max_length=50, description="互斥组名, None=确定事件")
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +67,21 @@ class BaseSimulationParams(BaseModel):
     )
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
-    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=20)
+    cash_flows: list[CashFlowSchema] = Field(default=[], max_length=50)
+
+    @model_validator(mode="after")
+    def check_group_probabilities(self) -> "BaseSimulationParams":
+        groups: dict[str, float] = defaultdict(float)
+        for cf in self.cash_flows:
+            if cf.group is not None:
+                groups[cf.group] += cf.probability
+        for group_name, total in groups.items():
+            if total > 1.0 + 1e-9:
+                raise ValueError(
+                    f"Cash flow group '{group_name}' probabilities sum to "
+                    f"{total:.2%}, which exceeds 100%"
+                )
+        return self
 
 
 # ---------------------------------------------------------------------------

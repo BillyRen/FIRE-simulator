@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from simulator.cashflow import CashFlowItem, build_cf_schedule
+from simulator.cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf
 from simulator.config import (
     GUARDRAIL_RATE_MAX,
     GUARDRAIL_RATE_MIN,
@@ -173,6 +173,8 @@ def _to_cash_flows(items) -> list[CashFlowItem] | None:
             start_year=cf.start_year,
             duration=cf.duration,
             inflation_adjusted=cf.inflation_adjusted,
+            probability=getattr(cf, "probability", 1.0),
+            group=getattr(cf, "group", None),
         )
         for cf in enabled
     ]
@@ -634,14 +636,36 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     # 计算 year-0 的 future_cf_avg（与模拟中一致）
     _cf_avg_y0 = 0.0
     if cash_flows:
-        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
-        if has_nominal and inflation_matrix is not None:
-            median_inflation = np.median(inflation_matrix, axis=0)
-            _cf_sched = build_cf_schedule(cash_flows, req.retirement_years, median_inflation)
+        if has_probabilistic_cf(cash_flows):
+            # 概率加权的期望现金流
+            ungrouped = [cf for cf in cash_flows if cf.group is None]
+            groups: dict[str, list[CashFlowItem]] = {}
+            for cf in cash_flows:
+                if cf.group is not None:
+                    groups.setdefault(cf.group, []).append(cf)
+            _expected_sched = np.zeros(req.retirement_years)
+            median_infl = np.median(inflation_matrix, axis=0) if inflation_matrix is not None else None
+            for cf in ungrouped:
+                if cf.inflation_adjusted:
+                    _expected_sched += build_cf_schedule([cf], req.retirement_years)
+                elif median_infl is not None:
+                    _expected_sched += build_cf_schedule([cf], req.retirement_years, median_infl)
+            for variants in groups.values():
+                for cf in variants:
+                    if cf.inflation_adjusted:
+                        _expected_sched += cf.probability * build_cf_schedule([cf], req.retirement_years)
+                    elif median_infl is not None:
+                        _expected_sched += cf.probability * build_cf_schedule([cf], req.retirement_years, median_infl)
+            _cf_avg_y0 = float(np.mean(_expected_sched))
         else:
-            adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
-            _cf_sched = build_cf_schedule(adj_cfs, req.retirement_years)
-        _cf_avg_y0 = float(np.mean(_cf_sched))
+            has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
+            if has_nominal and inflation_matrix is not None:
+                median_inflation = np.median(inflation_matrix, axis=0)
+                _cf_sched = build_cf_schedule(cash_flows, req.retirement_years, median_inflation)
+            else:
+                adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
+                _cf_sched = build_cf_schedule(adj_cfs, req.retirement_years)
+            _cf_avg_y0 = float(np.mean(_cf_sched))
 
     remaining_y0 = min(req.retirement_years, table.shape[1] - 1)
     upper_rate = find_rate_for_target(table, rate_grid, req.upper_guardrail, remaining_y0)

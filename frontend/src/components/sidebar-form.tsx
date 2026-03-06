@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslations, useLocale } from "next-intl";
+import { Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -12,8 +12,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { CashFlowEditor } from "./cash-flow-editor";
 import { fetchCountries } from "@/lib/api";
+import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, CountryInfo } from "@/lib/types";
 
 interface SidebarFormProps {
@@ -22,6 +35,21 @@ interface SidebarFormProps {
   showWithdrawalStrategy?: boolean;
   showAllocation?: boolean;
   children?: React.ReactNode;
+}
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Info className="h-3 w-3 text-muted-foreground cursor-help shrink-0" />
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[220px] text-xs">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 export function NumberField({
@@ -33,6 +61,7 @@ export function NumberField({
   step,
   suffix,
   help,
+  tooltip,
 }: {
   label: string;
   value: number;
@@ -42,6 +71,7 @@ export function NumberField({
   step?: number;
   suffix?: string;
   help?: string;
+  tooltip?: string;
 }) {
   const [display, setDisplay] = useState(String(value));
 
@@ -64,7 +94,10 @@ export function NumberField({
 
   return (
     <div>
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs inline-flex items-center gap-1">
+        {label}
+        {tooltip && <InfoTip text={tooltip} />}
+      </Label>
       <div className="flex items-center gap-1">
         <Input
           type="number"
@@ -86,6 +119,27 @@ export function NumberField({
   );
 }
 
+function ModifiedDot() {
+  return <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />;
+}
+
+function SectionTrigger({
+  label,
+  modified,
+}: {
+  label: string;
+  modified: boolean;
+}) {
+  return (
+    <AccordionTrigger className="text-sm font-semibold py-2">
+      <span className="flex items-center gap-1.5">
+        {label}
+        {modified && <ModifiedDot />}
+      </span>
+    </AccordionTrigger>
+  );
+}
+
 export function SidebarForm({
   params,
   onChange,
@@ -99,7 +153,6 @@ export function SidebarForm({
   const set = <K extends keyof FormParams>(key: K, val: FormParams[K]) =>
     onChange({ ...p, [key]: val });
 
-  // 加载国家列表（随 data_source 变化重新加载）
   const [countries, setCountries] = useState<CountryInfo[]>([]);
   useEffect(() => {
     fetchCountries(p.data_source).then(setCountries).catch(() => {});
@@ -108,317 +161,372 @@ export function SidebarForm({
   const countryName = (c: CountryInfo) =>
     locale === "zh" ? c.name_zh : c.name_en;
 
+  const isModified = useMemo(() => {
+    const check = (keys: (keyof FormParams)[]) =>
+      keys.some(
+        (k) => JSON.stringify(p[k]) !== JSON.stringify(DEFAULT_PARAMS[k])
+      );
+    return {
+      dataRange: check(["data_source", "country", "pooling_method", "data_start_year"]),
+      allocation: check(["allocation", "expense_ratios"]),
+      simulation: check(["retirement_years", "num_simulations", "min_block", "max_block"]),
+      withdrawal: check(["withdrawal_strategy", "dynamic_ceiling", "dynamic_floor"]),
+      leverage: check(["leverage", "borrowing_spread"]),
+      cashFlows: p.cash_flows.length > 0,
+    };
+  }, [p]);
+
+  const coreDefaults = ["allocation", ...(showWithdrawalStrategy ? ["withdrawal"] : []), "cashflow"];
+
   return (
-    <div className="space-y-4">
-      {/* 数据范围 */}
-      <div>
-        <h3 className="text-sm font-semibold mb-2">{t("dataRange")}</h3>
+    <div className="space-y-2">
+      {/* ── Core sections ── */}
+      <Accordion type="multiple" defaultValue={coreDefaults}>
+        {/* Asset Allocation */}
+        <AccordionItem value="allocation">
+          <SectionTrigger
+            label={showAllocation ? t("assetAllocation") : t("assetExpenseRatio")}
+            modified={isModified.allocation}
+          />
+          <AccordionContent>
+            {showAllocation && (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <NumberField
+                    label={t("domesticStock")}
+                    value={Math.round(p.allocation.domestic_stock * 100)}
+                    onChange={(v) =>
+                      set("allocation", { ...p.allocation, domestic_stock: v / 100 })
+                    }
+                    min={0}
+                    max={100}
+                  />
+                  <NumberField
+                    label={t("globalStock")}
+                    value={Math.round(p.allocation.global_stock * 100)}
+                    onChange={(v) =>
+                      set("allocation", { ...p.allocation, global_stock: v / 100 })
+                    }
+                    min={0}
+                    max={100}
+                  />
+                  <NumberField
+                    label={t("domesticBond")}
+                    value={Math.round(p.allocation.domestic_bond * 100)}
+                    onChange={(v) =>
+                      set("allocation", { ...p.allocation, domestic_bond: v / 100 })
+                    }
+                    min={0}
+                    max={100}
+                  />
+                </div>
+                {Math.abs(
+                  p.allocation.domestic_stock + p.allocation.global_stock + p.allocation.domestic_bond - 1
+                ) > 0.01 && (
+                  <p className="text-[10px] text-red-500 mt-1">{t("allocationWarning")}</p>
+                )}
+              </>
+            )}
 
-        {/* 数据源选择 */}
-        <div className="mb-2">
-          <Label className="text-xs">{t("dataSource")}</Label>
-          <Select
-            value={p.data_source}
-            onValueChange={(v) => {
-              const ds = v as "jst" | "fire_dataset";
-              if (ds === "fire_dataset") {
-                onChange({ ...p, data_source: ds, country: "USA" });
-              } else {
-                onChange({ ...p, data_source: ds });
-              }
-            }}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="jst">{t("dataSourceJst")}</SelectItem>
-              <SelectItem value="fire_dataset">{t("dataSourceFire")}</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-[10px] text-muted-foreground mt-0.5">
-            {p.data_source === "fire_dataset" ? t("dataSourceFireDesc") : t("dataSourceJstDesc")}
-          </p>
-        </div>
-
-        {/* 国家选择（仅 JST 数据源时显示） */}
-        {p.data_source === "jst" && (
-          <div className="mb-2">
-            <Label className="text-xs">{t("country")}</Label>
-            <Select
-              value={p.country}
-              onValueChange={(v) => {
-                set("country", v);
-                const info = countries.find((c) => c.iso === v);
-                if (info && p.data_start_year < info.min_year) {
-                  onChange({ ...p, country: v, data_start_year: info.min_year });
-                }
-              }}
-            >
-              <SelectTrigger className="h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">{t("allCountries")}</SelectItem>
-                {countries.map((c) => (
-                  <SelectItem key={c.iso} value={c.iso}>
-                    {countryName(c)} ({c.iso})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* 池化方法（仅 JST + ALL 时显示） */}
-        {p.data_source === "jst" && p.country === "ALL" && (
-          <div className="mb-2">
-            <Label className="text-xs">{t("poolingMethod")}</Label>
-            <Select
-              value={p.pooling_method}
-              onValueChange={(v) =>
-                set("pooling_method", v as "equal" | "gdp_sqrt")
-              }
-            >
-              <SelectTrigger className="h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="equal">{t("poolingEqual")}</SelectItem>
-                <SelectItem value="gdp_sqrt">{t("poolingGdpSqrt")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-[10px] text-muted-foreground mt-0.5">
-              {p.pooling_method === "gdp_sqrt" ? t("poolingGdpSqrtHelp") : t("poolingEqualHelp")}
-            </p>
-          </div>
-        )}
-
-        <NumberField
-          label={t("dataStartYear")}
-          value={p.data_start_year}
-          onChange={(v) => set("data_start_year", v)}
-          min={1871}
-          max={p.data_source === "fire_dataset" ? 2025 : 2020}
-          step={1}
-        />
-      </div>
-
-      <Separator />
-
-      {/* 资产配置 */}
-      <div>
-        <h3 className="text-sm font-semibold mb-2">
-          {showAllocation ? t("assetAllocation") : t("assetExpenseRatio")}
-        </h3>
-        {showAllocation && (
-          <>
-            <div className="grid grid-cols-3 gap-2">
+            <div className={`grid grid-cols-3 gap-2 ${showAllocation ? "mt-2" : ""}`}>
               <NumberField
-                label={t("domesticStock")}
-                value={Math.round(p.allocation.domestic_stock * 100)}
+                label={t("domesticStockFee")}
+                value={+(p.expense_ratios.domestic_stock * 100).toFixed(2)}
                 onChange={(v) =>
-                  set("allocation", { ...p.allocation, domestic_stock: v / 100 })
+                  set("expense_ratios", { ...p.expense_ratios, domestic_stock: v / 100 })
                 }
+                step={0.01}
                 min={0}
-                max={100}
               />
               <NumberField
-                label={t("globalStock")}
-                value={Math.round(p.allocation.global_stock * 100)}
+                label={t("globalStockFee")}
+                value={+(p.expense_ratios.global_stock * 100).toFixed(2)}
                 onChange={(v) =>
-                  set("allocation", { ...p.allocation, global_stock: v / 100 })
+                  set("expense_ratios", { ...p.expense_ratios, global_stock: v / 100 })
                 }
+                step={0.01}
                 min={0}
-                max={100}
               />
               <NumberField
-                label={t("domesticBond")}
-                value={Math.round(p.allocation.domestic_bond * 100)}
+                label={t("domesticBondFee")}
+                value={+(p.expense_ratios.domestic_bond * 100).toFixed(2)}
                 onChange={(v) =>
-                  set("allocation", { ...p.allocation, domestic_bond: v / 100 })
+                  set("expense_ratios", { ...p.expense_ratios, domestic_bond: v / 100 })
                 }
+                step={0.01}
                 min={0}
-                max={100}
               />
             </div>
-            {Math.abs(
-              p.allocation.domestic_stock + p.allocation.global_stock + p.allocation.domestic_bond - 1
-            ) > 0.01 && (
-              <p className="text-[10px] text-red-500 mt-1">{t("allocationWarning")}</p>
-            )}
-          </>
-        )}
+          </AccordionContent>
+        </AccordionItem>
 
-        <div className={`grid grid-cols-3 gap-2 ${showAllocation ? "mt-2" : ""}`}>
-          <NumberField
-            label={t("domesticStockFee")}
-            value={+(p.expense_ratios.domestic_stock * 100).toFixed(2)}
-            onChange={(v) =>
-              set("expense_ratios", { ...p.expense_ratios, domestic_stock: v / 100 })
-            }
-            step={0.01}
-            min={0}
-          />
-          <NumberField
-            label={t("globalStockFee")}
-            value={+(p.expense_ratios.global_stock * 100).toFixed(2)}
-            onChange={(v) =>
-              set("expense_ratios", { ...p.expense_ratios, global_stock: v / 100 })
-            }
-            step={0.01}
-            min={0}
-          />
-          <NumberField
-            label={t("domesticBondFee")}
-            value={+(p.expense_ratios.domestic_bond * 100).toFixed(2)}
-            onChange={(v) =>
-              set("expense_ratios", { ...p.expense_ratios, domestic_bond: v / 100 })
-            }
-            step={0.01}
-            min={0}
-          />
-        </div>
-      </div>
-
-      <Separator />
-
-      {/* 模拟设置 */}
-      <div>
-        <h3 className="text-sm font-semibold mb-2">{t("simulationSettings")}</h3>
-        <div className="grid grid-cols-2 gap-2">
-          <NumberField
-            label={t("retirementYears")}
-            value={p.retirement_years}
-            onChange={(v) => set("retirement_years", v)}
-            min={1}
-            max={100}
-          />
-          <NumberField
-            label={t("numSimulations")}
-            value={p.num_simulations}
-            onChange={(v) => set("num_simulations", v)}
-            min={100}
-            max={50000}
-            step={1000}
-          />
-          <NumberField
-            label={t("minBlock")}
-            value={p.min_block}
-            onChange={(v) => set("min_block", v)}
-            min={1}
-            max={p.max_block}
-            suffix={t("yearsSuffix")}
-          />
-          <NumberField
-            label={t("maxBlock")}
-            value={p.max_block}
-            onChange={(v) => set("max_block", v)}
-            min={p.min_block}
-            max={55}
-            suffix={t("yearsSuffix")}
-          />
-        </div>
-      </div>
-
-      {showWithdrawalStrategy && (
-        <>
-          <Separator />
-          <div>
-            <h3 className="text-sm font-semibold mb-2">{t("withdrawalStrategy")}</h3>
-            <Select
-              value={p.withdrawal_strategy}
-              onValueChange={(v) =>
-                set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining")
-              }
-            >
-              <SelectTrigger className="h-8 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="fixed">{t("fixedWithdrawal")}</SelectItem>
-                <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
-                <SelectItem value="declining">{t("decliningWithdrawal")}</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {p.withdrawal_strategy === "dynamic" && (
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <NumberField
-                  label={t("dynamicCeiling")}
-                  value={+(p.dynamic_ceiling * 100).toFixed(1)}
-                  onChange={(v) => set("dynamic_ceiling", v / 100)}
-                  min={0}
-                  max={100}
-                  step={0.5}
-                />
-                <NumberField
-                  label={t("dynamicFloor")}
-                  value={+(p.dynamic_floor * 100).toFixed(1)}
-                  onChange={(v) => set("dynamic_floor", v / 100)}
-                  min={0}
-                  max={100}
-                  step={0.5}
-                />
-              </div>
-            )}
-
-            {p.withdrawal_strategy === "declining" && (
-              <div className="mt-2">
-                <NumberField
-                  label={t("retirementAge")}
-                  value={p.retirement_age}
-                  onChange={(v) => set("retirement_age", v)}
-                  min={18}
-                  max={100}
-                  step={1}
-                />
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      <Separator />
-
-      {/* 杠杆设置 */}
-      <div>
-        <h3 className="text-sm font-semibold mb-2">{t("leverage")}</h3>
-        <NumberField
-          label={t("leverageMultiplier")}
-          value={p.leverage}
-          onChange={(v) => set("leverage", v)}
-          min={1}
-          max={5}
-          step={0.1}
-          suffix="x"
-          help={t("noLeverage")}
-        />
-        {p.leverage > 1 && (
-          <div className="mt-2">
-            <NumberField
-              label={t("borrowingSpread")}
-              value={+(p.borrowing_spread * 100).toFixed(2)}
-              onChange={(v) => set("borrowing_spread", v / 100)}
-              min={0}
-              max={20}
-              step={0.1}
-              help={t("borrowingCostHelp")}
+        {/* Withdrawal Strategy */}
+        {showWithdrawalStrategy && (
+          <AccordionItem value="withdrawal">
+            <SectionTrigger
+              label={t("withdrawalStrategy")}
+              modified={isModified.withdrawal}
             />
-          </div>
-        )}
-      </div>
+            <AccordionContent>
+              <Select
+                value={p.withdrawal_strategy}
+                onValueChange={(v) =>
+                  set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining")
+                }
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed">{t("fixedWithdrawal")}</SelectItem>
+                  <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
+                  <SelectItem value="declining">{t("decliningWithdrawal")}</SelectItem>
+                </SelectContent>
+              </Select>
 
-      {/* 额外子元素（Guardrail 参数等） */}
+              {p.withdrawal_strategy === "dynamic" && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <NumberField
+                    label={t("dynamicCeiling")}
+                    value={+(p.dynamic_ceiling * 100).toFixed(1)}
+                    onChange={(v) => set("dynamic_ceiling", v / 100)}
+                    min={0}
+                    max={100}
+                    step={0.5}
+                  />
+                  <NumberField
+                    label={t("dynamicFloor")}
+                    value={+(p.dynamic_floor * 100).toFixed(1)}
+                    onChange={(v) => set("dynamic_floor", v / 100)}
+                    min={0}
+                    max={100}
+                    step={0.5}
+                  />
+                </div>
+              )}
+
+              {p.withdrawal_strategy === "declining" && (
+                <div className="mt-2">
+                  <NumberField
+                    label={t("retirementAge")}
+                    value={p.retirement_age}
+                    onChange={(v) => set("retirement_age", v)}
+                    min={18}
+                    max={100}
+                    step={1}
+                  />
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
+        {/* Custom Cash Flows */}
+        <AccordionItem value="cashflow" className="border-b-0">
+          <SectionTrigger
+            label={t("cashFlowTitle")}
+            modified={isModified.cashFlows}
+          />
+          <AccordionContent>
+            <CashFlowEditor
+              value={p.cash_flows}
+              onChange={(cfs) => set("cash_flows", cfs)}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      {/* Extra children (Guardrail settings, etc.) */}
       {children}
 
-      <Separator />
+      {/* ── Advanced sections ── */}
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider pt-2">
+        {t("advancedSettings")}
+      </p>
+      <Accordion type="multiple" defaultValue={[]}>
+        {/* Data Range */}
+        <AccordionItem value="data-range">
+          <SectionTrigger
+            label={t("dataRange")}
+            modified={isModified.dataRange}
+          />
+          <AccordionContent>
+            <div className="mb-2">
+              <Label className="text-xs inline-flex items-center gap-1">
+                {t("dataSource")}
+                <InfoTip
+                  text={
+                    p.data_source === "fire_dataset"
+                      ? t("dataSourceFireDesc")
+                      : t("dataSourceJstDesc")
+                  }
+                />
+              </Label>
+              <Select
+                value={p.data_source}
+                onValueChange={(v) => {
+                  const ds = v as "jst" | "fire_dataset";
+                  if (ds === "fire_dataset") {
+                    onChange({ ...p, data_source: ds, country: "USA" });
+                  } else {
+                    onChange({ ...p, data_source: ds });
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="jst">{t("dataSourceJst")}</SelectItem>
+                  <SelectItem value="fire_dataset">{t("dataSourceFire")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-      {/* 现金流 */}
-      <CashFlowEditor
-        value={p.cash_flows}
-        onChange={(cfs) => set("cash_flows", cfs)}
-      />
+            {p.data_source === "jst" && (
+              <div className="mb-2">
+                <Label className="text-xs">{t("country")}</Label>
+                <Select
+                  value={p.country}
+                  onValueChange={(v) => {
+                    set("country", v);
+                    const info = countries.find((c) => c.iso === v);
+                    if (info && p.data_start_year < info.min_year) {
+                      onChange({ ...p, country: v, data_start_year: info.min_year });
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">{t("allCountries")}</SelectItem>
+                    {countries.map((c) => (
+                      <SelectItem key={c.iso} value={c.iso}>
+                        {countryName(c)} ({c.iso})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {p.data_source === "jst" && p.country === "ALL" && (
+              <div className="mb-2">
+                <Label className="text-xs inline-flex items-center gap-1">
+                  {t("poolingMethod")}
+                  <InfoTip
+                    text={
+                      p.pooling_method === "gdp_sqrt"
+                        ? t("poolingGdpSqrtHelp")
+                        : t("poolingEqualHelp")
+                    }
+                  />
+                </Label>
+                <Select
+                  value={p.pooling_method}
+                  onValueChange={(v) =>
+                    set("pooling_method", v as "equal" | "gdp_sqrt")
+                  }
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="equal">{t("poolingEqual")}</SelectItem>
+                    <SelectItem value="gdp_sqrt">{t("poolingGdpSqrt")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <NumberField
+              label={t("dataStartYear")}
+              value={p.data_start_year}
+              onChange={(v) => set("data_start_year", v)}
+              min={1871}
+              max={p.data_source === "fire_dataset" ? 2025 : 2020}
+              step={1}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Simulation Settings */}
+        <AccordionItem value="simulation">
+          <SectionTrigger
+            label={t("simulationSettings")}
+            modified={isModified.simulation}
+          />
+          <AccordionContent>
+            <div className="grid grid-cols-2 gap-2">
+              <NumberField
+                label={t("retirementYears")}
+                value={p.retirement_years}
+                onChange={(v) => set("retirement_years", v)}
+                min={1}
+                max={100}
+              />
+              <NumberField
+                label={t("numSimulations")}
+                value={p.num_simulations}
+                onChange={(v) => set("num_simulations", v)}
+                min={100}
+                max={50000}
+                step={1000}
+              />
+              <NumberField
+                label={t("minBlock")}
+                value={p.min_block}
+                onChange={(v) => set("min_block", v)}
+                min={1}
+                max={p.max_block}
+                suffix={t("yearsSuffix")}
+              />
+              <NumberField
+                label={t("maxBlock")}
+                value={p.max_block}
+                onChange={(v) => set("max_block", v)}
+                min={p.min_block}
+                max={55}
+                suffix={t("yearsSuffix")}
+              />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Leverage */}
+        <AccordionItem value="leverage" className="border-b-0">
+          <SectionTrigger
+            label={t("leverage")}
+            modified={isModified.leverage}
+          />
+          <AccordionContent>
+            <NumberField
+              label={t("leverageMultiplier")}
+              value={p.leverage}
+              onChange={(v) => set("leverage", v)}
+              min={1}
+              max={5}
+              step={0.1}
+              suffix="x"
+              tooltip={t("noLeverage")}
+            />
+            {p.leverage > 1 && (
+              <div className="mt-2">
+                <NumberField
+                  label={t("borrowingSpread")}
+                  value={+(p.borrowing_spread * 100).toFixed(2)}
+                  onChange={(v) => set("borrowing_spread", v / 100)}
+                  min={0}
+                  max={20}
+                  step={0.1}
+                  tooltip={t("borrowingCostHelp")}
+                />
+              </div>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
 }

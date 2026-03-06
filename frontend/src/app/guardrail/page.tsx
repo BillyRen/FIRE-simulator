@@ -352,10 +352,12 @@ export default function GuardrailPage() {
               </div>
             </SidebarForm>
 
+          </CardContent>
+          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
             <Button onClick={handleRunMC} className="w-full" disabled={loading}>
               {loading ? tc("running") : t("runSimulation")}
             </Button>
-          </CardContent>
+          </div>
         </Card>
       </aside>
 

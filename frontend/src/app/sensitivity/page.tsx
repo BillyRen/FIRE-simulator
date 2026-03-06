@@ -135,10 +135,12 @@ export default function SensitivityPage() {
               showWithdrawalStrategy={true}
             />
 
+          </CardContent>
+          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
             <Button onClick={handleRun} className="w-full" disabled={loading}>
               {loading ? t("analyzing") : t("runAnalysis")}
             </Button>
-          </CardContent>
+          </div>
         </Card>
       </aside>
 

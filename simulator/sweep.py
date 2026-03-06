@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from .bootstrap import block_bootstrap, block_bootstrap_pooled
-from .cashflow import CashFlowItem, build_cf_schedule
+from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from .portfolio import compute_real_portfolio_returns
 
 
@@ -123,15 +123,20 @@ def _simulate_success_and_funded(
     initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
 
     has_cf = cash_flows is not None and len(cash_flows) > 0
-    # 预计算通胀调整部分的固定 schedule（所有路径共享）
-    if has_cf:
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+
+    # 预计算通胀调整部分的固定 schedule（仅当无概率分组时可复用）
+    if has_cf and not has_groups:
         has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
-        # 通胀调整项的 schedule（路径无关）
         adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
         fixed_schedule = build_cf_schedule(adj_only, retirement_years)
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
     else:
         fixed_schedule = None
+        nominal_cfs = []
+        has_nominal = False
+
+    rng = np.random.default_rng() if has_groups else None
 
     survived = 0
     depletion_years = np.full(num_sims, float(retirement_years))
@@ -142,7 +147,20 @@ def _simulate_success_and_funded(
         failed = False
 
         # 计算该路径的现金流 schedule
-        if has_cf:
+        if has_groups:
+            active_cfs = sample_cash_flows(cash_flows, rng)
+            if active_cfs:
+                _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                if _nom and inflation_matrix is not None:
+                    _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_matrix[i])
+                    cf_schedule = _adj_sched + _nom_sched
+                else:
+                    cf_schedule = _adj_sched
+            else:
+                cf_schedule = None
+        elif has_cf:
             if has_nominal and inflation_matrix is not None:
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_matrix[i]
@@ -364,13 +382,18 @@ def sweep_allocations(
 
     # 预计算现金流 schedule
     has_cf = cash_flows is not None and len(cash_flows) > 0
-    if has_cf:
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+    if has_cf and not has_groups:
         has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
         adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
         fixed_schedule = build_cf_schedule(adj_only, retirement_years)
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
     else:
         fixed_schedule = None
+        nominal_cfs = []
+        has_nominal = False
+
+    rng = np.random.default_rng() if has_groups else None
 
     initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
     results = []
@@ -397,7 +420,20 @@ def sweep_allocations(
             failed = False
 
             # 现金流 schedule
-            if has_cf:
+            if has_groups:
+                active_cfs = sample_cash_flows(cash_flows, rng)
+                if active_cfs:
+                    _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                    _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                    _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                    if _nom:
+                        _nom_sched = build_cf_schedule(_nom, retirement_years, inflation[i])
+                        cf_schedule = _adj_sched + _nom_sched
+                    else:
+                        cf_schedule = _adj_sched
+                else:
+                    cf_schedule = None
+            elif has_cf:
                 if has_nominal:
                     nominal_schedule = build_cf_schedule(
                         nominal_cfs, retirement_years, inflation[i]

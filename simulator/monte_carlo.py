@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .bootstrap import block_bootstrap, block_bootstrap_pooled
-from .cashflow import CashFlowItem, build_cf_schedule
+from .cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from .portfolio import compute_real_portfolio_returns
 
 
@@ -103,14 +103,18 @@ def run_simulation(
     inflation_matrix = np.zeros((num_simulations, retirement_years))
 
     has_cf = cash_flows is not None and len(cash_flows) > 0
-    # 预计算通胀调整部分的固定 schedule（仅当有现金流时）
-    if has_cf:
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+
+    # 预计算通胀调整部分的固定 schedule（仅当无概率分组时可复用）
+    if has_cf and not has_groups:
         adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
         has_nominal = len(nominal_cfs) > 0
         fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
     else:
         fixed_cf_schedule = None
+        nominal_cfs = []
+        has_nominal = False
 
     for i in range(num_simulations):
         # 1. 生成 bootstrap 回报序列
@@ -133,7 +137,20 @@ def run_simulation(
         inflation_matrix[i] = sampled["Inflation"].values
 
         # 3. 计算该路径的现金流 schedule
-        if has_cf:
+        if has_groups:
+            active_cfs = sample_cash_flows(cash_flows, rng)
+            if active_cfs:
+                _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                if _nom:
+                    _nom_sched = build_cf_schedule(_nom, retirement_years, sampled["Inflation"].values)
+                    cf_schedule = _adj_sched + _nom_sched
+                else:
+                    cf_schedule = _adj_sched
+            else:
+                cf_schedule = None
+        elif has_cf:
             if has_nominal:
                 inflation_series = sampled["Inflation"].values
                 nominal_schedule = build_cf_schedule(
@@ -231,14 +248,19 @@ def run_simple_historical_backtest(
     # 现金流 schedule
     has_cf = cash_flows is not None and len(cash_flows) > 0
     if has_cf:
-        adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
-        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
-        fixed_cf_schedule = build_cf_schedule(adj_cfs, n_years)
-        if nominal_cfs and inflation_series is not None:
-            nominal_schedule = build_cf_schedule(nominal_cfs, n_years, inflation_series[:n_years])
-            cf_schedule = fixed_cf_schedule + nominal_schedule
+        if has_probabilistic_cf(cash_flows):
+            cf_schedule = build_expected_cf_schedule(
+                cash_flows, n_years, inflation_series[:n_years] if inflation_series is not None else None
+            )
         else:
-            cf_schedule = fixed_cf_schedule
+            adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
+            nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
+            fixed_cf_schedule = build_cf_schedule(adj_cfs, n_years)
+            if nominal_cfs and inflation_series is not None:
+                nominal_schedule = build_cf_schedule(nominal_cfs, n_years, inflation_series[:n_years])
+                cf_schedule = fixed_cf_schedule + nominal_schedule
+            else:
+                cf_schedule = fixed_cf_schedule
     else:
         cf_schedule = None
 

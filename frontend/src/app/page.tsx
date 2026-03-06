@@ -224,10 +224,12 @@ export default function SimulatorPage() {
 
             <SidebarForm params={params} onChange={setParams} />
 
+          </CardContent>
+          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
             <Button onClick={handleRun} className="w-full" disabled={loading}>
               {loading ? tc("running") : t("runSimulation")}
             </Button>
-          </CardContent>
+          </div>
         </Card>
       </aside>
 

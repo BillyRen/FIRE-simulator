@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 from scipy import interpolate
 
-from .cashflow import CashFlowItem, build_cf_schedule
+from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from .sweep import pregenerate_return_scenarios, _simulate_success_and_funded
 
 
@@ -315,7 +315,8 @@ def run_accumulation(
     swr_curve = np.clip(interp_swr(all_years), 0.0, 1.0)
 
     # ── 4. 构建积累阶段现金流 schedule ──
-    if cfs:
+    has_groups = bool(cfs) and has_probabilistic_cf(cfs)
+    if cfs and not has_groups:
         pre_fire_cfs_max, _ = _split_cashflows_at_year(cfs, max_working_years)
         adj_cfs = [cf for cf in pre_fire_cfs_max if cf.inflation_adjusted]
         nominal_cfs = [cf for cf in pre_fire_cfs_max if not cf.inflation_adjusted]
@@ -331,7 +332,21 @@ def run_accumulation(
     portfolio_paths[:, 0] = current_portfolio
 
     for i in range(num_simulations):
-        if has_nominal:
+        if has_groups:
+            active_cfs = sample_cash_flows(cfs, rng)
+            if active_cfs:
+                pre_active, _ = _split_cashflows_at_year(active_cfs, max_working_years)
+                _adj = [cf for cf in pre_active if cf.inflation_adjusted]
+                _nom = [cf for cf in pre_active if not cf.inflation_adjusted]
+                _adj_sched = build_cf_schedule(_adj, max_working_years) if _adj else np.zeros(max_working_years)
+                if _nom:
+                    _nom_sched = build_cf_schedule(_nom, max_working_years, accum_inflation[i])
+                    cf_schedule = _adj_sched + _nom_sched
+                else:
+                    cf_schedule = _adj_sched
+            else:
+                cf_schedule = np.zeros(max_working_years)
+        elif has_nominal:
             nom_schedule = build_cf_schedule(
                 nominal_cfs, max_working_years, accum_inflation[i],
             )
