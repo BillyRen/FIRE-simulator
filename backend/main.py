@@ -270,6 +270,33 @@ def api_countries(data_source: str = "jst"):
 
 
 # ---------------------------------------------------------------------------
+# Historical events
+# ---------------------------------------------------------------------------
+
+_historical_events: list[dict] | None = None
+
+def _load_historical_events() -> list[dict]:
+    global _historical_events
+    if _historical_events is None:
+        import json
+        events_path = PROJECT_ROOT / "data" / "historical_events.json"
+        with open(events_path, encoding="utf-8") as f:
+            _historical_events = json.load(f)
+    return _historical_events
+
+
+@app.get("/api/historical-events")
+def api_historical_events(country: str | None = None):
+    events = _load_historical_events()
+    if country:
+        events = [
+            e for e in events
+            if "ALL" in e["countries"] or country in e["countries"]
+        ]
+    return events
+
+
+# ---------------------------------------------------------------------------
 # 1. POST /api/simulate
 # ---------------------------------------------------------------------------
 
@@ -301,6 +328,11 @@ def api_simulate(request: Request, req: SimulationRequest):
         borrowing_spread=req.borrowing_spread,
         country_dfs=country_dfs,
         country_weights=country_weights,
+        smile_decline_rate=req.smile_decline_rate,
+        smile_min_age=req.smile_min_age,
+        smile_increase_rate=req.smile_increase_rate,
+        glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
+        glide_path_years=req.glide_path_years,
     )
 
     results = compute_statistics(trajectories, req.retirement_years, withdrawals)
@@ -387,6 +419,9 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
         retirement_age=req.retirement_age,
         cash_flows=_to_cash_flows(req.cash_flows),
         inflation_series=inflation_series,
+        smile_decline_rate=req.smile_decline_rate,
+        smile_min_age=req.smile_min_age,
+        smile_increase_rate=req.smile_increase_rate,
     )
 
     # 单路径绩效指标
@@ -434,6 +469,9 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
         cash_flows=_to_cash_flows(req.cash_flows),
         leverage=req.leverage,
         borrowing_spread=req.borrowing_spread,
+        smile_decline_rate=req.smile_decline_rate,
+        smile_min_age=req.smile_min_age,
+        smile_increase_rate=req.smile_increase_rate,
     )
 
     return SimBatchBacktestResponse(
@@ -494,6 +532,11 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
             borrowing_spread=req.borrowing_spread,
             country_dfs=country_dfs,
             country_weights=country_weights,
+            smile_decline_rate=req.smile_decline_rate,
+            smile_min_age=req.smile_min_age,
+            smile_increase_rate=req.smile_increase_rate,
+            glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
+            glide_path_years=req.glide_path_years,
         )
 
     def _run_scenario(
@@ -569,6 +612,11 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
             borrowing_spread=req.borrowing_spread,
             country_dfs=country_dfs,
             country_weights=country_weights,
+            smile_decline_rate=req.smile_decline_rate,
+            smile_min_age=req.smile_min_age,
+            smile_increase_rate=req.smile_increase_rate,
+            glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
+            glide_path_years=req.glide_path_years,
         )
         traj, _, _, _ = run_simulation(**kw)
         sr = float(np.mean(traj[:, -1] > 0))

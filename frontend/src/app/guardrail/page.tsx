@@ -22,19 +22,29 @@ import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
-import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries, runGuardrailScenarios, runGuardrailSensitivity } from "@/lib/api";
+import { Pin, PinOff } from "lucide-react";
+import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries, runGuardrailScenarios, runGuardrailSensitivity, fetchHistoricalEvents } from "@/lib/api";
+import { filterEvents, eventShapes, eventAnnotations } from "@/lib/historical-events";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
+import { PdfExportButton } from "@/components/pdf-export-button";
 import { useSharedParams } from "@/lib/params-context";
 import type {
   GuardrailResponse,
   GuardrailBatchBacktestResponse,
   GuardrailBatchPathSummary,
   CountryInfo,
+  HistoricalEvent,
   ScenarioAnalysisResponse,
   SensitivityAnalysisResponse,
 } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
+
+function deltaPct(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${(d * 100).toFixed(1)}pp`;
+}
 
 export default function GuardrailPage() {
   const t = useTranslations("guardrail");
@@ -60,6 +70,7 @@ export default function GuardrailPage() {
 
   // Results
   const [mcResult, setMcResult] = useState<GuardrailResponse | null>(null);
+  const [pinnedResult, setPinnedResult] = useState<GuardrailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,6 +92,9 @@ export default function GuardrailPage() {
   const [singleBtLoading, setSingleBtLoading] = useState(false);
   const [countries, setCountries] = useState<CountryInfo[]>([]);
 
+  // Historical events
+  const [historicalEvents, setHistoricalEvents] = useState<HistoricalEvent[]>([]);
+
   // Scenario analysis state
   const [scenarioResult, setScenarioResult] = useState<ScenarioAnalysisResponse | null>(null);
   const [scenarioLoading, setScenarioLoading] = useState(false);
@@ -91,6 +105,10 @@ export default function GuardrailPage() {
   useEffect(() => {
     fetchCountries(params.data_source).then(setCountries).catch(() => {});
   }, [params.data_source]);
+
+  useEffect(() => {
+    fetchHistoricalEvents().then(setHistoricalEvents).catch(() => {});
+  }, []);
 
   const guardrailReqBase = () => ({
     input_mode: inputMode,
@@ -248,7 +266,7 @@ export default function GuardrailPage() {
   // Sorted & filtered paths for the table
   const sortedPaths = useMemo(() => {
     if (!batchResult) return [];
-    let paths = batchResult.paths.filter((p) => {
+    const paths = batchResult.paths.filter((p) => {
       if (filterCountries.size > 0 && !filterCountries.has(p.country)) return false;
       if (filterMinStartYear > 0 && p.start_year < filterMinStartYear) return false;
       if (filterMinYears > 0 && p.years_simulated < filterMinYears) return false;
@@ -403,10 +421,26 @@ export default function GuardrailPage() {
             </SidebarForm>
 
           </CardContent>
-          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
+          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t space-y-1.5">
             <Button onClick={handleRunMC} className="w-full" disabled={loading}>
               {loading ? tc("running") : t("runSimulation")}
             </Button>
+            {mcResult && (
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={() => setPinnedResult(pinnedResult ? null : mcResult)}
+                >
+                  {pinnedResult ? (
+                    <><PinOff className="h-3 w-3 mr-1" />{tc("unpinBaseline")}</>
+                  ) : (
+                    <><Pin className="h-3 w-3 mr-1" />{tc("pinBaseline")}</>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       </aside>
@@ -431,6 +465,7 @@ export default function GuardrailPage() {
 
             {/* ═══ MC Tab ═══ */}
             <TabsContent value="mc" className="space-y-6">
+              <div id="guardrail-results" className="space-y-6">
               {/* 下载按钮组 */}
               <div className="flex flex-wrap gap-2">
                 <DownloadButton
@@ -451,6 +486,7 @@ export default function GuardrailPage() {
                     downloadTrajectories("baseline_portfolio", mcResult.b_percentile_trajectories)
                   }
                 />
+                <PdfExportButton targetId="guardrail-results" filename="fire-guardrail-report.pdf" />
               </div>
 
               {/* 指标卡片 */}
@@ -466,19 +502,23 @@ export default function GuardrailPage() {
                 <MetricCard
                   label={t("guardrailSuccess")}
                   value={pct(mcResult.g_success_rate)}
+                  delta={pinnedResult ? deltaPct(mcResult.g_success_rate, pinnedResult.g_success_rate) : undefined}
                 />
                 <MetricCard
                   label={t("guardrailFundedRatio")}
                   value={pct(mcResult.g_funded_ratio)}
+                  delta={pinnedResult ? deltaPct(mcResult.g_funded_ratio, pinnedResult.g_funded_ratio) : undefined}
                 />
                 <MetricCard
                   label={t("baselineSuccess")}
                   value={pct(mcResult.b_success_rate)}
                   sub={t("baselineRateSub", { rate: (baselineRate * 100).toFixed(1) })}
+                  delta={pinnedResult ? deltaPct(mcResult.b_success_rate, pinnedResult.b_success_rate) : undefined}
                 />
                 <MetricCard
                   label={t("baselineFundedRatio")}
                   value={pct(mcResult.b_funded_ratio)}
+                  delta={pinnedResult ? deltaPct(mcResult.b_funded_ratio, pinnedResult.b_funded_ratio) : undefined}
                 />
               </div>
 
@@ -552,6 +592,15 @@ export default function GuardrailPage() {
                         line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
                         type: "scatter",
                       },
+                      ...(pinnedResult ? [{
+                        x: Array.from({ length: pinnedResult.g_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => i),
+                        y: pinnedResult.g_percentile_trajectories["50"],
+                        mode: "lines" as const,
+                        name: tc("baselineP50"),
+                        line: { color: CHART_COLORS.neutral.hex, width: 2, dash: "dash" as const },
+                        type: "scatter" as const,
+                        hovertemplate: tc.raw("baselineHover"),
+                      }] : []),
                     ]}
                   />
                 </CardContent>
@@ -619,6 +668,7 @@ export default function GuardrailPage() {
                   </CardContent>
                 </Card>
               )}
+              </div>
             </TabsContent>
 
             {/* ═══ Backtest Tab ═══ */}
@@ -912,45 +962,56 @@ export default function GuardrailPage() {
                           {btLogScale ? tc("linearScale") : tc("logScale")}
                         </Button>
                       </div>
-                      <PlotlyChart
-                        data={[
-                          {
-                            x: selectedPath.year_labels,
-                            y: selectedPath.g_portfolio,
-                            type: "scatter", mode: "lines",
-                            name: "Guardrail",
-                            line: { color: CHART_COLORS.primary.hex, width: 2 },
-                          },
-                          {
-                            x: selectedPath.year_labels,
-                            y: selectedPath.b_portfolio,
-                            type: "scatter", mode: "lines",
-                            name: tc("baseline"),
-                            line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
-                          },
-                        ]}
-                        layout={{
-                          title: isMobile ? undefined : {
-                            text: t("historicalPortfolioComparison"), font: { size: 14 },
-                            y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "bottom" as const,
-                          },
-                          xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
-                          yaxis: {
-                            title: isMobile ? undefined : { text: t("assetAxis") },
-                            type: btLogScale ? "log" : "linear",
-                            tickformat: btLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
-                            tickfont: { size: isMobile ? 9 : 12 },
-                          },
-                          height: isMobile ? 280 : 400,
-                          margin: MARGINS.withTitle(isMobile),
-                          legend: isMobile
-                            ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 8 } }
-                            : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
-                        }}
-                        config={{
-                          displayModeBar: isMobile ? false : ("hover" as const),
-                        }}
-                      />
+                      {(() => {
+                        const pathCountry = selectedPath.country;
+                        const startYear = selectedPath.year_labels[0];
+                        const endYear = selectedPath.year_labels[selectedPath.year_labels.length - 1];
+                        const filtered = filterEvents(historicalEvents, pathCountry, startYear, endYear);
+                        const yMax = Math.max(...selectedPath.g_portfolio, ...selectedPath.b_portfolio);
+                        return (
+                          <PlotlyChart
+                            data={[
+                              {
+                                x: selectedPath.year_labels,
+                                y: selectedPath.g_portfolio,
+                                type: "scatter", mode: "lines",
+                                name: "Guardrail",
+                                line: { color: CHART_COLORS.primary.hex, width: 2 },
+                              },
+                              {
+                                x: selectedPath.year_labels,
+                                y: selectedPath.b_portfolio,
+                                type: "scatter", mode: "lines",
+                                name: tc("baseline"),
+                                line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
+                              },
+                            ]}
+                            layout={{
+                              title: isMobile ? undefined : {
+                                text: t("historicalPortfolioComparison"), font: { size: 14 },
+                                y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "top" as const,
+                              },
+                              xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
+                              yaxis: {
+                                title: isMobile ? undefined : { text: t("assetAxis") },
+                                type: btLogScale ? "log" : "linear",
+                                tickformat: btLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
+                                tickfont: { size: isMobile ? 9 : 12 },
+                              },
+                              height: isMobile ? 280 : 400,
+                              margin: MARGINS.withTitle(isMobile),
+                              legend: isMobile
+                                ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 8 } }
+                                : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
+                              shapes: eventShapes(filtered, yMax) as Plotly.Layout["shapes"],
+                              annotations: eventAnnotations(filtered, locale, yMax) as Plotly.Layout["annotations"],
+                            }}
+                            config={{
+                              displayModeBar: isMobile ? false : ("hover" as const),
+                            }}
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
 
@@ -1011,7 +1072,7 @@ export default function GuardrailPage() {
                         layout={{
                           title: isMobile ? undefined : {
                             text: t("withdrawalAmountAndSuccess"), font: { size: 14 },
-                            y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "bottom" as const,
+                            y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "top" as const,
                           },
                           xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
                           yaxis: {

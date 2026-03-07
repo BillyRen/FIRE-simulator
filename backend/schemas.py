@@ -68,6 +68,14 @@ class BaseSimulationParams(BaseModel):
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = Field(default=[], max_length=50)
+    # Smile withdrawal strategy params
+    smile_decline_rate: float = Field(0.015, ge=0, le=0.1, description="Smile: annual real spending decline rate before min age")
+    smile_min_age: int = Field(70, ge=30, le=100, description="Smile: age of minimum spending (trough)")
+    smile_increase_rate: float = Field(0.02, ge=0, le=0.1, description="Smile: annual real spending increase rate after min age")
+    # Glide path params
+    glide_path_enabled: bool = Field(False, description="Enable linear glide path for allocation")
+    glide_path_end_allocation: AllocationSchema = AllocationSchema(domestic_stock=0.2, global_stock=0.1, domestic_bond=0.7)
+    glide_path_years: int = Field(20, ge=1, le=100, description="Years to complete glide path transition")
 
     @model_validator(mode="after")
     def check_group_probabilities(self) -> "BaseSimulationParams":
@@ -91,7 +99,7 @@ class BaseSimulationParams(BaseModel):
 class SimulationRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile)$")
     retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
@@ -120,7 +128,7 @@ class SimulationResponse(BaseModel):
 class SweepRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile)$")
     retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
@@ -235,7 +243,7 @@ class SimBacktestRequest(BaseSimulationParams):
     """用户选择国家+起始年，用真实历史回报模拟退休路径。"""
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile)$")
     retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
@@ -261,7 +269,7 @@ class SimBatchBacktestRequest(BaseSimulationParams):
     """批量历史回测 — 自动遍历所有有效 (国家, 起始年) 组合。"""
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile)$")
     retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
@@ -400,7 +408,7 @@ class AllocationSweepRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
     num_simulations: int = Field(1_000, ge=100, le=50_000)  # override: lower default for sweep
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile)$")
     retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
@@ -617,7 +625,7 @@ class AccumulationRequest(BaseSimulationParams):
     retirement_spending: float = Field(60_000, ge=0, description="退休后年支出（手动模式时使用）")
     auto_retirement_spending: bool = Field(False, description="退休支出是否自动跟随退休前最终支出")
     target_success_rate: float = Field(0.85, gt=0, lt=1, description="目标成功率")
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile)$")
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
 

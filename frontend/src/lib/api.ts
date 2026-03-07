@@ -168,3 +168,12 @@ export async function fetchCountries(dataSource: string = "jst"): Promise<Countr
     clearTimeout(timer);
   }
 }
+
+export async function fetchHistoricalEvents(country?: string) {
+  const url = country
+    ? `${API_BASE}/api/historical-events?country=${country}`
+    : `${API_BASE}/api/historical-events`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}

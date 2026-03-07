@@ -147,7 +147,7 @@ export function FanChart({
         layout={{
           title: isMobile ? undefined : {
             text: title, font: { size: 14 },
-            y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "bottom" as const,
+            y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "top" as const,
           },
           xaxis: {
             title: xLabels ? undefined : { text: t("fanChart.yearAxis") },

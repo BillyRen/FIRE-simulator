@@ -10,7 +10,8 @@
     "guardrail": "🛡️ 支出护栏",
     "allocation": "🎯 资产配置",
     "buyVsRent": "🏠 买房租房",
-    "accumulation": "💰 FIRE 规划"
+    "accumulation": "💰 FIRE 规划",
+    "dashboard": "📋 总览"
   },
   "common": {
     "year": "年",
@@ -32,7 +33,17 @@
     "baselineHover": "基准: %{y:$,.0f}<extra></extra>",
     "initialWithdrawalHover": "初始提取: %{y:$,.0f}<extra></extra>",
     "logScale": "对数轴",
-    "linearScale": "线性轴"
+    "linearScale": "线性轴",
+    "pinBaseline": "固定为基准",
+    "unpinBaseline": "取消基准",
+    "exportPdf": "导出 PDF"
+  },
+  "scenarioManager": {
+    "save": "保存",
+    "loadPlaceholder": "选择方案",
+    "namePlaceholder": "方案名称",
+    "export": "导出 JSON",
+    "import": "导入 JSON"
   },
   "sidebar": {
     "advancedSettings": "高级设置",
@@ -69,9 +80,17 @@
     "fixedWithdrawal": "固定提取",
     "dynamicWithdrawal": "动态提取 (Vanguard)",
     "decliningWithdrawal": "消费递减 (EBRI)",
+    "smileWithdrawal": "微笑曲线",
+    "smileDeclineRate": "早期年降幅",
+    "smileMinAge": "最低消费年龄",
+    "smileIncreaseRate": "晚期年增幅",
     "retirementAge": "退休年龄",
     "dynamicCeiling": "年度上调上限 %",
     "dynamicFloor": "年度下调上限 %",
+    "glidePath": "配置滑道（Glide Path）",
+    "glidePathHelp": "退休期间资产配置随时间线性过渡，从当前配置逐步调整到终止配置",
+    "glidePathEnd": "终止配置（过渡完成后）",
+    "glidePathYears": "过渡年数",
     "leverage": "杠杆设置",
     "leverageMultiplier": "杠杆倍数",
     "noLeverage": "1.0 = 无杠杆",
@@ -599,6 +618,29 @@
     "annualExpense": "年支出 ($)",
     "noFireWarning": "在当前参数下，模拟显示无法在工作期内达到 FIRE。请尝试增加收入、减少支出，或调整风险偏好。",
     "placeholder": "设置参数后点击「计算 FIRE」查看结果"
+  },
+  "dashboard": {
+    "title": "FIRE 总览仪表盘",
+    "subtitle": "一键查看退休计划综合评估",
+    "runAnalysis": "运行分析",
+    "scoreLabel": "FIRE 就绪评分",
+    "scoreDescription": "综合成功率、资金充足率和安全提取率的加权评分",
+    "successRate": "成功率",
+    "fundedRatio": "资金充足率",
+    "medianFinal": "中位数终值",
+    "safeWithdrawalRate": "安全提取率",
+    "initialPortfolio": "初始资产",
+    "annualWithdrawal": "年提取额",
+    "retirementYears": "退休年限",
+    "stockAllocation": "股票配置",
+    "paramSummary": "参数概要",
+    "keyInsights": "关键洞察",
+    "insightGreat": "恭喜！您的退休计划非常稳健，成功率超过90%。",
+    "insightGood": "计划整体良好，但仍有优化空间。考虑调整提取额或资产配置。",
+    "insightCaution": "计划存在一定风险。建议降低年提取额、增加储蓄或调整投资策略。",
+    "insightDanger": "计划风险较高。强烈建议降低提取金额或延长工作年限。",
+    "portfolioMini": "资产轨迹 (P10-P90)",
+    "withdrawalMini": "提取轨迹 (P10-P90)"
   },
   "footer": {
     "brand": "FIRE Lab",

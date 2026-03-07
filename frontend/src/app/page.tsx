@@ -21,12 +21,27 @@ import { StatsTable } from "@/components/stats-table";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
-import { runSimulation, runSimBatchBacktest, runSimBacktest, runSimScenarios, runSimSensitivity, fetchCountries } from "@/lib/api";
+import { Pin, PinOff } from "lucide-react";
+import { runSimulation, runSimBatchBacktest, runSimBacktest, runSimScenarios, runSimSensitivity, fetchCountries, fetchHistoricalEvents } from "@/lib/api";
+import { filterEvents, eventShapes, eventAnnotations } from "@/lib/historical-events";
+import type { HistoricalEvent } from "@/lib/types";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
+import { PdfExportButton } from "@/components/pdf-export-button";
 import { useSharedParams } from "@/lib/params-context";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
+
+function deltaPct(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${(d * 100).toFixed(1)}pp`;
+}
+function deltaFmt(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${fmt(d)}`;
+}
 
 export default function SimulatorPage() {
   const t = useTranslations("simulator");
@@ -39,8 +54,13 @@ export default function SimulatorPage() {
   const [portfolio, setPortfolio] = usePersistedState("fire:main:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:main:withdrawal", params.annual_withdrawal);
 
+  useEffect(() => {
+    setParams(p => ({ ...p, initial_portfolio: portfolio, annual_withdrawal: withdrawal }));
+  }, [portfolio, withdrawal, setParams]);
+
   // MC state
   const [result, setResult] = useState<SimulationResponse | null>(null);
+  const [pinnedResult, setPinnedResult] = useState<SimulationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +90,9 @@ export default function SimulatorPage() {
   const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
 
+  // Historical events
+  const [historicalEvents, setHistoricalEvents] = useState<HistoricalEvent[]>([]);
+
   const hasProbabilisticCF = useMemo(() => {
     return params.cash_flows.some((cf: { group?: string | null }) => cf.group != null);
   }, [params.cash_flows]);
@@ -77,6 +100,10 @@ export default function SimulatorPage() {
   useEffect(() => {
     fetchCountries(params.data_source).then(setCountries).catch(() => {});
   }, [params.data_source]);
+
+  useEffect(() => {
+    fetchHistoricalEvents().then(setHistoricalEvents).catch(() => {});
+  }, []);
 
   const handleRun = async () => {
     setLoading(true);
@@ -203,7 +230,7 @@ export default function SimulatorPage() {
   // Sorted & filtered paths for the table
   const sortedPaths = useMemo(() => {
     if (!batchResult) return [];
-    let paths = batchResult.paths.filter((p) => {
+    const paths = batchResult.paths.filter((p) => {
       if (filterCountries.size > 0 && !filterCountries.has(p.country)) return false;
       if (filterMinStartYear > 0 && p.start_year < filterMinStartYear) return false;
       if (filterMinYears > 0 && p.years_simulated < filterMinYears) return false;
@@ -268,10 +295,26 @@ export default function SimulatorPage() {
             <SidebarForm params={params} onChange={setParams} />
 
           </CardContent>
-          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
+          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t space-y-1.5">
             <Button onClick={handleRun} className="w-full" disabled={loading}>
               {loading ? tc("running") : t("runSimulation")}
             </Button>
+            {result && (
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={() => setPinnedResult(pinnedResult ? null : result)}
+                >
+                  {pinnedResult ? (
+                    <><PinOff className="h-3 w-3 mr-1" />{tc("unpinBaseline")}</>
+                  ) : (
+                    <><Pin className="h-3 w-3 mr-1" />{tc("pinBaseline")}</>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       </aside>
@@ -301,9 +344,10 @@ export default function SimulatorPage() {
             {loading && <LoadingOverlay />}
 
             {result && !loading && (
-              <>
+              <div id="sim-results" className="space-y-4">
                 {/* 下载按钮组 */}
                 <div className="flex flex-wrap gap-2">
+                  <PdfExportButton targetId="sim-results" filename="fire-simulation-report.pdf" />
                   <DownloadButton
                     label={t("downloadPortfolioTrajectory")}
                     onClick={() =>
@@ -325,14 +369,16 @@ export default function SimulatorPage() {
 
                 {/* 指标卡片 */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <MetricCard label={t("successRate")} value={pct(result.success_rate)} />
-                  <MetricCard label={t("fundedRatio")} value={pct(result.funded_ratio)} />
-                  <MetricCard label={t("medianFinalPortfolio")} value={fmt(result.final_median)} />
-                  <MetricCard label={t("meanFinalPortfolio")} value={fmt(result.final_mean)} />
-                  <MetricCard
-                    label={t("initialWithdrawalRate")}
-                    value={pct(result.initial_withdrawal_rate)}
-                  />
+                  <MetricCard label={t("successRate")} value={pct(result.success_rate)}
+                    delta={pinnedResult ? deltaPct(result.success_rate, pinnedResult.success_rate) : undefined} />
+                  <MetricCard label={t("fundedRatio")} value={pct(result.funded_ratio)}
+                    delta={pinnedResult ? deltaPct(result.funded_ratio, pinnedResult.funded_ratio) : undefined} />
+                  <MetricCard label={t("medianFinalPortfolio")} value={fmt(result.final_median)}
+                    delta={pinnedResult ? deltaFmt(result.final_median, pinnedResult.final_median) : undefined} />
+                  <MetricCard label={t("meanFinalPortfolio")} value={fmt(result.final_mean)}
+                    delta={pinnedResult ? deltaFmt(result.final_mean, pinnedResult.final_mean) : undefined} />
+                  <MetricCard label={t("initialWithdrawalRate")} value={pct(result.initial_withdrawal_rate)}
+                    delta={pinnedResult ? deltaPct(result.initial_withdrawal_rate, pinnedResult.initial_withdrawal_rate) : undefined} />
                 </div>
 
                 {/* 资产轨迹扇形图 */}
@@ -342,6 +388,15 @@ export default function SimulatorPage() {
                       trajectories={result.percentile_trajectories}
                       title={t("portfolioTrajectory")}
                       showLogToggle
+                      extraTraces={pinnedResult ? [{
+                        x: Array.from({ length: pinnedResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => i),
+                        y: pinnedResult.percentile_trajectories["50"],
+                        mode: "lines" as const,
+                        name: tc("baselineP50"),
+                        line: { color: CHART_COLORS.neutral.hex, width: 2, dash: "dash" as const },
+                        type: "scatter" as const,
+                        hovertemplate: tc.raw("baselineHover"),
+                      }] : []}
                     />
                   </CardContent>
                 </Card>
@@ -381,7 +436,7 @@ export default function SimulatorPage() {
                     </CardContent>
                   </Card>
                 )}
-              </>
+              </div>
             )}
 
             {!result && !loading && (
@@ -687,33 +742,44 @@ export default function SimulatorPage() {
                         {btLogScale ? tc("linearScale") : tc("logScale")}
                       </Button>
                     </div>
-                    <PlotlyChart
-                      data={[{
-                        x: selectedPath.year_labels.concat(
-                          selectedPath.portfolio.length > selectedPath.years_simulated
-                            ? [selectedPath.year_labels[selectedPath.years_simulated - 1] + 1]
-                            : []
-                        ),
-                        y: selectedPath.portfolio,
-                        type: "scatter", mode: "lines",
-                        name: t("portfolioHistory"),
-                        line: { color: CHART_COLORS.primary.hex, width: 2 },
-                        hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
-                      }]}
-                      layout={{
-                        title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
-                        xaxis: { title: { text: tc("year") } },
-                        yaxis: {
-                          title: { text: tc("amount") },
-                          type: btLogScale ? "log" : "linear",
-                          tickformat: btLogScale ? "$~s" : "$,.0f",
-                        },
-                        margin: MARGINS.withTitle(isMobile),
-                        height: isMobile ? 260 : 380,
-                        showlegend: false,
-                      }}
-                      config={{ displayModeBar: false }}
-                    />
+                    {(() => {
+                      const pathCountry = selectedPath.country;
+                      const startY = selectedPath.year_labels[0];
+                      const endY = selectedPath.year_labels[selectedPath.year_labels.length - 1];
+                      const filtered = filterEvents(historicalEvents, pathCountry, startY, endY);
+                      const yMax = Math.max(...selectedPath.portfolio);
+                      return (
+                        <PlotlyChart
+                          data={[{
+                            x: selectedPath.year_labels.concat(
+                              selectedPath.portfolio.length > selectedPath.years_simulated
+                                ? [selectedPath.year_labels[selectedPath.years_simulated - 1] + 1]
+                                : []
+                            ),
+                            y: selectedPath.portfolio,
+                            type: "scatter", mode: "lines",
+                            name: t("portfolioHistory"),
+                            line: { color: CHART_COLORS.primary.hex, width: 2 },
+                            hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
+                          }]}
+                          layout={{
+                            title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
+                            xaxis: { title: { text: tc("year") } },
+                            yaxis: {
+                              title: { text: tc("amount") },
+                              type: btLogScale ? "log" : "linear",
+                              tickformat: btLogScale ? "$~s" : "$,.0f",
+                            },
+                            margin: MARGINS.withTitle(isMobile),
+                            height: isMobile ? 260 : 380,
+                            showlegend: false,
+                            shapes: eventShapes(filtered, yMax) as Plotly.Layout["shapes"],
+                            annotations: eventAnnotations(filtered, locale, yMax) as Plotly.Layout["annotations"],
+                          }}
+                          config={{ displayModeBar: false }}
+                        />
+                      );
+                    })()}
                   </CardContent>
                 </Card>
 

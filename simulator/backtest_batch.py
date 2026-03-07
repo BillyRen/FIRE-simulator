@@ -42,6 +42,9 @@ def run_sim_batch_backtest(
     cash_flows: list[CashFlowItem] | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
+    smile_decline_rate: float = 0.015,
+    smile_min_age: int = 70,
+    smile_increase_rate: float = 0.02,
 ) -> dict:
     """遍历所有有效 (国家, 起始年) 运行历史回测。
 
@@ -103,6 +106,9 @@ def run_sim_batch_backtest(
                 retirement_age=retirement_age,
                 cash_flows=cash_flows,
                 inflation_series=inflation_series,
+                smile_decline_rate=smile_decline_rate,
+                smile_min_age=smile_min_age,
+                smile_increase_rate=smile_increase_rate,
             )
 
             pm = compute_single_path_metrics(

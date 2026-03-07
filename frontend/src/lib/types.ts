@@ -49,13 +49,19 @@ export interface SimulationRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
+  smile_decline_rate: number;
+  smile_min_age: number;
+  smile_increase_rate: number;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
+  glide_path_enabled: boolean;
+  glide_path_end_allocation: Allocation;
+  glide_path_years: number;
 }
 
 export interface SimulationResponse {
@@ -91,7 +97,7 @@ export interface SweepRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -235,7 +241,7 @@ export interface SimBacktestRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -342,7 +348,7 @@ export interface AllocationSweepRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -552,7 +558,7 @@ export interface AccumulationRequest {
   target_success_rate: number;
   allocation: Allocation;
   expense_ratios: ExpenseRatios;
-  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   dynamic_ceiling: number;
   dynamic_floor: number;
   retirement_years: number;
@@ -585,6 +591,19 @@ export interface AccumulationResponse {
   age_labels: number[];
   sensitivity_expenses: number[];
   sensitivity_fire_ages: (number | null)[];
+}
+
+// ---------------------------------------------------------------------------
+// Historical events
+// ---------------------------------------------------------------------------
+
+export interface HistoricalEvent {
+  year: number;
+  year_end?: number;
+  countries: string[];
+  label_en: string;
+  label_zh: string;
+  category: "crisis" | "war" | "bubble" | "policy";
 }
 
 // ---------------------------------------------------------------------------
@@ -650,13 +669,19 @@ export interface FormParams {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset";
-  withdrawal_strategy: "fixed" | "dynamic" | "declining";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
+  smile_decline_rate: number;
+  smile_min_age: number;
+  smile_increase_rate: number;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
+  glide_path_enabled: boolean;
+  glide_path_end_allocation: Allocation;
+  glide_path_years: number;
 }
 
 export const DEFAULT_PARAMS: FormParams = {
@@ -676,7 +701,13 @@ export const DEFAULT_PARAMS: FormParams = {
   retirement_age: 45,
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,
+  smile_decline_rate: 0.015,
+  smile_min_age: 70,
+  smile_increase_rate: 0.02,
   leverage: 1.0,
   borrowing_spread: 0.02,
   cash_flows: [],
+  glide_path_enabled: false,
+  glide_path_end_allocation: { domestic_stock: 0.2, global_stock: 0.1, domestic_bond: 0.7 },
+  glide_path_years: 20,
 };

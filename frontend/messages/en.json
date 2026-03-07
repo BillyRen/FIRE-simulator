@@ -10,7 +10,8 @@
     "guardrail": "🛡️ Guardrail",
     "allocation": "🎯 Allocation",
     "buyVsRent": "🏠 Buy vs Rent",
-    "accumulation": "💰 FIRE Planner"
+    "accumulation": "💰 FIRE Planner",
+    "dashboard": "📋 Dashboard"
   },
   "common": {
     "year": "Yr",
@@ -32,7 +33,17 @@
     "baselineHover": "Baseline: %{y:$,.0f}<extra></extra>",
     "initialWithdrawalHover": "Initial WD: %{y:$,.0f}<extra></extra>",
     "logScale": "Log Scale",
-    "linearScale": "Linear"
+    "linearScale": "Linear",
+    "pinBaseline": "Pin as Baseline",
+    "unpinBaseline": "Unpin Baseline",
+    "exportPdf": "Export PDF"
+  },
+  "scenarioManager": {
+    "save": "Save",
+    "loadPlaceholder": "Select scenario",
+    "namePlaceholder": "Scenario name",
+    "export": "Export JSON",
+    "import": "Import JSON"
   },
   "sidebar": {
     "advancedSettings": "Advanced",
@@ -69,9 +80,17 @@
     "fixedWithdrawal": "Fixed Withdrawal",
     "dynamicWithdrawal": "Dynamic (Vanguard)",
     "decliningWithdrawal": "Spending Decline (EBRI)",
+    "smileWithdrawal": "Spending Smile",
+    "smileDeclineRate": "Early Decline Rate",
+    "smileMinAge": "Min Spending Age",
+    "smileIncreaseRate": "Late Increase Rate",
     "retirementAge": "Retirement Age",
     "dynamicCeiling": "Annual Raise Cap %",
     "dynamicFloor": "Annual Cut Cap %",
+    "glidePath": "Glide Path",
+    "glidePathHelp": "Linearly transition asset allocation over time from current to target during retirement",
+    "glidePathEnd": "End allocation (after transition)",
+    "glidePathYears": "Transition Years",
     "leverage": "Leverage",
     "leverageMultiplier": "Leverage Ratio",
     "noLeverage": "1.0 = No leverage",
@@ -599,6 +618,29 @@
     "annualExpense": "Annual Expenses ($)",
     "noFireWarning": "Under current parameters, simulations show FIRE cannot be achieved within working years. Try increasing income, reducing expenses, or adjusting risk tolerance.",
     "placeholder": "Set parameters and click \"Calculate FIRE\" to see results"
+  },
+  "dashboard": {
+    "title": "FIRE Dashboard",
+    "subtitle": "Comprehensive retirement plan assessment at a glance",
+    "runAnalysis": "Run Analysis",
+    "scoreLabel": "FIRE Readiness Score",
+    "scoreDescription": "Weighted score combining success rate, funded ratio, and safe withdrawal rate",
+    "successRate": "Success Rate",
+    "fundedRatio": "Funded Ratio",
+    "medianFinal": "Median Final",
+    "safeWithdrawalRate": "Safe WD Rate",
+    "initialPortfolio": "Initial Portfolio",
+    "annualWithdrawal": "Annual Withdrawal",
+    "retirementYears": "Retirement Years",
+    "stockAllocation": "Stock Allocation",
+    "paramSummary": "Parameter Summary",
+    "keyInsights": "Key Insights",
+    "insightGreat": "Congratulations! Your retirement plan is very robust with a success rate above 90%.",
+    "insightGood": "Plan looks good overall, but there's room for optimization. Consider adjusting withdrawal or allocation.",
+    "insightCaution": "Plan carries some risk. Consider reducing annual withdrawal, increasing savings, or adjusting strategy.",
+    "insightDanger": "Plan carries high risk. Strongly recommend reducing withdrawal amount or extending working years.",
+    "portfolioMini": "Portfolio Trajectory (P10-P90)",
+    "withdrawalMini": "Withdrawal Trajectory (P10-P90)"
   },
   "footer": {
     "brand": "FIRE Lab",

@@ -25,6 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { CashFlowEditor } from "./cash-flow-editor";
+import { ScenarioManager } from "./scenario-manager";
 import { fetchCountries } from "@/lib/api";
 import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, CountryInfo } from "@/lib/types";
@@ -180,6 +181,8 @@ export function SidebarForm({
 
   return (
     <div className="space-y-2">
+      <ScenarioManager currentParams={p} onLoad={onChange} />
+
       {/* ── Core sections ── */}
       <Accordion type="multiple" defaultValue={coreDefaults}>
         {/* Asset Allocation */}
@@ -224,6 +227,64 @@ export function SidebarForm({
                   p.allocation.domestic_stock + p.allocation.global_stock + p.allocation.domestic_bond - 1
                 ) > 0.01 && (
                   <p className="text-[10px] text-red-500 mt-1">{t("allocationWarning")}</p>
+                )}
+
+                <div className="flex items-center gap-2 mt-3">
+                  <input
+                    type="checkbox"
+                    checked={p.glide_path_enabled}
+                    onChange={(e) => set("glide_path_enabled", e.target.checked)}
+                    className="h-3.5 w-3.5"
+                    id="glide-path-toggle"
+                  />
+                  <Label htmlFor="glide-path-toggle" className="text-xs cursor-pointer">
+                    {t("glidePath")}
+                  </Label>
+                  <InfoTip text={t("glidePathHelp")} />
+                </div>
+
+                {p.glide_path_enabled && (
+                  <div className="space-y-2 mt-2 pl-2 border-l-2 border-primary/20">
+                    <p className="text-[10px] text-muted-foreground">{t("glidePathEnd")}</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <NumberField
+                        label={t("domesticStock")}
+                        value={Math.round(p.glide_path_end_allocation.domestic_stock * 100)}
+                        onChange={(v) =>
+                          set("glide_path_end_allocation", { ...p.glide_path_end_allocation, domestic_stock: v / 100 })
+                        }
+                        min={0}
+                        max={100}
+                      />
+                      <NumberField
+                        label={t("globalStock")}
+                        value={Math.round(p.glide_path_end_allocation.global_stock * 100)}
+                        onChange={(v) =>
+                          set("glide_path_end_allocation", { ...p.glide_path_end_allocation, global_stock: v / 100 })
+                        }
+                        min={0}
+                        max={100}
+                      />
+                      <NumberField
+                        label={t("domesticBond")}
+                        value={Math.round(p.glide_path_end_allocation.domestic_bond * 100)}
+                        onChange={(v) =>
+                          set("glide_path_end_allocation", { ...p.glide_path_end_allocation, domestic_bond: v / 100 })
+                        }
+                        min={0}
+                        max={100}
+                      />
+                    </div>
+                    <NumberField
+                      label={t("glidePathYears")}
+                      value={p.glide_path_years}
+                      onChange={(v) => set("glide_path_years", v)}
+                      min={1}
+                      max={100}
+                      step={1}
+                      suffix={t("yearsSuffix")}
+                    />
+                  </div>
                 )}
               </>
             )}
@@ -271,7 +332,7 @@ export function SidebarForm({
               <Select
                 value={p.withdrawal_strategy}
                 onValueChange={(v) =>
-                  set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining")
+                  set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining" | "smile")
                 }
               >
                 <SelectTrigger className="h-8 text-sm">
@@ -281,6 +342,7 @@ export function SidebarForm({
                   <SelectItem value="fixed">{t("fixedWithdrawal")}</SelectItem>
                   <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
                   <SelectItem value="declining">{t("decliningWithdrawal")}</SelectItem>
+                  <SelectItem value="smile">{t("smileWithdrawal")}</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -314,6 +376,47 @@ export function SidebarForm({
                     min={18}
                     max={100}
                     step={1}
+                  />
+                </div>
+              )}
+
+              {p.withdrawal_strategy === "smile" && (
+                <div className="space-y-2 mt-2">
+                  <NumberField
+                    label={t("retirementAge")}
+                    value={p.retirement_age}
+                    onChange={(v) => set("retirement_age", v)}
+                    min={18}
+                    max={100}
+                    step={1}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <NumberField
+                      label={t("smileDeclineRate")}
+                      value={+(p.smile_decline_rate * 100).toFixed(1)}
+                      onChange={(v) => set("smile_decline_rate", v / 100)}
+                      min={0}
+                      max={10}
+                      step={0.1}
+                      suffix="%"
+                    />
+                    <NumberField
+                      label={t("smileMinAge")}
+                      value={p.smile_min_age}
+                      onChange={(v) => set("smile_min_age", v)}
+                      min={30}
+                      max={100}
+                      step={1}
+                    />
+                  </div>
+                  <NumberField
+                    label={t("smileIncreaseRate")}
+                    value={+(p.smile_increase_rate * 100).toFixed(1)}
+                    onChange={(v) => set("smile_increase_rate", v / 100)}
+                    min={0}
+                    max={10}
+                    step={0.1}
+                    suffix="%"
                   />
                 </div>
               )}

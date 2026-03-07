@@ -30,6 +30,11 @@ def run_simulation(
     borrowing_spread: float = 0.0,
     country_dfs: dict[str, pd.DataFrame] | None = None,
     country_weights: dict[str, float] | None = None,
+    smile_decline_rate: float = 0.015,
+    smile_min_age: int = 70,
+    smile_increase_rate: float = 0.02,
+    glide_path_end_allocation: dict[str, float] | None = None,
+    glide_path_years: int = 20,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """运行蒙特卡洛退休模拟。
 
@@ -129,10 +134,16 @@ def run_simulation(
             )
 
         # 2. 计算组合实际回报
-        real_returns = compute_real_portfolio_returns(
-            sampled, allocation, expense_ratios,
-            leverage=leverage, borrowing_spread=borrowing_spread,
-        )
+        if glide_path_end_allocation is not None:
+            real_returns = _compute_glide_path_returns(
+                sampled, allocation, glide_path_end_allocation,
+                glide_path_years, expense_ratios, leverage, borrowing_spread,
+            )
+        else:
+            real_returns = compute_real_portfolio_returns(
+                sampled, allocation, expense_ratios,
+                leverage=leverage, borrowing_spread=borrowing_spread,
+            )
         real_returns_matrix[i] = real_returns
         inflation_matrix[i] = sampled["Inflation"].values
 
@@ -178,6 +189,13 @@ def run_simulation(
                     withdrawal = prev_withdrawal * 0.98
                 else:
                     withdrawal = annual_withdrawal
+            elif withdrawal_strategy == "smile" and value > 0:
+                age = retirement_age + year
+                if age < smile_min_age:
+                    withdrawal = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - retirement_age)
+                else:
+                    min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - retirement_age)
+                    withdrawal = min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
             else:
                 withdrawal = annual_withdrawal
 
@@ -201,6 +219,39 @@ def run_simulation(
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
 
 
+def _compute_glide_path_returns(
+    sampled: pd.DataFrame,
+    start_alloc: dict[str, float],
+    end_alloc: dict[str, float],
+    glide_years: int,
+    expense_ratios: dict[str, float],
+    leverage: float,
+    borrowing_spread: float,
+) -> np.ndarray:
+    """Per-year portfolio returns with linearly interpolated allocation."""
+    n = len(sampled)
+    asset_map = {
+        "domestic_stock": "Domestic_Stock",
+        "global_stock": "Global_Stock",
+        "domestic_bond": "Domestic_Bond",
+    }
+    inflation = sampled["Inflation"].values
+    real_returns = np.zeros(n)
+
+    for year in range(n):
+        t = min(year / max(glide_years, 1), 1.0)
+        nominal = 0.0
+        for key, col in asset_map.items():
+            w = start_alloc.get(key, 0.0) * (1.0 - t) + end_alloc.get(key, 0.0) * t
+            e = expense_ratios.get(key, 0.0)
+            nominal += w * (sampled[col].iloc[year] - e)
+        if leverage != 1.0:
+            nominal = leverage * nominal - (leverage - 1.0) * (inflation[year] + borrowing_spread)
+        real_returns[year] = (1.0 + nominal) / (1.0 + inflation[year]) - 1.0
+
+    return real_returns
+
+
 def run_simple_historical_backtest(
     real_returns: np.ndarray,
     initial_portfolio: float,
@@ -212,6 +263,9 @@ def run_simple_historical_backtest(
     retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_series: np.ndarray | None = None,
+    smile_decline_rate: float = 0.015,
+    smile_min_age: int = 70,
+    smile_increase_rate: float = 0.02,
 ) -> dict:
     """在单条历史回报路径上运行退休模拟（无 bootstrap）。
 
@@ -282,6 +336,13 @@ def run_simple_historical_backtest(
                 wd = prev_wd * 0.98
             else:
                 wd = annual_withdrawal
+        elif withdrawal_strategy == "smile" and value > 0:
+            age = retirement_age + year
+            if age < smile_min_age:
+                wd = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - retirement_age)
+            else:
+                min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - retirement_age)
+                wd = min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
         else:
             wd = annual_withdrawal
 

@@ -11,6 +11,7 @@ export function Navbar() {
   const locale = useLocale();
 
   const NAV_ITEMS = [
+    { href: "/dashboard", label: t("dashboard"), icon: "📋" },
     { href: "/accumulation", label: t("accumulation"), icon: "💰" },
     { href: "/", label: t("simulator"), icon: "🔥" },
     { href: "/sensitivity", label: t("sensitivity"), icon: "📊" },

@@ -11,7 +11,15 @@ export function usePersistedState<T>(
   useEffect(() => {
     try {
       const saved = localStorage.getItem(key);
-      if (saved !== null) setValue(JSON.parse(saved));
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+            && typeof defaultValue === "object" && defaultValue !== null) {
+          setValue({ ...defaultValue, ...parsed } as T);
+        } else {
+          setValue(parsed);
+        }
+      }
     } catch { /* ignore malformed / missing */ }
   }, [key]);
 

@@ -18,9 +18,28 @@ import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/components/fan-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
+import { Pin, PinOff } from "lucide-react";
 import { runAccumulation } from "@/lib/api";
 import { useSharedParams } from "@/lib/params-context";
 import type { AccumulationResponse } from "@/lib/types";
+import { fmt as fmtUtil } from "@/lib/utils";
+import { MetricCard } from "@/components/metric-card";
+
+function deltaPct(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${(d * 100).toFixed(1)}pp`;
+}
+function deltaFmt(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${fmtUtil(d)}`;
+}
+function deltaNum(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${d}`;
+}
 
 const RISK_MAP: Record<string, number> = {
   conservative: 0.95,
@@ -47,6 +66,7 @@ export default function AccumulationPage() {
   const [riskTolerance, setRiskTolerance] = usePersistedState("fire:accumulation:riskTolerance", "moderate");
 
   const [result, setResult] = useState<AccumulationResponse | null>(null);
+  const [pinnedResult, setPinnedResult] = useState<AccumulationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logScale, setLogScale] = useState(false);
@@ -220,10 +240,26 @@ export default function AccumulationPage() {
             />
 
           </CardContent>
-          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
+          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t space-y-1.5">
             <Button onClick={handleRun} className="w-full" disabled={loading}>
               {loading ? "..." : t("run")}
             </Button>
+            {result && (
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={() => setPinnedResult(pinnedResult ? null : result)}
+                >
+                  {pinnedResult ? (
+                    <><PinOff className="h-3 w-3 mr-1" />{tc("unpinBaseline")}</>
+                  ) : (
+                    <><Pin className="h-3 w-3 mr-1" />{tc("pinBaseline")}</>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       </aside>
@@ -245,7 +281,9 @@ export default function AccumulationPage() {
               <MetricCard
                 label={t("fireAgeP50")}
                 value={result.fire_age_p50 != null ? `${result.fire_age_p50}` : "N/A"}
-                highlight
+                className="bg-primary/5 border-primary/20"
+                delta={pinnedResult && result.fire_age_p50 != null && pinnedResult.fire_age_p50 != null
+                  ? deltaNum(result.fire_age_p50, pinnedResult.fire_age_p50) : undefined}
               />
               <MetricCard
                 label={t("fireAgeRange")}
@@ -255,12 +293,36 @@ export default function AccumulationPage() {
                     : "N/A"
                 }
               />
-              <MetricCard label={t("fireProbability")} value={pct(result.fire_probability)} />
-              <MetricCard label={t("savingsRate")} value={pct(result.savings_rate)} />
-              <MetricCard label={t("annualSavings")} value={fmt(result.annual_savings)} />
-              <MetricCard label={t("retirementSpendingAtFire")} value={fmt(result.retirement_spending_at_fire)} />
-              <MetricCard label={t("swrAtFire")} value={pct(result.swr_at_fire)} />
-              <MetricCard label={t("requiredPortfolio")} value={fmt(result.required_portfolio_at_fire)} />
+              <MetricCard
+                label={t("fireProbability")}
+                value={pct(result.fire_probability)}
+                delta={pinnedResult ? deltaPct(result.fire_probability, pinnedResult.fire_probability) : undefined}
+              />
+              <MetricCard
+                label={t("savingsRate")}
+                value={pct(result.savings_rate)}
+                delta={pinnedResult ? deltaPct(result.savings_rate, pinnedResult.savings_rate) : undefined}
+              />
+              <MetricCard
+                label={t("annualSavings")}
+                value={fmt(result.annual_savings)}
+                delta={pinnedResult ? deltaFmt(result.annual_savings, pinnedResult.annual_savings) : undefined}
+              />
+              <MetricCard
+                label={t("retirementSpendingAtFire")}
+                value={fmt(result.retirement_spending_at_fire)}
+                delta={pinnedResult ? deltaFmt(result.retirement_spending_at_fire, pinnedResult.retirement_spending_at_fire) : undefined}
+              />
+              <MetricCard
+                label={t("swrAtFire")}
+                value={pct(result.swr_at_fire)}
+                delta={pinnedResult ? deltaPct(result.swr_at_fire, pinnedResult.swr_at_fire) : undefined}
+              />
+              <MetricCard
+                label={t("requiredPortfolio")}
+                value={fmt(result.required_portfolio_at_fire)}
+                delta={pinnedResult ? deltaFmt(result.required_portfolio_at_fire, pinnedResult.required_portfolio_at_fire) : undefined}
+              />
             </div>
 
             {result.fire_probability === 0 && (
@@ -348,6 +410,16 @@ export default function AccumulationPage() {
                       line: { color: CHART_COLORS.danger.hex, width: 2.5, dash: "dash" },
                       name: t("requiredFirePortfolio"),
                     },
+                    // Pinned baseline P50
+                    ...(pinnedResult ? [{
+                      x: pinnedResult.age_labels,
+                      y: pinnedResult.percentile_trajectories.p50,
+                      type: "scatter" as const,
+                      mode: "lines" as const,
+                      line: { color: CHART_COLORS.neutral.hex, width: 2, dash: "dash" as const },
+                      name: tc("baselineP50"),
+                      hovertemplate: tc.raw("baselineHover"),
+                    }] : []),
                   ]}
                   layout={{
                     xaxis: {
@@ -469,27 +541,6 @@ export default function AccumulationPage() {
           </div>
         )}
       </main>
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  highlight = false,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-lg border p-3 ${
-        highlight ? "bg-primary/5 border-primary/20" : "bg-card"
-      }`}
-    >
-      <p className="text-xs text-muted-foreground mb-1">{label}</p>
-      <p className={`text-lg font-semibold ${highlight ? "text-primary" : ""}`}>{value}</p>
     </div>
   );
 }
