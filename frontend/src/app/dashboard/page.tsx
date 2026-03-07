@@ -58,6 +58,7 @@ function ScoreRing({ score }: { score: number }) {
 export default function DashboardPage() {
   const t = useTranslations("dashboard");
   const tc = useTranslations("common");
+  const tf = useTranslations("fanChart");
   const isMobile = useIsMobile();
 
   const { params } = useSharedParams();
@@ -184,6 +185,8 @@ export default function DashboardPage() {
                 <FanChart
                   trajectories={result.percentile_trajectories}
                   title={t("portfolioMini")}
+                  xLabels={Array.from({ length: result.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                  xTitle={tf("ageAxis")}
                   height={isMobile ? 220 : 280}
                 />
               </CardContent>
@@ -194,6 +197,8 @@ export default function DashboardPage() {
                   <FanChart
                     trajectories={result.withdrawal_percentile_trajectories}
                     title={t("withdrawalMini")}
+                    xLabels={Array.from({ length: result.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                    xTitle={tf("ageAxis")}
                     color={CHART_COLORS.orange.rgb}
                     height={isMobile ? 220 : 280}
                   />

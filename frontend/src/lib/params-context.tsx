@@ -1,13 +1,13 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { DEFAULT_PARAMS } from "./types";
 import type { FormParams } from "./types";
 import { usePersistedState } from "./use-persisted-state";
 
 interface SharedParamsState {
   params: FormParams;
-  setParams: (p: FormParams) => void;
+  setParams: Dispatch<SetStateAction<FormParams>>;
 
   // Guardrail
   guardrailTargetSuccess: number;

@@ -230,7 +230,7 @@ class TestCashFlow:
 class TestMonteCarloSimulation:
 
     def test_output_shapes(self, sample_returns_df, default_allocation, default_expenses):
-        traj, wd = run_simulation(
+        traj, wd, ret_mat, infl_mat = run_simulation(
             initial_portfolio=1_000_000,
             annual_withdrawal=40_000,
             allocation=default_allocation,
@@ -244,9 +244,11 @@ class TestMonteCarloSimulation:
         )
         assert traj.shape == (50, 11)  # 10 years + initial
         assert wd.shape == (50, 10)
+        assert ret_mat.shape == (50, 10)
+        assert infl_mat.shape == (50, 10)
 
     def test_initial_portfolio_preserved(self, sample_returns_df, default_allocation, default_expenses):
-        traj, _ = run_simulation(
+        traj, _, _, _ = run_simulation(
             initial_portfolio=500_000,
             annual_withdrawal=20_000,
             allocation=default_allocation,
@@ -261,7 +263,7 @@ class TestMonteCarloSimulation:
         np.testing.assert_array_equal(traj[:, 0], 500_000)
 
     def test_fixed_withdrawal_consistent(self, sample_returns_df, default_allocation, default_expenses):
-        _, wd = run_simulation(
+        _, wd, _, _ = run_simulation(
             initial_portfolio=1_000_000,
             annual_withdrawal=40_000,
             allocation=default_allocation,
@@ -292,13 +294,13 @@ class TestMonteCarloSimulation:
             num_simulations=20,
             returns_df=sample_returns_df,
         )
-        t1, w1 = run_simulation(**kwargs, seed=99)
-        t2, w2 = run_simulation(**kwargs, seed=99)
+        t1, w1, _, _ = run_simulation(**kwargs, seed=99)
+        t2, w2, _, _ = run_simulation(**kwargs, seed=99)
         np.testing.assert_array_equal(t1, t2)
         np.testing.assert_array_equal(w1, w2)
 
     def test_zero_withdrawal_never_depletes(self, sample_returns_df, default_allocation, default_expenses):
-        traj, _ = run_simulation(
+        traj, _, _, _ = run_simulation(
             initial_portfolio=1_000_000,
             annual_withdrawal=0,
             allocation=default_allocation,
@@ -316,7 +318,7 @@ class TestMonteCarloSimulation:
     def test_dynamic_strategy_produces_varying_withdrawals(
         self, sample_returns_df, default_allocation, default_expenses
     ):
-        _, wd = run_simulation(
+        _, wd, _, _ = run_simulation(
             initial_portfolio=1_000_000,
             annual_withdrawal=40_000,
             allocation=default_allocation,
@@ -342,7 +344,7 @@ class TestMonteCarloSimulation:
 
     def test_with_cash_flows(self, sample_returns_df, default_allocation, default_expenses):
         cfs = [CashFlowItem("income", 10_000, start_year=1, duration=5, inflation_adjusted=True)]
-        traj_with, _ = run_simulation(
+        traj_with, _, _, _ = run_simulation(
             initial_portfolio=1_000_000,
             annual_withdrawal=40_000,
             allocation=default_allocation,
@@ -355,7 +357,7 @@ class TestMonteCarloSimulation:
             seed=42,
             cash_flows=cfs,
         )
-        traj_without, _ = run_simulation(
+        traj_without, _, _, _ = run_simulation(
             initial_portfolio=1_000_000,
             annual_withdrawal=40_000,
             allocation=default_allocation,
@@ -383,7 +385,7 @@ class TestMonteCarloSimulation:
             "Inflation": rng.normal(0.025, 0.01, n),
         })
         country_dfs = {"USA": sample_returns_df, "GBR": df_gbr}
-        traj, wd = run_simulation(
+        traj, wd, _, _ = run_simulation(
             initial_portfolio=1_000_000,
             annual_withdrawal=40_000,
             allocation=default_allocation,

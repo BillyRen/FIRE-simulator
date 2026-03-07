@@ -496,10 +496,10 @@ export default function BuyVsRentPage() {
                   <Select value={mcCountry} onValueChange={setMcCountry}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ALL">ALL</SelectItem>
+                      <SelectItem value="ALL">{t("allCountriesLabel")}</SelectItem>
                       {countries.map((c) => (
                         <SelectItem key={c.iso} value={c.iso}>
-                          {c.iso} — {locale === "zh" ? c.name_zh : c.name_en} ({c.housing_years}y)
+                          {t("countryOption", { iso: c.iso, name: locale === "zh" ? c.name_zh : c.name_en, years: c.housing_years })}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -620,7 +620,7 @@ export default function BuyVsRentPage() {
         {!simpleResult && !mcResult && !breakevenResult && (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground text-sm">
-              {locale === "zh" ? "输入参数后点击计算或运行模拟" : "Enter parameters and click Calculate or Run Simulation"}
+              {t("emptyState")}
             </CardContent>
           </Card>
         )}

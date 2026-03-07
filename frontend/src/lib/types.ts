@@ -53,6 +53,8 @@ export interface SimulationRequest {
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
+  declining_rate: number;
+  declining_start_age: number;
   smile_decline_rate: number;
   smile_min_age: number;
   smile_increase_rate: number;
@@ -662,6 +664,7 @@ export interface FormParams {
   allocation: Allocation;
   expense_ratios: ExpenseRatios;
   retirement_years: number;
+  life_expectancy: number;
   min_block: number;
   max_block: number;
   num_simulations: number;
@@ -673,6 +676,8 @@ export interface FormParams {
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
+  declining_rate: number;
+  declining_start_age: number;
   smile_decline_rate: number;
   smile_min_age: number;
   smile_increase_rate: number;
@@ -689,7 +694,8 @@ export const DEFAULT_PARAMS: FormParams = {
   annual_withdrawal: 40_000,
   allocation: { domestic_stock: 0.4, global_stock: 0.4, domestic_bond: 0.2 },
   expense_ratios: { domestic_stock: 0.005, global_stock: 0.005, domestic_bond: 0.005 },
-  retirement_years: 65,
+  retirement_years: 55,
+  life_expectancy: 100,
   min_block: 5,
   max_block: 15,
   num_simulations: 2_000,
@@ -701,9 +707,11 @@ export const DEFAULT_PARAMS: FormParams = {
   retirement_age: 45,
   dynamic_ceiling: 0.05,
   dynamic_floor: 0.025,
-  smile_decline_rate: 0.015,
-  smile_min_age: 70,
-  smile_increase_rate: 0.02,
+  declining_rate: 0.02,
+  declining_start_age: 65,
+  smile_decline_rate: 0.01,
+  smile_min_age: 75,
+  smile_increase_rate: 0.01,
   leverage: 1.0,
   borrowing_spread: 0.02,
   cash_flows: [],

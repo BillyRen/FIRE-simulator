@@ -68,10 +68,13 @@ class BaseSimulationParams(BaseModel):
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = Field(default=[], max_length=50)
+    # Declining (EBRI) withdrawal strategy params
+    declining_rate: float = Field(0.02, ge=0, le=0.1, description="Declining: annual real spending decline rate after start age (Hurd & Rohwedder 2022: 1.7-2.4%)")
+    declining_start_age: int = Field(65, ge=30, le=100, description="Declining: age at which spending begins to decline (research-supported for 65+)")
     # Smile withdrawal strategy params
-    smile_decline_rate: float = Field(0.015, ge=0, le=0.1, description="Smile: annual real spending decline rate before min age")
-    smile_min_age: int = Field(70, ge=30, le=100, description="Smile: age of minimum spending (trough)")
-    smile_increase_rate: float = Field(0.02, ge=0, le=0.1, description="Smile: annual real spending increase rate after min age")
+    smile_decline_rate: float = Field(0.01, ge=0, le=0.1, description="Smile: annual real spending decline rate before min age (Blanchett 2014: ~1%)")
+    smile_min_age: int = Field(75, ge=30, le=100, description="Smile: age of minimum spending trough (literature consensus: mid-70s)")
+    smile_increase_rate: float = Field(0.01, ge=0, le=0.1, description="Smile: annual real spending increase rate after min age (healthcare tail risk buffer)")
     # Glide path params
     glide_path_enabled: bool = Field(False, description="Enable linear glide path for allocation")
     glide_path_end_allocation: AllocationSchema = AllocationSchema(domestic_stock=0.2, global_stock=0.1, domestic_bond=0.7)

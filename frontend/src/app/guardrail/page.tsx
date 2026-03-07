@@ -49,6 +49,7 @@ function deltaPct(cur: number, pin: number): string {
 export default function GuardrailPage() {
   const t = useTranslations("guardrail");
   const tc = useTranslations("common");
+  const tf = useTranslations("fanChart");
   const locale = useLocale();
   const isMobile = useIsMobile();
 
@@ -502,22 +503,26 @@ export default function GuardrailPage() {
                 <MetricCard
                   label={t("guardrailSuccess")}
                   value={pct(mcResult.g_success_rate)}
+                  tooltip={tc("successRateHelp")}
                   delta={pinnedResult ? deltaPct(mcResult.g_success_rate, pinnedResult.g_success_rate) : undefined}
                 />
                 <MetricCard
                   label={t("guardrailFundedRatio")}
                   value={pct(mcResult.g_funded_ratio)}
+                  tooltip={tc("fundedRatioHelp")}
                   delta={pinnedResult ? deltaPct(mcResult.g_funded_ratio, pinnedResult.g_funded_ratio) : undefined}
                 />
                 <MetricCard
                   label={t("baselineSuccess")}
                   value={pct(mcResult.b_success_rate)}
                   sub={t("baselineRateSub", { rate: (baselineRate * 100).toFixed(1) })}
+                  tooltip={tc("successRateHelp")}
                   delta={pinnedResult ? deltaPct(mcResult.b_success_rate, pinnedResult.b_success_rate) : undefined}
                 />
                 <MetricCard
                   label={t("baselineFundedRatio")}
                   value={pct(mcResult.b_funded_ratio)}
+                  tooltip={tc("fundedRatioHelp")}
                   delta={pinnedResult ? deltaPct(mcResult.b_funded_ratio, pinnedResult.b_funded_ratio) : undefined}
                 />
               </div>
@@ -583,9 +588,12 @@ export default function GuardrailPage() {
                   <FanChart
                     trajectories={mcResult.g_percentile_trajectories}
                     title={t("portfolioComparison")}
+                    xLabels={Array.from({ length: mcResult.g_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                    xTitle={tf("ageAxis")}
                     showLogToggle
                     extraTraces={[
                       {
+                        x: Array.from({ length: mcResult.b_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i),
                         y: mcResult.b_percentile_trajectories["50"],
                         mode: "lines",
                         name: tc("baselineP50"),
@@ -593,7 +601,7 @@ export default function GuardrailPage() {
                         type: "scatter",
                       },
                       ...(pinnedResult ? [{
-                        x: Array.from({ length: pinnedResult.g_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => i),
+                        x: Array.from({ length: pinnedResult.g_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i),
                         y: pinnedResult.g_percentile_trajectories["50"],
                         mode: "lines" as const,
                         name: tc("baselineP50"),
@@ -612,6 +620,8 @@ export default function GuardrailPage() {
                   <FanChart
                     trajectories={mcResult.g_withdrawal_percentiles}
                     title={t("withdrawalTrajectory")}
+                    xLabels={Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                    xTitle={tf("ageAxis")}
                     color={CHART_COLORS.secondary.rgb}
                     showLogToggle
                     extraTraces={[
@@ -745,10 +755,10 @@ export default function GuardrailPage() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <MetricCard label={t("numPaths")} value={`${batchResult.num_paths}`} />
                     <MetricCard label={t("numComplete")} value={`${batchResult.num_complete}`} />
-                    <MetricCard label={t("guardrailSuccess")} value={pct(batchResult.g_success_rate)} />
-                    <MetricCard label={t("guardrailFundedRatio")} value={pct(batchResult.g_funded_ratio)} />
-                    <MetricCard label={t("baselineSuccess")} value={pct(batchResult.b_success_rate)} />
-                    <MetricCard label={t("baselineFundedRatio")} value={pct(batchResult.b_funded_ratio)} />
+                    <MetricCard label={t("guardrailSuccess")} value={pct(batchResult.g_success_rate)} tooltip={tc("successRateHelp")} />
+                    <MetricCard label={t("guardrailFundedRatio")} value={pct(batchResult.g_funded_ratio)} tooltip={tc("fundedRatioHelp")} />
+                    <MetricCard label={t("baselineSuccess")} value={pct(batchResult.b_success_rate)} tooltip={tc("successRateHelp")} />
+                    <MetricCard label={t("baselineFundedRatio")} value={pct(batchResult.b_funded_ratio)} tooltip={tc("fundedRatioHelp")} />
                   </div>
                   <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
 
@@ -768,6 +778,8 @@ export default function GuardrailPage() {
                             <FanChart
                               trajectories={batchResult.g_percentile_trajectories}
                               title={t("portfolioComparison")}
+                              xLabels={Array.from({ length: batchResult.g_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                              xTitle={tf("ageAxis")}
                               showLogToggle
                             />
                           </CardContent>
@@ -781,9 +793,11 @@ export default function GuardrailPage() {
                             <FanChart
                               trajectories={batchResult.g_withdrawal_percentiles}
                               title={t("withdrawalTrajectory")}
-                            color={CHART_COLORS.secondary.rgb}
-                            showLogToggle
-                          />
+                              xLabels={Array.from({ length: batchResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                              xTitle={tf("ageAxis")}
+                              color={CHART_COLORS.secondary.rgb}
+                              showLogToggle
+                            />
                         </CardContent>
                       </Card>
                     )}
@@ -795,6 +809,8 @@ export default function GuardrailPage() {
                             <FanChart
                               trajectories={batchResult.b_percentile_trajectories}
                               title={`${tc("baseline")} - ${t("portfolioComparison")}`}
+                              xLabels={Array.from({ length: batchResult.b_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                              xTitle={tf("ageAxis")}
                               color={CHART_COLORS.orange.rgb}
                               showLogToggle
                             />

@@ -30,9 +30,11 @@ def run_simulation(
     borrowing_spread: float = 0.0,
     country_dfs: dict[str, pd.DataFrame] | None = None,
     country_weights: dict[str, float] | None = None,
-    smile_decline_rate: float = 0.015,
-    smile_min_age: int = 70,
-    smile_increase_rate: float = 0.02,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_min_age: int = 75,
+    smile_increase_rate: float = 0.01,
     glide_path_end_allocation: dict[str, float] | None = None,
     glide_path_years: int = 20,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -185,8 +187,8 @@ def run_simulation(
                 lower = prev_withdrawal * (1.0 - dynamic_floor)
                 withdrawal = max(lower, min(target, upper))
             elif withdrawal_strategy == "declining" and year > 0 and value > 0:
-                if retirement_age + year >= 65:
-                    withdrawal = prev_withdrawal * 0.98
+                if retirement_age + year >= declining_start_age:
+                    withdrawal = prev_withdrawal * (1.0 - declining_rate)
                 else:
                     withdrawal = annual_withdrawal
             elif withdrawal_strategy == "smile" and value > 0:
@@ -263,9 +265,11 @@ def run_simple_historical_backtest(
     retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_series: np.ndarray | None = None,
-    smile_decline_rate: float = 0.015,
-    smile_min_age: int = 70,
-    smile_increase_rate: float = 0.02,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_min_age: int = 75,
+    smile_increase_rate: float = 0.01,
 ) -> dict:
     """在单条历史回报路径上运行退休模拟（无 bootstrap）。
 
@@ -332,8 +336,8 @@ def run_simple_historical_backtest(
             lower = prev_wd * (1.0 - dynamic_floor)
             wd = max(lower, min(target, upper))
         elif withdrawal_strategy == "declining" and year > 0 and value > 0:
-            if retirement_age + year >= 65:
-                wd = prev_wd * 0.98
+            if retirement_age + year >= declining_start_age:
+                wd = prev_wd * (1.0 - declining_rate)
             else:
                 wd = annual_withdrawal
         elif withdrawal_strategy == "smile" and value > 0:

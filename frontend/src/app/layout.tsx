@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
       template: "%s | FIRE Lab",
     },
     description:
-      "Free Monte Carlo simulation tool for retirement planning (FIRE). Analyze withdrawal strategies, asset allocation, and risk guardrails with historical data. 免费的蒙特卡洛退休模拟工具，支持提取策略分析、资产配置优化和风险护栏策略。",
+      "Free Monte Carlo simulation tool for retirement planning (FIRE). Analyze withdrawal strategies, asset allocation, and risk guardrails with 150+ years of historical data.",
     keywords: [
       "FIRE",
       "retirement simulator",

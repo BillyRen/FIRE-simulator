@@ -41,6 +41,8 @@ interface FanChartProps {
   yTitle?: string;
   /** X 轴标签 */
   xLabels?: (number | string)[];
+  /** X 轴标题 */
+  xTitle?: string;
   /** 可选的额外 traces (如基准线) */
   extraTraces?: Plotly.Data[];
   /** 图表高度 */
@@ -62,6 +64,7 @@ export function FanChart({
   title,
   yTitle,
   xLabels,
+  xTitle: xTitleProp,
   extraTraces = [],
   height = 450,
   color = CHART_COLORS.primary.rgb,
@@ -150,7 +153,7 @@ export function FanChart({
             y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "top" as const,
           },
           xaxis: {
-            title: xLabels ? undefined : { text: t("fanChart.yearAxis") },
+            title: xTitleProp ? { text: xTitleProp } : (xLabels ? undefined : { text: t("fanChart.yearAxis") }),
             tickfont: { size: isMobile ? 9 : 12 },
           },
           yaxis: {

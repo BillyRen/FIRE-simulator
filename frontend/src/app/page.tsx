@@ -46,6 +46,7 @@ function deltaFmt(cur: number, pin: number): string {
 export default function SimulatorPage() {
   const t = useTranslations("simulator");
   const tc = useTranslations("common");
+  const tf = useTranslations("fanChart");
   const locale = useLocale();
 
   const isMobile = useIsMobile();
@@ -57,6 +58,7 @@ export default function SimulatorPage() {
   useEffect(() => {
     setParams(p => ({ ...p, initial_portfolio: portfolio, annual_withdrawal: withdrawal }));
   }, [portfolio, withdrawal, setParams]);
+
 
   // MC state
   const [result, setResult] = useState<SimulationResponse | null>(null);
@@ -370,8 +372,10 @@ export default function SimulatorPage() {
                 {/* 指标卡片 */}
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <MetricCard label={t("successRate")} value={pct(result.success_rate)}
+                    tooltip={t("successRateHelp")}
                     delta={pinnedResult ? deltaPct(result.success_rate, pinnedResult.success_rate) : undefined} />
                   <MetricCard label={t("fundedRatio")} value={pct(result.funded_ratio)}
+                    tooltip={t("fundedRatioHelp")}
                     delta={pinnedResult ? deltaPct(result.funded_ratio, pinnedResult.funded_ratio) : undefined} />
                   <MetricCard label={t("medianFinalPortfolio")} value={fmt(result.final_median)}
                     delta={pinnedResult ? deltaFmt(result.final_median, pinnedResult.final_median) : undefined} />
@@ -387,9 +391,11 @@ export default function SimulatorPage() {
                     <FanChart
                       trajectories={result.percentile_trajectories}
                       title={t("portfolioTrajectory")}
+                      xLabels={Array.from({ length: result.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                      xTitle={tf("ageAxis")}
                       showLogToggle
                       extraTraces={pinnedResult ? [{
-                        x: Array.from({ length: pinnedResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => i),
+                        x: Array.from({ length: pinnedResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i),
                         y: pinnedResult.percentile_trajectories["50"],
                         mode: "lines" as const,
                         name: tc("baselineP50"),
@@ -408,6 +414,8 @@ export default function SimulatorPage() {
                       <FanChart
                         trajectories={result.withdrawal_percentile_trajectories}
                         title={t("withdrawalTrajectory")}
+                        xLabels={Array.from({ length: result.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                        xTitle={tf("ageAxis")}
                         color={CHART_COLORS.orange.rgb}
                         showLogToggle
                       />
@@ -513,8 +521,8 @@ export default function SimulatorPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <MetricCard label={t("numPaths")} value={`${batchResult.num_paths}`} />
                   <MetricCard label={t("numComplete")} value={`${batchResult.num_complete}`} />
-                  <MetricCard label={t("successRate")} value={pct(batchResult.success_rate)} />
-                  <MetricCard label={t("fundedRatio")} value={pct(batchResult.funded_ratio)} />
+                  <MetricCard label={t("successRate")} value={pct(batchResult.success_rate)} tooltip={t("successRateHelp")} />
+                  <MetricCard label={t("fundedRatio")} value={pct(batchResult.funded_ratio)} tooltip={t("fundedRatioHelp")} />
                 </div>
                 <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
 
@@ -534,6 +542,8 @@ export default function SimulatorPage() {
                           <FanChart
                             trajectories={batchResult.percentile_trajectories}
                             title={t("portfolioTrajectory")}
+                            xLabels={Array.from({ length: batchResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                            xTitle={tf("ageAxis")}
                             showLogToggle
                           />
                         </CardContent>
@@ -548,6 +558,8 @@ export default function SimulatorPage() {
                           <FanChart
                             trajectories={batchResult.withdrawal_percentile_trajectories}
                             title={t("withdrawalTrajectory")}
+                            xLabels={Array.from({ length: batchResult.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                            xTitle={tf("ageAxis")}
                             color={CHART_COLORS.orange.rgb}
                             showLogToggle
                           />

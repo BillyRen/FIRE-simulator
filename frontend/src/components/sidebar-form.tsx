@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useTranslations, useLocale } from "next-intl";
-import { Info } from "lucide-react";
+import { Info, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -154,6 +154,7 @@ export function SidebarForm({
   const set = <K extends keyof FormParams>(key: K, val: FormParams[K]) =>
     onChange({ ...p, [key]: val });
 
+  const [showLifeExpectancy, setShowLifeExpectancy] = useState(false);
   const [countries, setCountries] = useState<CountryInfo[]>([]);
   useEffect(() => {
     fetchCountries(p.data_source).then(setCountries).catch(() => {});
@@ -170,7 +171,7 @@ export function SidebarForm({
     return {
       dataRange: check(["data_source", "country", "pooling_method", "data_start_year"]),
       allocation: check(["allocation", "expense_ratios"]),
-      simulation: check(["retirement_years", "num_simulations", "min_block", "max_block"]),
+      simulation: check(["num_simulations", "min_block", "max_block"]),
       withdrawal: check(["withdrawal_strategy", "dynamic_ceiling", "dynamic_floor"]),
       leverage: check(["leverage", "borrowing_spread"]),
       cashFlows: p.cash_flows.length > 0,
@@ -181,7 +182,42 @@ export function SidebarForm({
 
   return (
     <div className="space-y-2">
-      <ScenarioManager currentParams={p} onLoad={onChange} />
+      <div className="space-y-1.5">
+        <NumberField
+          label={t("retirementAge")}
+          value={p.retirement_age}
+          onChange={(v) => {
+            onChange({ ...p, retirement_age: v, retirement_years: Math.max(1, p.life_expectancy - v) });
+          }}
+          min={18}
+          max={p.life_expectancy - 1}
+          step={1}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t("computedYears", { years: p.life_expectancy - p.retirement_age })}
+          {" · "}
+          <button
+            type="button"
+            className="inline-flex items-center gap-0.5 hover:text-foreground transition-colors"
+            onClick={() => setShowLifeExpectancy(v => !v)}
+          >
+            {t("lifeExpectancy")}: {p.life_expectancy}
+            <ChevronDown className={`h-3 w-3 transition-transform ${showLifeExpectancy ? "rotate-180" : ""}`} />
+          </button>
+        </p>
+        {showLifeExpectancy && (
+          <NumberField
+            label={t("lifeExpectancy")}
+            value={p.life_expectancy}
+            onChange={(v) => {
+              onChange({ ...p, life_expectancy: v, retirement_years: Math.max(1, v - p.retirement_age) });
+            }}
+            min={p.retirement_age + 1}
+            max={120}
+            step={1}
+          />
+        )}
+      </div>
 
       {/* ── Core sections ── */}
       <Accordion type="multiple" defaultValue={coreDefaults}>
@@ -368,28 +404,31 @@ export function SidebarForm({
               )}
 
               {p.withdrawal_strategy === "declining" && (
-                <div className="mt-2">
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   <NumberField
-                    label={t("retirementAge")}
-                    value={p.retirement_age}
-                    onChange={(v) => set("retirement_age", v)}
-                    min={18}
+                    label={t("decliningRate")}
+                    value={+(p.declining_rate * 100).toFixed(1)}
+                    onChange={(v) => set("declining_rate", v / 100)}
+                    min={0}
+                    max={10}
+                    step={0.1}
+                    suffix="%"
+                    tooltip={t("decliningRateHelp")}
+                  />
+                  <NumberField
+                    label={t("decliningStartAge")}
+                    value={p.declining_start_age}
+                    onChange={(v) => set("declining_start_age", v)}
+                    min={30}
                     max={100}
                     step={1}
+                    tooltip={t("decliningStartAgeHelp")}
                   />
                 </div>
               )}
 
               {p.withdrawal_strategy === "smile" && (
                 <div className="space-y-2 mt-2">
-                  <NumberField
-                    label={t("retirementAge")}
-                    value={p.retirement_age}
-                    onChange={(v) => set("retirement_age", v)}
-                    min={18}
-                    max={100}
-                    step={1}
-                  />
                   <div className="grid grid-cols-2 gap-2">
                     <NumberField
                       label={t("smileDeclineRate")}
@@ -563,13 +602,6 @@ export function SidebarForm({
           <AccordionContent>
             <div className="grid grid-cols-2 gap-2">
               <NumberField
-                label={t("retirementYears")}
-                value={p.retirement_years}
-                onChange={(v) => set("retirement_years", v)}
-                min={1}
-                max={100}
-              />
-              <NumberField
                 label={t("numSimulations")}
                 value={p.num_simulations}
                 onChange={(v) => set("num_simulations", v)}
@@ -630,6 +662,8 @@ export function SidebarForm({
           </AccordionContent>
         </AccordionItem>
       </Accordion>
+
+      <ScenarioManager currentParams={p} onLoad={onChange} />
     </div>
   );
 }

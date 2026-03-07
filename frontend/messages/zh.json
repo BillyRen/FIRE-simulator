@@ -18,6 +18,8 @@
     "years": "年",
     "amount": "金额 ($)",
     "successRate": "成功率",
+    "successRateHelp": "退休期间资产未耗尽的模拟比例",
+    "fundedRatioHelp": "实际消费额 / 目标消费额的加权比率，反映退休期间实际生活水平",
     "initialPortfolio": "初始资产 ($)",
     "annualWithdrawal": "年提取额 ($)",
     "annualWithdrawalAlt": "年提取金额 ($)",
@@ -50,16 +52,16 @@
     "dataRange": "数据范围",
     "dataSource": "数据源",
     "dataSourceJst": "JST 多国数据 (1871-2020)",
-    "dataSourceFire": "FIRE Dataset (美国, 1871-2025)",
-    "dataSourceJstDesc": "Jordà-Schularick-Taylor 宏观历史数据库，覆盖 16 个发达国家",
-    "dataSourceFireDesc": "美国市场数据：S&P 500 + MSCI EAFE (1970后) + 10年国债",
+    "dataSourceFire": "美国市场数据 (Bogleheads, 1871-2025)",
+    "dataSourceJstDesc": "Jordà-Schularick-Taylor 宏观历史数据库 (2017)，覆盖 16 个发达国家的股票、债券和通胀数据",
+    "dataSourceFireDesc": "源自 Bogleheads 社区（Simba's Backtesting Spreadsheet）整理的美国长期市场数据：S&P 500（含前身指数）、MSCI EAFE（1970年后）、美国 10 年期国债",
     "country": "国家",
     "allCountries": "所有国家（池化采样）",
     "poolingMethod": "池化权重方式",
     "poolingEqual": "等概率 (1/N)",
     "poolingGdpSqrt": "√GDP 加权",
     "poolingEqualHelp": "每个国家被选中的概率相同",
-    "poolingGdpSqrtHelp": "按 GDP 平方根加权，兼顾经济代表性与多样性",
+    "poolingGdpSqrtHelp": "按 GDP 平方根加权采样，经济大国权重更高但不会主导",
     "dataStartYear": "数据起始年",
     "assetAllocation": "资产配置",
     "assetExpenseRatio": "资产费率",
@@ -71,7 +73,9 @@
     "domesticBondFee": "本国债券费率 %",
     "allocationWarning": "⚠️ 配置比例之和需为 100%",
     "simulationSettings": "模拟设置",
-    "retirementYears": "退休年限",
+    "retirementAge": "退休年龄",
+    "lifeExpectancy": "预期寿命",
+    "computedYears": "→ 模拟 {years} 年",
     "numSimulations": "模拟次数",
     "minBlock": "最小采样窗口",
     "maxBlock": "最大采样窗口",
@@ -80,11 +84,14 @@
     "fixedWithdrawal": "固定提取",
     "dynamicWithdrawal": "动态提取 (Vanguard)",
     "decliningWithdrawal": "消费递减 (EBRI)",
+    "decliningRate": "年降幅",
+    "decliningRateHelp": "达到起始年龄后，每年实际消费下降比例（Hurd & Rohwedder 2022: 1.7-2.4%）",
+    "decliningStartAge": "下降起始年龄",
+    "decliningStartAgeHelp": "消费开始下降的年龄。65岁以上有充分研究支撑；FIRE退休者在此之前消费通常保持稳定",
     "smileWithdrawal": "微笑曲线",
     "smileDeclineRate": "早期年降幅",
     "smileMinAge": "最低消费年龄",
     "smileIncreaseRate": "晚期年增幅",
-    "retirementAge": "退休年龄",
     "dynamicCeiling": "年度上调上限 %",
     "dynamicFloor": "年度下调上限 %",
     "glidePath": "配置滑道（Glide Path）",
@@ -95,7 +102,7 @@
     "leverageMultiplier": "杠杆倍数",
     "noLeverage": "1.0 = 无杠杆",
     "borrowingSpread": "借贷利差 %",
-    "borrowingCostHelp": "借贷成本 = 通胀 + 利差",
+    "borrowingCostHelp": "杠杆借贷成本 = 短期实际利率 ≈ 通胀率 + 利差",
     "cashFlowTitle": "自定义现金流"
   },
   "cashFlow": {
@@ -128,10 +135,12 @@
     "unnamed": "未命名"
   },
   "simulator": {
-    "title": "🔥 退休模拟参数",
+    "title": "🔥 退休模拟",
     "runSimulation": "运行模拟",
     "successRate": "成功率",
+    "successRateHelp": "退休期间资产未耗尽的模拟比例",
     "fundedRatio": "资金覆盖率",
+    "fundedRatioHelp": "实际消费额 / 目标消费额的加权比率，反映退休期间实际生活水平",
     "medianFinalPortfolio": "中位数最终资产",
     "meanFinalPortfolio": "平均最终资产",
     "initialWithdrawalRate": "初始提取率",
@@ -227,7 +236,7 @@
     "sensitivityImpact": "成功率变化"
   },
   "sensitivity": {
-    "title": "📈 敏感性分析参数",
+    "title": "📈 提取率分析",
     "runAnalysis": "运行分析",
     "analyzing": "分析中…",
     "scanLoading": "敏感性扫描中…",
@@ -252,7 +261,7 @@
     "placeholder": "配置参数后点击「运行分析」查看结果"
   },
   "guardrail": {
-    "title": "🛡️ 风险护栏参数",
+    "title": "🛡️ 支出护栏",
     "runSimulation": "运行 Guardrail 模拟",
     "guardrailSettings": "🛡️ 护栏设置",
     "targetSuccess": "目标成功率 %",
@@ -427,7 +436,8 @@
     "default": "模拟运行中…"
   },
   "fanChart": {
-    "yearAxis": "年"
+    "yearAxis": "年",
+    "ageAxis": "年龄"
   },
   "backendKeys": {
     "指标": "指标",
@@ -573,7 +583,10 @@
     "priceLower": "低于此价格时，买房更有利",
     "priceHigher": "高于此价格时，租房更有利",
     "haAtBreakeven": "平衡点增值率",
-    "noSignChange": "未找到盈亏平衡 — 价格区间两端优势方向一致。请调整参数后重试。"
+    "noSignChange": "未找到盈亏平衡 — 价格区间两端优势方向一致。请调整参数后重试。",
+    "allCountriesLabel": "全部",
+    "countryOption": "{iso} — {name} ({years}年)",
+    "emptyState": "输入参数后点击计算或运行模拟"
   },
   "accumulation": {
     "title": "FIRE 积累计算器",
@@ -624,9 +637,9 @@
     "subtitle": "一键查看退休计划综合评估",
     "runAnalysis": "运行分析",
     "scoreLabel": "FIRE 就绪评分",
-    "scoreDescription": "综合成功率、资金充足率和安全提取率的加权评分",
+    "scoreDescription": "综合成功率、资金覆盖率和安全提取率的加权评分",
     "successRate": "成功率",
-    "fundedRatio": "资金充足率",
+    "fundedRatio": "资金覆盖率",
     "medianFinal": "中位数终值",
     "safeWithdrawalRate": "安全提取率",
     "initialPortfolio": "初始资产",
@@ -647,6 +660,6 @@
     "byLine": "by Rens.AI",
     "copyright": "© 2025–2026 Rens.AI",
     "disclaimer": "本工具仅供教育和参考用途，不构成任何投资建议。历史回报不代表未来表现。",
-    "dataAttribution": "数据来源：Jordà-Schularick-Taylor 宏观历史数据库 (CC BY-NC-SA 4.0)。Jordà, Schularick & Taylor (2017), Macrofinancial History and the New Business Cycle Facts."
+    "dataAttribution": "数据来源：Jordà-Schularick-Taylor 宏观历史数据库 (CC BY-NC-SA 4.0)；美国市场数据整理自 Bogleheads 社区 Simba's Backtesting Spreadsheet。"
   }
 }
