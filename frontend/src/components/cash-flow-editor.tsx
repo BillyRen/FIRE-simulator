@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,10 @@ const NEW_ITEM: CashFlowItem = {
   inflation_adjusted: true,
   enabled: true,
 };
+
+function fmtAmount(n: number): string {
+  return String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
 
 function CfNumberInput({
   value,
@@ -121,34 +126,102 @@ function GroupNameInput({
 function CashFlowCard({
   item,
   itemType,
-  index,
   label,
   showProbability,
+  expanded,
   t,
   onUpdate,
   onSetType,
   onRemove,
+  onToggle,
 }: {
   item: CashFlowItem;
   itemType: "income" | "expense";
-  index: number;
   label: string;
   showProbability: boolean;
+  expanded: boolean;
   t: ReturnType<typeof useTranslations>;
   onUpdate: (patch: Partial<CashFlowItem>) => void;
   onSetType: (type: "income" | "expense") => void;
   onRemove: () => void;
+  onToggle: () => void;
 }) {
   const enabled = item.enabled !== false;
+
+  if (!expanded) {
+    const endYear = item.start_year + item.duration - 1;
+    const yearStr =
+      item.duration === 1
+        ? `Y${item.start_year}`
+        : `Y${item.start_year}-${endYear}`;
+
+    return (
+      <div
+        className={`rounded-lg border bg-card px-2.5 py-1.5 flex items-center gap-1.5 ${!enabled ? "opacity-50" : ""}`}
+      >
+        <Checkbox
+          checked={enabled}
+          onCheckedChange={(checked) =>
+            onUpdate({ enabled: checked === true })
+          }
+          className="shrink-0"
+        />
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-1.5 flex-1 min-w-0 text-left cursor-pointer"
+        >
+          <span className="text-xs font-medium truncate">
+            {item.name || t("unnamed")}
+          </span>
+          <span
+            className={`text-[10px] shrink-0 font-medium ${
+              itemType === "income"
+                ? "text-green-600 dark:text-green-400"
+                : "text-red-500 dark:text-red-400"
+            }`}
+          >
+            {itemType === "expense" ? "-" : "+"}${fmtAmount(item.amount)}
+          </span>
+          {showProbability && (
+            <span className="text-[10px] text-muted-foreground shrink-0">
+              {Math.round((item.probability ?? 1) * 100)}%
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground shrink-0">
+            {yearStr}
+          </span>
+        </button>
+        <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0 pointer-events-none" />
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-muted-foreground hover:text-destructive shrink-0 p-0.5 cursor-pointer"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border bg-card p-3 space-y-2">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2">
           <Checkbox
             checked={enabled}
-            onCheckedChange={(checked) => onUpdate({ enabled: checked === true })}
+            onCheckedChange={(checked) =>
+              onUpdate({ enabled: checked === true })
+            }
           />
-          <span className="text-xs text-muted-foreground">{label}</span>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex items-center gap-1 cursor-pointer"
+          >
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">{label}</span>
+          </button>
         </div>
         <Button
           variant="ghost"
@@ -187,7 +260,9 @@ function CashFlowCard({
           </div>
         </div>
 
-        <div className={`grid ${showProbability ? "grid-cols-2" : "grid-cols-3"} gap-2 mt-2`}>
+        <div
+          className={`grid ${showProbability ? "grid-cols-2" : "grid-cols-3"} gap-2 mt-2`}
+        >
           <div>
             <Label className="text-xs">{t("amountLabel")}</Label>
             <CfNumberInput
@@ -203,7 +278,9 @@ function CashFlowCard({
               <Label className="text-xs">{t("probability")}</Label>
               <CfNumberInput
                 value={Math.round((item.probability ?? 1) * 100)}
-                onChange={(v) => onUpdate({ probability: Math.round(v) / 100 })}
+                onChange={(v) =>
+                  onUpdate({ probability: Math.round(v) / 100 })
+                }
                 min={1}
                 max={100}
                 step={1}
@@ -235,7 +312,9 @@ function CashFlowCard({
               onUpdate({ inflation_adjusted: checked === true })
             }
           />
-          <Label className="text-xs cursor-pointer">{t("inflationAdjusted")}</Label>
+          <Label className="text-xs cursor-pointer">
+            {t("inflationAdjusted")}
+          </Label>
         </div>
       </div>
     </div>
@@ -247,6 +326,10 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
   const [items, setItems] = useState<CashFlowItem[]>(value);
   const [types, setTypes] = useState<("income" | "expense")[]>(
     value.map((item) => (item.amount < 0 ? "expense" : "income"))
+  );
+  const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    new Set()
   );
 
   const sync = (
@@ -274,14 +357,67 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
   };
 
   const remove = (i: number) => {
+    setExpandedCards((prev) => {
+      const next = new Set<number>();
+      for (const idx of prev) {
+        if (idx < i) next.add(idx);
+        else if (idx > i) next.add(idx - 1);
+      }
+      return next;
+    });
     sync(
       items.filter((_, idx) => idx !== i),
       types.filter((_, idx) => idx !== i)
     );
   };
 
+  const removeGroup = (groupName: string, indices: number[]) => {
+    const idxSet = new Set(indices);
+    setExpandedCards((prev) => {
+      const next = new Set<number>();
+      for (const idx of prev) {
+        if (idxSet.has(idx)) continue;
+        const shift = indices.filter((r) => r < idx).length;
+        next.add(idx - shift);
+      }
+      return next;
+    });
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      next.delete(groupName);
+      return next;
+    });
+    sync(
+      items.filter((_, i) => !idxSet.has(i)),
+      types.filter((_, i) => !idxSet.has(i))
+    );
+  };
+
+  const toggleCard = (i: number) => {
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  };
+
+  const toggleGroup = (groupName: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupName)) next.delete(groupName);
+      else next.add(groupName);
+      return next;
+    });
+  };
+
   const addItem = () => {
-    const newItem = { ...NEW_ITEM, name: t("defaultName", { n: items.length + 1 }) };
+    const newIdx = items.length;
+    const newItem = {
+      ...NEW_ITEM,
+      name: t("defaultName", { n: items.length + 1 }),
+    };
+    setExpandedCards(new Set([newIdx]));
     sync([...items, newItem], [...types, "expense"]);
   };
 
@@ -306,10 +442,13 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
       group: gid,
       probability: 0.5,
     };
+    setExpandedCards(new Set([items.length, items.length + 1]));
+    setExpandedGroups(new Set([gid]));
     sync([...items, v1, v2], [...types, "income", "income"]);
   };
 
   const addVariant = (groupName: string) => {
+    const newIdx = items.length;
     const groupItems = items.filter((it) => it.group === groupName);
     const variant: CashFlowItem = {
       ...NEW_ITEM,
@@ -317,10 +456,10 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
       group: groupName,
       probability: 0.1,
     };
+    setExpandedCards((prev) => new Set([...prev, newIdx]));
     sync([...items, variant], [...types, "income"]);
   };
 
-  // Split into ungrouped and groups
   const ungroupedIndices: number[] = [];
   const groupMap = new Map<string, number[]>();
 
@@ -334,8 +473,20 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
     }
   });
 
+  const hasAnyExpanded = expandedCards.size > 0 || expandedGroups.size > 0;
+
+  const toggleAll = () => {
+    if (hasAnyExpanded) {
+      setExpandedCards(new Set());
+      setExpandedGroups(new Set());
+    } else {
+      setExpandedCards(new Set(items.map((_, i) => i)));
+      setExpandedGroups(new Set(groupMap.keys()));
+    }
+  };
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
         <Label className="text-sm font-medium">{t("title")}</Label>
         <div className="flex gap-1">
@@ -348,23 +499,34 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
         </div>
       </div>
 
-      {/* Ungrouped (deterministic) cash flows */}
+      {items.length > 1 && (
+        <div className="flex justify-end -mt-1">
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            {hasAnyExpanded ? t("collapseAll") : t("expandAll")}
+          </button>
+        </div>
+      )}
+
       {ungroupedIndices.map((i) => (
         <CashFlowCard
           key={`cf-${i}`}
           item={items[i]}
           itemType={types[i] ?? "income"}
-          index={i}
           label={`#${ungroupedIndices.indexOf(i) + 1}`}
           showProbability={false}
+          expanded={expandedCards.has(i)}
           t={t}
           onUpdate={(patch) => update(i, patch)}
           onSetType={(tp) => setType(i, tp)}
           onRemove={() => remove(i)}
+          onToggle={() => toggleCard(i)}
         />
       ))}
 
-      {/* Grouped (probabilistic) cash flows */}
       {Array.from(groupMap.entries()).map(([groupName, indices]) => {
         const totalProb = indices.reduce(
           (sum, i) => sum + (items[i].probability ?? 1),
@@ -372,6 +534,42 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
         );
         const overLimit = totalProb > 1.0 + 1e-9;
         const noneChance = Math.max(0, 1 - totalProb);
+        const groupExpanded = expandedGroups.has(groupName);
+
+        if (!groupExpanded) {
+          return (
+            <div
+              key={`group-${indices[0]}`}
+              className="rounded-xl border-2 border-dashed border-primary/30 px-3 py-2"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(groupName)}
+                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left cursor-pointer"
+                >
+                  <ChevronRight className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="text-xs font-semibold text-primary shrink-0">
+                    {t("groupLabel")}
+                  </span>
+                  <span className="text-xs truncate">{groupName}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {t("variantCount", { n: indices.length })} ·{" "}
+                    {Math.round(totalProb * 100)}%
+                  </span>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-destructive text-xs shrink-0"
+                  onClick={() => removeGroup(groupName, indices)}
+                >
+                  {t("deleteGroup")}
+                </Button>
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div
@@ -380,6 +578,13 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
           >
             <div className="flex flex-wrap items-center justify-between gap-1">
               <div className="flex items-center gap-2 min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(groupName)}
+                  className="shrink-0 cursor-pointer"
+                >
+                  <ChevronDown className="h-3.5 w-3.5 text-primary" />
+                </button>
                 <span className="text-xs font-semibold text-primary shrink-0">
                   {t("groupLabel")}
                 </span>
@@ -390,6 +595,13 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
                     indices.forEach((i) => {
                       copy[i] = { ...copy[i], group: newName };
                     });
+                    setExpandedGroups((prev) => {
+                      if (!prev.has(groupName)) return prev;
+                      const next = new Set(prev);
+                      next.delete(groupName);
+                      next.add(newName);
+                      return next;
+                    });
                     sync(copy, types);
                   }}
                   className="h-7 text-xs min-w-0 flex-1"
@@ -399,13 +611,7 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-destructive text-xs shrink-0"
-                onClick={() => {
-                  const idxSet = new Set(indices);
-                  sync(
-                    items.filter((_, i) => !idxSet.has(i)),
-                    types.filter((_, i) => !idxSet.has(i))
-                  );
-                }}
+                onClick={() => removeGroup(groupName, indices)}
               >
                 {t("deleteGroup")}
               </Button>
@@ -416,13 +622,14 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
                 key={`cf-${i}`}
                 item={items[i]}
                 itemType={types[i] ?? "income"}
-                index={i}
                 label={t("variant", { n: vi + 1 })}
                 showProbability={true}
+                expanded={expandedCards.has(i)}
                 t={t}
                 onUpdate={(patch) => update(i, patch)}
                 onSetType={(tp) => setType(i, tp)}
                 onRemove={() => remove(i)}
+                onToggle={() => toggleCard(i)}
               />
             ))}
 
@@ -437,7 +644,9 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
               </Button>
               <div className="text-xs text-muted-foreground">
                 {t("totalProbability")}:{" "}
-                <span className={overLimit ? "text-red-500 font-semibold" : ""}>
+                <span
+                  className={overLimit ? "text-red-500 font-semibold" : ""}
+                >
                   {Math.round(totalProb * 100)}%
                 </span>
                 {noneChance > 0.001 && !overLimit && (
@@ -446,7 +655,9 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
                   </span>
                 )}
                 {overLimit && (
-                  <span className="ml-1 text-red-500">{t("probabilityExceeded")}</span>
+                  <span className="ml-1 text-red-500">
+                    {t("probabilityExceeded")}
+                  </span>
                 )}
               </div>
             </div>

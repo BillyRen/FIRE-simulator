@@ -364,6 +364,7 @@ class ScenarioResult(BaseModel):
 class ScenarioAnalysisResponse(BaseModel):
     base_case: ScenarioResult
     scenarios: list[ScenarioResult]
+    mode: str = "full"
 
 
 # ---------------------------------------------------------------------------

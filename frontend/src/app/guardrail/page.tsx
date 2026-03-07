@@ -1134,79 +1134,101 @@ export default function GuardrailPage() {
 
               {scenarioResult && !scenarioLoading && (
                 <>
-                  {/* Comparison horizontal bar chart */}
+                  {scenarioResult.mode === "per_group" && (
+                    <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                      {t("scenarioPerGroupHint")}
+                    </p>
+                  )}
+
+                  {/* Comparison horizontal bar chart — withdrawal */}
                   <Card>
                     <CardContent className="pt-4">
-                      <PlotlyChart
-                        data={(() => {
-                          const baseSR = scenarioResult.base_case.success_rate * 100;
-                          const sorted = [...scenarioResult.scenarios].sort(
-                            (a, b) => a.success_rate - b.success_rate
-                          );
-                          const labels = sorted.map((s) => {
-                            const short = s.label.length > 40 ? s.label.slice(0, 37) + "…" : s.label;
-                            return `${short} (${(s.probability * 100).toFixed(0)}%)`;
-                          });
-                          const values = sorted.map((s) => +(s.success_rate * 100).toFixed(1));
-                          const colors = sorted.map((s) =>
-                            s.success_rate >= scenarioResult.base_case.success_rate
-                              ? CHART_COLORS.secondary.hex
-                              : CHART_COLORS.danger.hex
-                          );
-                          return [
-                            {
-                              type: "bar" as const,
-                              orientation: "h" as const,
-                              y: labels,
-                              x: values,
-                              marker: { color: colors },
-                              text: values.map((v) => `${v.toFixed(1)}%`),
-                              textposition: "outside" as const,
-                              hovertemplate: "%{y}<br>" + t("scenarioSuccessRate") + ": %{x:.1f}%<extra></extra>",
-                            },
-                          ];
-                        })()}
-                        layout={{
-                          title: isMobile ? undefined : { text: t("scenarioComparisonTitle"), font: { size: 14 } },
-                          xaxis: {
-                            title: { text: t("scenarioSuccessRate") },
-                            type: "linear" as const,
-                            ticksuffix: "%",
-                            range: (() => {
-                              const all = scenarioResult.scenarios.map((s) => s.success_rate * 100);
-                              all.push(scenarioResult.base_case.success_rate * 100);
-                              const min = Math.min(...all);
-                              const max = Math.max(...all);
-                              const pad = Math.max((max - min) * 0.3, 2);
-                              return [Math.max(0, min - pad), Math.min(100, max + pad + 2)];
-                            })(),
-                          },
-                          margin: isMobile
-                            ? { l: 160, r: 50, t: 10, b: 40 }
-                            : { l: 260, r: 60, t: 40, b: 50 },
-                          height: Math.max(isMobile ? 250 : 300, scenarioResult.scenarios.length * (isMobile ? 26 : 30) + 80),
-                          shapes: [
-                            {
-                              type: "line",
-                              x0: scenarioResult.base_case.success_rate * 100,
-                              x1: scenarioResult.base_case.success_rate * 100,
-                              y0: -0.5,
-                              y1: scenarioResult.scenarios.length - 0.5,
-                              line: { color: CHART_COLORS.primary.hex, width: 2, dash: "dash" },
-                            },
-                          ],
-                          annotations: [
-                            {
-                              x: scenarioResult.base_case.success_rate * 100,
-                              y: scenarioResult.scenarios.length - 0.5,
-                              text: `${t("scenarioBaseCase")}: ${(scenarioResult.base_case.success_rate * 100).toFixed(1)}%`,
-                              showarrow: false,
-                              yanchor: "bottom" as const,
-                              font: { size: 11, color: CHART_COLORS.primary.hex },
-                            },
-                          ],
-                        }}
-                      />
+                      {(() => {
+                        const baseWD = scenarioResult.base_case.annual_withdrawal;
+                        const fmtDollar = (v: number) =>
+                          `$${Math.round(v).toLocaleString("en-US")}`;
+                        const sorted = [...scenarioResult.scenarios].sort(
+                          (a, b) => a.annual_withdrawal - b.annual_withdrawal
+                        );
+                        const labels = sorted.map((s) => {
+                          const short = s.label.length > 40 ? s.label.slice(0, 37) + "…" : s.label;
+                          return `${short} (${(s.probability * 100).toFixed(0)}%)`;
+                        });
+                        const values = sorted.map((s) => s.annual_withdrawal);
+                        const colors = sorted.map((s) =>
+                          s.annual_withdrawal >= baseWD
+                            ? CHART_COLORS.secondary.hex
+                            : CHART_COLORS.danger.hex
+                        );
+
+                        const valueAnnotations = sorted.map((s, i) => ({
+                          x: s.annual_withdrawal,
+                          y: labels[i],
+                          text: fmtDollar(s.annual_withdrawal),
+                          showarrow: false,
+                          xanchor: "left" as const,
+                          xshift: 4,
+                          font: { size: 10 },
+                        }));
+
+                        return (
+                          <PlotlyChart
+                            data={[
+                              {
+                                type: "bar" as const,
+                                orientation: "h" as const,
+                                y: labels,
+                                x: values,
+                                marker: { color: colors },
+                                hovertemplate: sorted.map((s) =>
+                                  `%{y}<br>${t("scenarioAnnualWD")}: ${fmtDollar(s.annual_withdrawal)}<extra></extra>`
+                                ),
+                              },
+                            ]}
+                            layout={{
+                              title: isMobile ? undefined : { text: t("scenarioComparisonTitle"), font: { size: 14 } },
+                              xaxis: {
+                                title: { text: t("scenarioAnnualWD") },
+                                type: "linear" as const,
+                                tickprefix: "$",
+                                range: (() => {
+                                  const all = sorted.map((s) => s.annual_withdrawal);
+                                  all.push(baseWD);
+                                  const min = Math.min(...all);
+                                  const max = Math.max(...all);
+                                  const pad = Math.max((max - min) * 0.3, max * 0.02);
+                                  return [Math.max(0, min - pad), max + pad];
+                                })(),
+                              },
+                              margin: isMobile
+                                ? { l: 160, r: 90, t: 10, b: 40 }
+                                : { l: 260, r: 120, t: 40, b: 50 },
+                              height: Math.max(isMobile ? 250 : 300, sorted.length * (isMobile ? 26 : 30) + 80),
+                              shapes: [
+                                {
+                                  type: "line",
+                                  x0: baseWD,
+                                  x1: baseWD,
+                                  y0: -0.5,
+                                  y1: sorted.length - 0.5,
+                                  line: { color: CHART_COLORS.primary.hex, width: 2, dash: "dash" },
+                                },
+                              ],
+                              annotations: [
+                                {
+                                  x: baseWD,
+                                  y: sorted.length - 0.5,
+                                  text: `${t("scenarioBaseCase")}: ${fmtDollar(baseWD)}`,
+                                  showarrow: false,
+                                  yanchor: "bottom" as const,
+                                  font: { size: 11, color: CHART_COLORS.primary.hex },
+                                },
+                                ...valueAnnotations,
+                              ],
+                            }}
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
 
@@ -1280,77 +1302,114 @@ export default function GuardrailPage() {
                   {/* Tornado chart — withdrawal delta */}
                   <Card>
                     <CardContent className="pt-4">
-                      <PlotlyChart
-                        data={(() => {
-                          const baseWD = sensitivityResult.base_withdrawal ?? 0;
-                          const sorted = [...sensitivityResult.deltas].sort(
-                            (a, b) =>
-                              Math.abs((a.high_withdrawal ?? baseWD) - (a.low_withdrawal ?? baseWD)) -
-                              Math.abs((b.high_withdrawal ?? baseWD) - (b.low_withdrawal ?? baseWD))
-                          );
-                          const labels = sorted.map((d) => d.param_label);
+                      {(() => {
+                        const baseWD = sensitivityResult.base_withdrawal ?? 0;
+                        const sorted = [...sensitivityResult.deltas].sort(
+                          (a, b) =>
+                            Math.abs((a.high_withdrawal ?? baseWD) - (a.low_withdrawal ?? baseWD)) -
+                            Math.abs((b.high_withdrawal ?? baseWD) - (b.low_withdrawal ?? baseWD))
+                        );
+                        const labels = sorted.map((d) => d.param_label);
+                        const fmtDollar = (v: number) =>
+                          `$${Math.round(v).toLocaleString("en-US")}`;
 
+                        const valueAnnotations = sorted.flatMap((d) => {
+                          const lowVal = d.low_withdrawal ?? baseWD;
+                          const highVal = d.high_withdrawal ?? baseWD;
+                          if (baseWD > 0 && Math.abs(highVal - lowVal) / baseWD < 0.03) return [];
                           return [
                             {
-                              type: "bar" as const,
-                              orientation: "h" as const,
-                              y: labels,
-                              x: sorted.map((d) => (d.low_withdrawal ?? baseWD) - baseWD),
-                              base: Array(sorted.length).fill(baseWD),
-                              marker: { color: CHART_COLORS.danger.hex },
-                              name: t("sensitivityLow"),
-                              text: sorted.map((d) => `$${(d.low_withdrawal ?? baseWD).toLocaleString("en-US", { maximumFractionDigits: 0 })}`),
-                              textposition: "outside" as const,
-                              hovertemplate: "%{y}<br>" + t("sensitivityLow") + ": %{text}<extra></extra>",
+                              x: lowVal,
+                              y: d.param_label,
+                              text: fmtDollar(lowVal),
+                              showarrow: false,
+                              xanchor: (lowVal <= baseWD ? "right" : "left") as "right" | "left",
+                              xshift: lowVal <= baseWD ? -4 : 4,
+                              font: { size: 10 },
                             },
                             {
-                              type: "bar" as const,
-                              orientation: "h" as const,
-                              y: labels,
-                              x: sorted.map((d) => (d.high_withdrawal ?? baseWD) - baseWD),
-                              base: Array(sorted.length).fill(baseWD),
-                              marker: { color: CHART_COLORS.secondary.hex },
-                              name: t("sensitivityHigh"),
-                              text: sorted.map((d) => `$${(d.high_withdrawal ?? baseWD).toLocaleString("en-US", { maximumFractionDigits: 0 })}`),
-                              textposition: "outside" as const,
-                              hovertemplate: "%{y}<br>" + t("sensitivityHigh") + ": %{text}<extra></extra>",
+                              x: highVal,
+                              y: d.param_label,
+                              text: fmtDollar(highVal),
+                              showarrow: false,
+                              xanchor: (highVal >= baseWD ? "left" : "right") as "left" | "right",
+                              xshift: highVal >= baseWD ? 4 : -4,
+                              font: { size: 10 },
                             },
                           ];
-                        })()}
-                        layout={{
-                          title: { text: t("sensitivityChartTitle"), font: { size: 14 } },
-                          xaxis: {
-                            title: { text: t("sensitivityImpact") },
-                            type: "linear" as const,
-                            tickprefix: "$",
+                        });
+
+                        /* eslint-disable @typescript-eslint/no-explicit-any */
+                        const traces: any[] = [
+                          {
+                            type: "bar",
+                            orientation: "h",
+                            y: labels,
+                            x: sorted.map((d) => (d.low_withdrawal ?? baseWD) - baseWD),
+                            base: Array(sorted.length).fill(baseWD),
+                            marker: { color: CHART_COLORS.danger.hex },
+                            name: t("sensitivityLow"),
+                            cliponaxis: false,
+                            hovertemplate: sorted.map((d) =>
+                              `%{y}<br>${t("sensitivityLow")}: ${fmtDollar(d.low_withdrawal ?? baseWD)}<extra></extra>`
+                            ),
                           },
-                          barmode: "overlay",
-                          margin: isMobile
-                            ? { l: 100, r: 60, t: 40, b: 40 }
-                            : { l: 140, r: 80, t: 50, b: 50 },
-                          height: isMobile ? 320 : 400,
-                          shapes: [
-                            {
-                              type: "line",
-                              x0: sensitivityResult.base_withdrawal ?? 0,
-                              x1: sensitivityResult.base_withdrawal ?? 0,
-                              y0: -0.5,
-                              y1: sensitivityResult.deltas.length - 0.5,
-                              line: { color: CHART_COLORS.neutral.hex, width: 2, dash: "dash" },
-                            },
-                          ],
-                          annotations: [
-                            {
-                              x: sensitivityResult.base_withdrawal ?? 0,
-                              y: sensitivityResult.deltas.length - 0.5,
-                              text: `${t("sensitivityBase")}: $${(sensitivityResult.base_withdrawal ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-                              showarrow: false,
-                              yanchor: "bottom" as const,
-                              font: { size: 11 },
-                            },
-                          ],
-                        }}
-                      />
+                          {
+                            type: "bar",
+                            orientation: "h",
+                            y: labels,
+                            x: sorted.map((d) => (d.high_withdrawal ?? baseWD) - baseWD),
+                            base: Array(sorted.length).fill(baseWD),
+                            marker: { color: CHART_COLORS.secondary.hex },
+                            name: t("sensitivityHigh"),
+                            cliponaxis: false,
+                            hovertemplate: sorted.map((d) =>
+                              `%{y}<br>${t("sensitivityHigh")}: ${fmtDollar(d.high_withdrawal ?? baseWD)}<extra></extra>`
+                            ),
+                          },
+                        ];
+                        /* eslint-enable @typescript-eslint/no-explicit-any */
+
+                        return (
+                          <PlotlyChart
+                            data={traces}
+                            layout={{
+                              title: { text: t("sensitivityChartTitle"), font: { size: 14 } },
+                              xaxis: {
+                                title: { text: t("sensitivityImpact") },
+                                type: "linear" as const,
+                                tickprefix: "$",
+                              },
+                              barmode: "overlay",
+                              margin: isMobile
+                                ? { l: 100, r: 90, t: 40, b: 40 }
+                                : { l: 140, r: 120, t: 50, b: 50 },
+                              height: isMobile ? 320 : 400,
+                              shapes: [
+                                {
+                                  type: "line",
+                                  x0: baseWD,
+                                  x1: baseWD,
+                                  y0: -0.5,
+                                  y1: sorted.length - 0.5,
+                                  line: { color: CHART_COLORS.neutral.hex, width: 2, dash: "dash" },
+                                },
+                              ],
+                              annotations: [
+                                {
+                                  x: baseWD,
+                                  y: sorted.length - 0.5,
+                                  text: `${t("sensitivityBase")}: ${fmtDollar(baseWD)}`,
+                                  showarrow: false,
+                                  yanchor: "bottom" as const,
+                                  font: { size: 11 },
+                                },
+                                ...valueAnnotations,
+                              ],
+                            }}
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
 

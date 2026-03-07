@@ -605,6 +605,7 @@ export interface ScenarioResult {
 export interface ScenarioAnalysisResponse {
   base_case: ScenarioResult;
   scenarios: ScenarioResult[];
+  mode?: "full" | "per_group";
 }
 
 // ---------------------------------------------------------------------------

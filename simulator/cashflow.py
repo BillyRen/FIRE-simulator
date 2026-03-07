@@ -205,6 +205,61 @@ def enumerate_cf_scenarios(
     return scenarios
 
 
+def enumerate_cf_per_group(
+    cash_flows: list[CashFlowItem],
+) -> list[tuple[str, list[CashFlowItem], float]]:
+    """逐组独立枚举变体，其他组保持概率分布。
+
+    用于组合数过多时的回退策略。对每个组 G 的每个变体 V，
+    固定 V 为确定性事件，其他组保留概率分布（MC 模拟中正常采样）。
+
+    Parameters
+    ----------
+    cash_flows : list[CashFlowItem]
+        完整的现金流列表。
+
+    Returns
+    -------
+    list[tuple[str, list[CashFlowItem], float]]
+        每个元素为 (场景描述, 现金流列表, 变体概率)。
+        返回格式与 enumerate_cf_scenarios 一致。
+        如果不存在概率分组，返回空列表。
+    """
+    ungrouped = [cf for cf in cash_flows if cf.group is None]
+
+    groups: dict[str, list[CashFlowItem]] = {}
+    for cf in cash_flows:
+        if cf.group is not None:
+            groups.setdefault(cf.group, []).append(cf)
+
+    if not groups:
+        return []
+
+    scenarios: list[tuple[str, list[CashFlowItem], float]] = []
+    for group_name, variants in groups.items():
+        other_group_items = [
+            cf for cf in cash_flows
+            if cf.group is not None and cf.group != group_name
+        ]
+
+        for variant in variants:
+            active_cfs = (
+                list(ungrouped)
+                + [replace(variant, group=None)]
+                + other_group_items
+            )
+            label = f"{group_name}: {variant.name}"
+            scenarios.append((label, active_cfs, variant.probability))
+
+        total_prob = sum(v.probability for v in variants)
+        if total_prob < 1.0 - 1e-9:
+            active_cfs = list(ungrouped) + other_group_items
+            label = f"{group_name}: (none)"
+            scenarios.append((label, active_cfs, 1.0 - total_prob))
+
+    return scenarios
+
+
 def build_representative_cf_schedule(
     cash_flows: list[CashFlowItem],
     retirement_years: int,

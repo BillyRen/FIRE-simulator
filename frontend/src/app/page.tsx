@@ -808,6 +808,12 @@ export default function SimulatorPage() {
 
                     {scenarioResult && (
                       <>
+                        {scenarioResult.mode === "per_group" && (
+                          <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+                            {t("scenarioPerGroupHint")}
+                          </p>
+                        )}
+
                         {/* Scenario bar chart */}
                         <PlotlyChart
                           data={(() => {

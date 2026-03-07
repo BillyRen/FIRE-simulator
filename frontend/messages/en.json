@@ -101,7 +101,12 @@
     "variant": "Variant {n}",
     "totalProbability": "Total",
     "probabilityExceeded": "Exceeds 100%",
-    "noneChance": "{pct}% chance none"
+    "noneChance": "{pct}% chance none",
+    "collapseAll": "Collapse all",
+    "expandAll": "Expand all",
+    "variantCount": "{n} variants",
+    "yearRange": "Y{start}-{end}",
+    "unnamed": "Unnamed"
   },
   "simulator": {
     "title": "🔥 Retirement Simulation",
@@ -187,6 +192,7 @@
     "scenarioAnnualWD": "Annual Withdrawal",
     "scenarioComparisonTitle": "Scenario Success Rate Comparison",
     "scenarioNoProbCF": "No probabilistic cash flow groups found. Add scenario group cash flows in the sidebar.",
+    "scenarioPerGroupHint": "Too many combinations — switched to per-group mode: each group is compared independently while others keep their probability distribution.",
     "sensitivityTitle": "Parameter Sensitivity Analysis",
     "sensitivityDesc": "Impact of ± parameter changes on success rate (tornado chart)",
     "runSensitivity": "Run Sensitivity Analysis",
@@ -347,8 +353,9 @@
     "scenarioMedianFinal": "Median Final Portfolio",
     "scenarioMedianConsumption": "Median Total Consumption",
     "scenarioAnnualWD": "Annual Withdrawal",
-    "scenarioComparisonTitle": "Scenario Success Rate Comparison",
+    "scenarioComparisonTitle": "Scenario Optimal Withdrawal Comparison",
     "scenarioNoProbCF": "No probabilistic cash flows found. Please add scenario group cash flows in the sidebar first.",
+    "scenarioPerGroupHint": "Too many combinations — switched to per-group mode: each group is compared independently while others keep their probability distribution.",
     "sensitivityTitle": "Parameter Sensitivity Analysis",
     "sensitivityDesc": "Fixed target success rate — impact of core parameter changes on optimal withdrawal",
     "runSensitivity": "Run Sensitivity Analysis",
@@ -360,7 +367,7 @@
     "sensitivityParam": "Parameter",
     "sensitivityBaseValue": "Base Value",
     "sensitivityRange": "Range",
-    "sensitivityImpact": "Withdrawal Change"
+    "sensitivityImpact": "Optimal Withdrawal"
   },
   "allocation": {
     "title": "🎯 Allocation Optimizer",

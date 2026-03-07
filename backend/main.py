@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from simulator.cashflow import CashFlowItem, build_cf_schedule, build_representative_cf_schedule, enumerate_cf_scenarios, has_probabilistic_cf
+from simulator.cashflow import CashFlowItem, build_cf_schedule, build_representative_cf_schedule, enumerate_cf_scenarios, enumerate_cf_per_group, has_probabilistic_cf
 from concurrent.futures import ThreadPoolExecutor
 
 from simulator.config import (
@@ -465,12 +465,13 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
     if not cash_flows:
         raise HTTPException(400, "需要至少一个自定义现金流")
 
+    mode = "full"
     cf_scenarios = enumerate_cf_scenarios(cash_flows, max_combinations=32)
     if not cf_scenarios:
-        raise HTTPException(
-            400,
-            "没有概率分组现金流，或组合数过多（>32）。请检查现金流设置。"
-        )
+        cf_scenarios = enumerate_cf_per_group(cash_flows)
+        mode = "per_group"
+        if not cf_scenarios:
+            raise HTTPException(400, "没有概率分组现金流。请检查现金流设置。")
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -530,7 +531,7 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
             r.probability = prob
             results.append(r)
 
-    return ScenarioAnalysisResponse(base_case=base, scenarios=results)
+    return ScenarioAnalysisResponse(base_case=base, scenarios=results, mode=mode)
 
 
 # ---------------------------------------------------------------------------
@@ -958,12 +959,13 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
     if not cash_flows:
         raise HTTPException(400, "需要至少一个自定义现金流")
 
+    mode = "full"
     cf_scenarios = enumerate_cf_scenarios(cash_flows, max_combinations=32)
     if not cf_scenarios:
-        raise HTTPException(
-            400,
-            "没有概率分组现金流，或组合数过多（>32）。请检查现金流设置。"
-        )
+        cf_scenarios = enumerate_cf_per_group(cash_flows)
+        mode = "per_group"
+        if not cf_scenarios:
+            raise HTTPException(400, "没有概率分组现金流。请检查现金流设置。")
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -1064,7 +1066,7 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
             r.probability = prob
             results.append(r)
 
-    return ScenarioAnalysisResponse(base_case=base, scenarios=results)
+    return ScenarioAnalysisResponse(base_case=base, scenarios=results, mode=mode)
 
 
 # ---------------------------------------------------------------------------

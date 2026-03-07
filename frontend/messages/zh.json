@@ -101,7 +101,12 @@
     "variant": "变体 {n}",
     "totalProbability": "总概率",
     "probabilityExceeded": "超过 100%",
-    "noneChance": "{pct}% 概率不发生"
+    "noneChance": "{pct}% 概率不发生",
+    "collapseAll": "全部折叠",
+    "expandAll": "全部展开",
+    "variantCount": "{n} 个变体",
+    "yearRange": "Y{start}-{end}",
+    "unnamed": "未命名"
   },
   "simulator": {
     "title": "🔥 退休模拟参数",
@@ -187,6 +192,7 @@
     "scenarioAnnualWD": "年提取额",
     "scenarioComparisonTitle": "情景成功率对比",
     "scenarioNoProbCF": "当前没有概率分组的现金流。请先在侧边栏添加情景组现金流。",
+    "scenarioPerGroupHint": "组合数过多，已切换为逐组对比模式：每个组独立对比变体，其他组保持概率分布。",
     "sensitivityTitle": "参数敏感性分析",
     "sensitivityDesc": "核心参数 ±变动 对成功率的影响（龙卷风图）",
     "runSensitivity": "运行敏感性分析",
@@ -347,8 +353,9 @@
     "scenarioMedianFinal": "中位数最终资产",
     "scenarioMedianConsumption": "中位数总消费",
     "scenarioAnnualWD": "年提取额",
-    "scenarioComparisonTitle": "情景成功率对比",
+    "scenarioComparisonTitle": "情景最优提取额对比",
     "scenarioNoProbCF": "当前没有概率分组的现金流。请先在侧边栏添加情景组现金流。",
+    "scenarioPerGroupHint": "组合数过多，已切换为逐组对比模式：每个组独立对比变体，其他组保持概率分布。",
     "sensitivityTitle": "参数敏感性分析",
     "sensitivityDesc": "固定目标成功率，核心参数 ±变动 对最优提取额的影响",
     "runSensitivity": "运行敏感性分析",
@@ -360,7 +367,7 @@
     "sensitivityParam": "参数",
     "sensitivityBaseValue": "基准值",
     "sensitivityRange": "变动范围",
-    "sensitivityImpact": "提取额变化"
+    "sensitivityImpact": "最优提取额"
   },
   "allocation": {
     "title": "🎯 资产配置优化",
