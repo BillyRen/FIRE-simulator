@@ -32,10 +32,15 @@ class CashFlowItem:
         是否按通胀调整（默认 True）。
         True: 金额维持实际购买力不变（year-0 美元）。
         False: 金额为固定名义值，实际购买力随通胀递减。
+    growth_rate : float
+        年度复合增长率（默认 0.0）。
+        inflation_adjusted=True 时：实际增长率（超越通胀的额外增长，如医疗 2%）。
+        inflation_adjusted=False 时：名义增长率（如租金每年涨 3%）。
     probability : float
         组内概率权重 (0, 1]。仅在 group 非 None 时有意义。
     group : str or None
-        互斥组名。同一 group 内的现金流互斥，每次模拟只选一个。
+        互斥组名。同一 group 内的现金流互斥，每次模拟只选一个变体。
+        同一 group 内 name 相同的条目构成一个"变体"，被整体选中。
         None 表示确定事件（100% 发生）。
     """
 
@@ -44,6 +49,7 @@ class CashFlowItem:
     start_year: int
     duration: int
     inflation_adjusted: bool = True
+    growth_rate: float = 0.0
     probability: float = 1.0
     group: str | None = None
 
@@ -53,6 +59,29 @@ def has_probabilistic_cf(cash_flows: list[CashFlowItem]) -> bool:
     return any(cf.group is not None for cf in cash_flows)
 
 
+def _group_variants(
+    cash_flows: list[CashFlowItem],
+) -> tuple[list[CashFlowItem], dict[str, dict[str, list[CashFlowItem]]]]:
+    """将现金流按 (group, name) 聚合为变体。
+
+    同一 group 内 name 相同的多个条目构成一个"变体"，
+    在概率采样时被整体选中或整体不选。
+
+    Returns
+    -------
+    ungrouped : list[CashFlowItem]
+        group=None 的确定性现金流。
+    groups : dict[group_name, dict[variant_name, list[CashFlowItem]]]
+        按组名 → 变体名 → 条目列表的嵌套字典。
+    """
+    ungrouped = [cf for cf in cash_flows if cf.group is None]
+    groups: dict[str, dict[str, list[CashFlowItem]]] = {}
+    for cf in cash_flows:
+        if cf.group is not None:
+            groups.setdefault(cf.group, {}).setdefault(cf.name, []).append(cf)
+    return ungrouped, groups
+
+
 def sample_cash_flows(
     cash_flows: list[CashFlowItem],
     rng: np.random.Generator,
@@ -60,7 +89,8 @@ def sample_cash_flows(
     """按概率分组采样活跃现金流。
 
     - group=None 的现金流：直接纳入（确定事件）。
-    - 同一 group 的现金流：按 probability 权重随机选一个。
+    - 同一 group 内按 name 聚合为变体，按 probability 权重随机选一个变体。
+      同一变体的所有条目被整体选中。
       若组内概率总和 < 1，剩余概率表示"什么都不发生"。
 
     Parameters
@@ -75,26 +105,22 @@ def sample_cash_flows(
     list[CashFlowItem]
         本次模拟中活跃的现金流子集。
     """
-    ungrouped = [cf for cf in cash_flows if cf.group is None]
-
-    groups: dict[str, list[CashFlowItem]] = {}
-    for cf in cash_flows:
-        if cf.group is not None:
-            groups.setdefault(cf.group, []).append(cf)
+    ungrouped, groups = _group_variants(cash_flows)
 
     result = list(ungrouped)
     for variants in groups.values():
-        probs = [v.probability for v in variants]
+        variant_names = list(variants.keys())
+        probs = [variants[vn][0].probability for vn in variant_names]
         total = sum(probs)
-        n = len(variants)
+        n = len(variant_names)
         if total < 1.0:
             weights = probs + [1.0 - total]
             idx = int(rng.choice(n + 1, p=weights))
             if idx < n:
-                result.append(variants[idx])
+                result.extend(variants[variant_names[idx]])
         else:
             idx = int(rng.choice(n, p=probs))
-            result.append(variants[idx])
+            result.extend(variants[variant_names[idx]])
 
     return result
 
@@ -107,7 +133,7 @@ def build_expected_cf_schedule(
     """构建概率加权的期望现金流时间表，用于单条回测等确定性场景。
 
     - group=None 的现金流以 100% 权重计入。
-    - 同一 group 内的每个变体以其 probability 权重计入。
+    - 同一 group 内按 name 聚合为变体，每个变体以其 probability 权重计入。
 
     Parameters
     ----------
@@ -123,18 +149,14 @@ def build_expected_cf_schedule(
     np.ndarray
         shape (retirement_years,) 的每年期望净现金流数组（实际购买力美元）。
     """
-    ungrouped = [cf for cf in cash_flows if cf.group is None]
+    ungrouped, groups = _group_variants(cash_flows)
     schedule = build_cf_schedule(ungrouped, retirement_years, inflation_series) if ungrouped else np.zeros(retirement_years)
 
-    groups: dict[str, list[CashFlowItem]] = {}
-    for cf in cash_flows:
-        if cf.group is not None:
-            groups.setdefault(cf.group, []).append(cf)
-
     for variants in groups.values():
-        for cf in variants:
-            single = build_cf_schedule([cf], retirement_years, inflation_series)
-            schedule += cf.probability * single
+        for variant_items in variants.values():
+            prob = variant_items[0].probability
+            single = build_cf_schedule(variant_items, retirement_years, inflation_series)
+            schedule += prob * single
 
     return schedule
 
@@ -146,6 +168,7 @@ def enumerate_cf_scenarios(
     """枚举概率分组的所有确定性组合。
 
     每个组合是一种"如果 A 组选了变体 x，B 组选了变体 y …"的确定性场景。
+    同一组内 name 相同的条目构成一个变体，被整体选中。
     确定性（group=None）现金流出现在每个场景中。
 
     Parameters
@@ -161,21 +184,17 @@ def enumerate_cf_scenarios(
         每个元素为 (场景描述, 确定性现金流列表, 联合概率)。
         如果不存在概率分组，返回空列表。
     """
-    ungrouped = [cf for cf in cash_flows if cf.group is None]
-
-    groups: dict[str, list[CashFlowItem]] = {}
-    for cf in cash_flows:
-        if cf.group is not None:
-            groups.setdefault(cf.group, []).append(cf)
+    ungrouped, groups = _group_variants(cash_flows)
 
     if not groups:
         return []
 
-    group_options: list[list[tuple[str, CashFlowItem | None, float]]] = []
+    group_options: list[list[tuple[str, list[CashFlowItem] | None, float]]] = []
     for group_name, variants in groups.items():
-        total_prob = sum(v.probability for v in variants)
-        options: list[tuple[str, CashFlowItem | None, float]] = [
-            (f"{group_name}: {v.name}", v, v.probability) for v in variants
+        total_prob = sum(items[0].probability for items in variants.values())
+        options: list[tuple[str, list[CashFlowItem] | None, float]] = [
+            (f"{group_name}: {vname}", vitems, vitems[0].probability)
+            for vname, vitems in variants.items()
         ]
         if total_prob < 1.0 - 1e-9:
             options.append((f"{group_name}: (none)", None, 1.0 - total_prob))
@@ -194,10 +213,10 @@ def enumerate_cf_scenarios(
         label_parts = []
         active_cfs = list(ungrouped)
         joint_prob = 1.0
-        for desc, cf_item, prob in combo:
+        for desc, cf_items, prob in combo:
             label_parts.append(desc)
-            if cf_item is not None:
-                active_cfs.append(replace(cf_item, group=None))
+            if cf_items is not None:
+                active_cfs.extend(replace(cf, group=None) for cf in cf_items)
             joint_prob *= prob
         label = " + ".join(label_parts)
         scenarios.append((label, active_cfs, joint_prob))
@@ -212,6 +231,7 @@ def enumerate_cf_per_group(
 
     用于组合数过多时的回退策略。对每个组 G 的每个变体 V，
     固定 V 为确定性事件，其他组保留概率分布（MC 模拟中正常采样）。
+    同一组内 name 相同的条目构成一个变体。
 
     Parameters
     ----------
@@ -225,12 +245,7 @@ def enumerate_cf_per_group(
         返回格式与 enumerate_cf_scenarios 一致。
         如果不存在概率分组，返回空列表。
     """
-    ungrouped = [cf for cf in cash_flows if cf.group is None]
-
-    groups: dict[str, list[CashFlowItem]] = {}
-    for cf in cash_flows:
-        if cf.group is not None:
-            groups.setdefault(cf.group, []).append(cf)
+    ungrouped, groups = _group_variants(cash_flows)
 
     if not groups:
         return []
@@ -242,16 +257,16 @@ def enumerate_cf_per_group(
             if cf.group is not None and cf.group != group_name
         ]
 
-        for variant in variants:
+        for variant_name, variant_items in variants.items():
             active_cfs = (
                 list(ungrouped)
-                + [replace(variant, group=None)]
+                + [replace(cf, group=None) for cf in variant_items]
                 + other_group_items
             )
-            label = f"{group_name}: {variant.name}"
-            scenarios.append((label, active_cfs, variant.probability))
+            label = f"{group_name}: {variant_name}"
+            scenarios.append((label, active_cfs, variant_items[0].probability))
 
-        total_prob = sum(v.probability for v in variants)
+        total_prob = sum(items[0].probability for items in variants.values())
         if total_prob < 1.0 - 1e-9:
             active_cfs = list(ungrouped) + other_group_items
             label = f"{group_name}: (none)"
@@ -353,14 +368,16 @@ def build_cf_schedule(
             continue
 
         if cf.inflation_adjusted:
-            # 实际购买力恒定，直接累加
-            schedule[start_idx:end_idx] += cf.amount
+            if cf.growth_rate == 0.0:
+                schedule[start_idx:end_idx] += cf.amount
+            else:
+                for t in range(start_idx, end_idx):
+                    schedule[t] += cf.amount * (1.0 + cf.growth_rate) ** (t - start_idx)
         else:
-            # 名义固定值，需折算为实际购买力
-            # 实际值 = 名义值 / 累计通胀因子
             if cumulative_inflation is None:
                 raise ValueError("inflation_series is required for nominal (non-inflation-adjusted) cash flows")
             for t in range(start_idx, end_idx):
-                schedule[t] += cf.amount / cumulative_inflation[t]
+                nominal = cf.amount * (1.0 + cf.growth_rate) ** (t - start_idx)
+                schedule[t] += nominal / cumulative_inflation[t]
 
     return schedule

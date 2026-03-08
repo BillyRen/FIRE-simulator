@@ -36,6 +36,7 @@ class CashFlowSchema(BaseModel):
     start_year: int = Field(1, ge=1, le=100, description="从退休第几年开始 (1-indexed)")
     duration: int = Field(10, ge=1, le=100)
     inflation_adjusted: bool = True
+    growth_rate: float = Field(0.0, ge=-0.5, le=0.5, description="年度复合增长率: 通胀调整时为实际增长率, 名义时为名义增长率")
     enabled: bool = True
     probability: float = Field(1.0, gt=0, le=1, description="组内概率权重")
     group: str | None = Field(None, max_length=50, description="互斥组名, None=确定事件")
@@ -73,7 +74,8 @@ class BaseSimulationParams(BaseModel):
     declining_start_age: int = Field(65, ge=30, le=100, description="Declining: age at which spending begins to decline (research-supported for 65+)")
     # Smile withdrawal strategy params
     smile_decline_rate: float = Field(0.01, ge=0, le=0.1, description="Smile: annual real spending decline rate before min age (Blanchett 2014: ~1%)")
-    smile_min_age: int = Field(75, ge=30, le=100, description="Smile: age of minimum spending trough (literature consensus: mid-70s)")
+    smile_decline_start_age: int = Field(65, ge=18, le=100, description="Smile: age at which spending starts declining (flat before this)")
+    smile_min_age: int = Field(80, ge=30, le=100, description="Smile: age of minimum spending trough (literature consensus: late-70s to 80)")
     smile_increase_rate: float = Field(0.01, ge=0, le=0.1, description="Smile: annual real spending increase rate after min age (healthcare tail risk buffer)")
     # Glide path params
     glide_path_enabled: bool = Field(False, description="Enable linear glide path for allocation")
@@ -82,11 +84,24 @@ class BaseSimulationParams(BaseModel):
 
     @model_validator(mode="after")
     def check_group_probabilities(self) -> "BaseSimulationParams":
-        groups: dict[str, float] = defaultdict(float)
+        # Group by (group, name) to identify variants;
+        # items with same (group, name) are bundled and share one probability.
+        variants: dict[str, dict[str, float]] = defaultdict(dict)
         for cf in self.cash_flows:
             if cf.group is not None:
-                groups[cf.group] += cf.probability
-        for group_name, total in groups.items():
+                key = (cf.group, cf.name)
+                if cf.name in variants[cf.group]:
+                    existing = variants[cf.group][cf.name]
+                    if abs(existing - cf.probability) > 1e-9:
+                        raise ValueError(
+                            f"Cash flow group '{cf.group}', variant '{cf.name}': "
+                            f"items have inconsistent probabilities "
+                            f"({existing:.2%} vs {cf.probability:.2%})"
+                        )
+                else:
+                    variants[cf.group][cf.name] = cf.probability
+        for group_name, variant_probs in variants.items():
+            total = sum(variant_probs.values())
             if total > 1.0 + 1e-9:
                 raise ValueError(
                     f"Cash flow group '{group_name}' probabilities sum to "
@@ -169,6 +184,7 @@ class GuardrailRequest(BaseSimulationParams):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(5, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
+    consumption_floor: float = Field(0.50, gt=0, le=1)
 
 
 class GuardrailResponse(BaseModel):
@@ -319,6 +335,7 @@ class GuardrailBatchBacktestRequest(BaseSimulationParams):
     adjustment_mode: str = Field("amount", pattern="^(amount|success_rate)$")
     min_remaining_years: int = Field(5, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
+    consumption_floor: float = Field(0.50, gt=0, le=1)
 
 
 class GuardrailBatchPathSummary(BaseModel):

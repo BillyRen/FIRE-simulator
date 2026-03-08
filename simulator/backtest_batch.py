@@ -10,7 +10,6 @@ from .guardrail import run_historical_backtest
 from .monte_carlo import run_simple_historical_backtest
 from .portfolio import compute_real_portfolio_returns
 from .statistics import (
-    CONSUMPTION_FLOOR,
     compute_effective_funded_ratio,
     compute_funded_ratio,
     compute_portfolio_metrics,
@@ -45,7 +44,8 @@ def run_sim_batch_backtest(
     declining_rate: float = 0.02,
     declining_start_age: int = 65,
     smile_decline_rate: float = 0.01,
-    smile_min_age: int = 75,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
     smile_increase_rate: float = 0.01,
 ) -> dict:
     """遍历所有有效 (国家, 起始年) 运行历史回测。
@@ -111,6 +111,7 @@ def run_sim_batch_backtest(
                 declining_rate=declining_rate,
                 declining_start_age=declining_start_age,
                 smile_decline_rate=smile_decline_rate,
+                smile_decline_start_age=smile_decline_start_age,
                 smile_min_age=smile_min_age,
                 smile_increase_rate=smile_increase_rate,
             )
@@ -246,6 +247,7 @@ def run_guardrail_batch_backtest(
     cf_scale_grid: np.ndarray | None = None,
     cf_ref: float = 0.0,
     last_cf_year: int = -1,
+    consumption_floor: float = 0.50,
 ) -> dict:
     """遍历所有有效 (国家, 起始年) 运行 guardrail 历史回测。
 
@@ -321,7 +323,7 @@ def run_guardrail_batch_backtest(
                 "is_complete": n_years >= retirement_years,
                 "g_survived": (
                     float(result["g_portfolio"][-1]) > 0
-                    and not any(w < CONSUMPTION_FLOOR * annual_withdrawal for w in result["g_withdrawals"])
+                    and not any(w < consumption_floor * annual_withdrawal for w in result["g_withdrawals"])
                 ),
                 "b_survived": float(result["b_portfolio"][-1]) > 0,
                 "g_final_portfolio": float(result["g_portfolio"][-1]),
@@ -356,7 +358,9 @@ def run_guardrail_batch_backtest(
     b_wd = np.array([p["b_withdrawals"] for p in complete])
 
     g_fr, g_success = compute_effective_funded_ratio(
-        g_wd, annual_withdrawal, retirement_years, trajectories=g_traj,
+        g_wd, annual_withdrawal, retirement_years,
+        consumption_floor=consumption_floor,
+        trajectories=g_traj,
     )
     b_success = float(np.mean(b_traj[:, -1] > 0))
     b_fr = compute_funded_ratio(b_traj, retirement_years)

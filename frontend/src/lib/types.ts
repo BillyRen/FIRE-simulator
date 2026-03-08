@@ -27,6 +27,7 @@ export interface CashFlowItem {
   start_year: number;
   duration: number;
   inflation_adjusted: boolean;
+  growth_rate?: number; // 年度复合增长率, 默认 0
   enabled?: boolean; // 默认 true
   probability?: number; // 组内概率权重 (0,1], 默认 1.0
   group?: string | null; // 互斥组名, null=确定事件
@@ -56,6 +57,7 @@ export interface SimulationRequest {
   declining_rate: number;
   declining_start_age: number;
   smile_decline_rate: number;
+  smile_decline_start_age: number;
   smile_min_age: number;
   smile_increase_rate: number;
   leverage: number;
@@ -150,6 +152,7 @@ export interface GuardrailRequest {
   adjustment_mode: "amount" | "success_rate";
   min_remaining_years: number;
   baseline_rate: number;
+  consumption_floor: number;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
@@ -679,6 +682,7 @@ export interface FormParams {
   declining_rate: number;
   declining_start_age: number;
   smile_decline_rate: number;
+  smile_decline_start_age: number;
   smile_min_age: number;
   smile_increase_rate: number;
   leverage: number;
@@ -710,7 +714,8 @@ export const DEFAULT_PARAMS: FormParams = {
   declining_rate: 0.02,
   declining_start_age: 65,
   smile_decline_rate: 0.01,
-  smile_min_age: 75,
+  smile_decline_start_age: 65,
+  smile_min_age: 80,
   smile_increase_rate: 0.01,
   leverage: 1.0,
   borrowing_spread: 0.02,

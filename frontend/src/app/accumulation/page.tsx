@@ -237,6 +237,7 @@ export default function AccumulationPage() {
               params={params}
               onChange={setParams}
               showWithdrawalStrategy={true}
+              hideRetirementAge
             />
 
           </CardContent>

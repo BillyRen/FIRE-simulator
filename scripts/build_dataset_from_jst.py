@@ -49,6 +49,7 @@ import pandas as pd
 
 MIN_COMPLETE_YEARS = 30
 RAW_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "JSTdatasetR6.xlsx")
+EXT_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "jst_extension_2021_2025.csv")
 OUT_CSV = os.path.join(os.path.dirname(__file__), "..", "data", "jst_returns.csv")
 OUT_JSON = os.path.join(os.path.dirname(__file__), "..", "data", "jst_countries.json")
 
@@ -87,6 +88,16 @@ def main() -> None:
     print("Reading JST dataset...")
     raw = pd.read_excel(RAW_FILE, sheet_name=0)
     print(f"  Raw rows: {len(raw)}, countries: {raw['iso'].nunique()}")
+
+    if os.path.exists(EXT_FILE):
+        print(f"  Loading extension data from {os.path.basename(EXT_FILE)}...")
+        ext = pd.read_csv(EXT_FILE)
+        ext_years = sorted(ext["year"].unique())
+        print(f"  Extension: {len(ext)} rows, years {ext_years[0]}-{ext_years[-1]}")
+        raw = pd.concat([raw, ext], ignore_index=True)
+        raw = raw.drop_duplicates(subset=["iso", "year"], keep="last")
+        raw = raw.sort_values(["iso", "year"]).reset_index(drop=True)
+        print(f"  Merged: {len(raw)} rows, countries: {raw['iso'].nunique()}")
 
     # ------------------------------------------------------------------
     # 1. Per-country: compute inflation and fx_change, filter rows
@@ -304,15 +315,18 @@ def main() -> None:
         sub = result[result["Country"] == iso]
         en_name, zh_name = COUNTRY_NAMES.get(iso, (iso, iso))
         housing_years = int(sub["Housing_CapGain"].notna().sum())
+        max_year = int(sub["Year"].max())
+        jst_max = 2020  # JST R6 official data ends in 2020
         countries_meta.append({
             "iso": iso,
             "name_en": en_name,
             "name_zh": zh_name,
             "min_year": int(sub["Year"].min()),
-            "max_year": int(sub["Year"].max()),
+            "max_year": max_year,
             "n_years": len(sub),
             "has_housing": housing_years > 0,
             "housing_years": housing_years,
+            "extended": max_year > jst_max,
         })
 
     with open(OUT_JSON, "w", encoding="utf-8") as f:

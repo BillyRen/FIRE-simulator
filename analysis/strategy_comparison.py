@@ -48,12 +48,15 @@ from guardrail_optimization import (
     prepare_historical_paths,
     prepare_jst_intl_scenarios,
     _compute_initial_wd,
+    _precompute_baseline,
+    _run_mc_search,
     evaluate_combo_mc_fast,
     PARAM_GRID,
     generate_valid_combos,
     compute_v3_score,
     compute_cew,
     compute_max_drawdown,
+    recompute_v3_with_adaptive_cap,
 )
 
 SCORE_SCALE = 15.0
@@ -72,6 +75,8 @@ def _aggregate_metrics(
     initial_wd: float,
     initial_rate: float,
     combo: dict,
+    b_total: np.ndarray | None = None,
+    depletion_info: tuple | None = None,
 ) -> dict:
     """从 withdrawal 矩阵 + return 矩阵聚合所有 v2 评分指标。
 
@@ -82,38 +87,41 @@ def _aggregate_metrics(
     initial_wd : 初始年提取金额
     initial_rate : 初始提取率
     combo : 参数字典（会被合并到结果中）
+    b_total : 预计算的 baseline 总消费，避免每次 combo 重复计算。
+    depletion_info : (actual_wds, g_survived, g_funded) 由调用方预算，跳过组合模拟。
     """
     n_sims, n_years = wds_arr.shape
-
-    # 模拟组合价值轨迹
-    values = np.full(n_sims, float(INITIAL_PORTFOLIO))
-    depletion_year = np.full(n_sims, float(n_years))
-    depleted = np.zeros(n_sims, dtype=bool)
-    eff_depletion = np.full(n_sims, float(n_years))
-    eff_depleted = np.zeros(n_sims, dtype=bool)
     consumption_floor_val = CONSUMPTION_FLOOR * initial_wd
 
-    # 实际提取（耗尽后为 0）
-    actual_wds = np.copy(wds_arr)
+    if depletion_info is not None:
+        actual_wds, g_survived, g_funded = depletion_info
+    else:
+        # 模拟组合价值轨迹
+        values = np.full(n_sims, float(INITIAL_PORTFOLIO))
+        depletion_year = np.full(n_sims, float(n_years))
+        depleted = np.zeros(n_sims, dtype=bool)
+        eff_depletion = np.full(n_sims, float(n_years))
+        eff_depleted = np.zeros(n_sims, dtype=bool)
 
-    for year in range(n_years):
-        alive = values > 0
-        actual_wds[:, year] = np.where(alive, wds_arr[:, year], 0.0)
+        actual_wds = np.copy(wds_arr)
 
-        # 消费地板检测
-        newly_eff = alive & (~eff_depleted) & (wds_arr[:, year] < consumption_floor_val)
-        eff_depletion[newly_eff] = year
-        eff_depleted |= newly_eff
+        for year in range(n_years):
+            alive = values > 0
+            actual_wds[:, year] = np.where(alive, wds_arr[:, year], 0.0)
 
-        values = values * (1.0 + scenarios[:, year]) - actual_wds[:, year]
-        newly_depleted = (~depleted) & (values <= 0)
-        depletion_year[newly_depleted] = year + 1
-        depleted |= values <= 0
-        values = np.maximum(values, 0.0)
+            newly_eff = alive & (~eff_depleted) & (wds_arr[:, year] < consumption_floor_val)
+            eff_depletion[newly_eff] = year
+            eff_depleted |= newly_eff
 
-    combined_depletion = np.minimum(depletion_year, eff_depletion)
-    g_survived = combined_depletion >= n_years
-    g_funded = np.minimum(combined_depletion / RETIREMENT_YEARS, 1.0)
+            values = values * (1.0 + scenarios[:, year]) - actual_wds[:, year]
+            newly_depleted = (~depleted) & (values <= 0)
+            depletion_year[newly_depleted] = year + 1
+            depleted |= values <= 0
+            values = np.maximum(values, 0.0)
+
+        combined_depletion = np.minimum(depletion_year, eff_depletion)
+        g_survived = combined_depletion >= n_years
+        g_funded = np.minimum(combined_depletion / RETIREMENT_YEARS, 1.0)
 
     g_min_wd = actual_wds.min(axis=1)
     g_mean_wd = actual_wds.mean(axis=1)
@@ -127,14 +135,8 @@ def _aggregate_metrics(
     g_downside_cv = np.where(g_mean_wd > 0, downside_sd / g_mean_wd, 999.0)
 
     # baseline (固定 BASELINE_RATE 提取)
-    b_wd_fixed = float(INITIAL_PORTFOLIO * BASELINE_RATE)
-    b_values = np.full(n_sims, float(INITIAL_PORTFOLIO))
-    b_total = np.zeros(n_sims)
-    for year in range(n_years):
-        wd = np.where(b_values > 0, b_wd_fixed, 0.0)
-        b_total += wd
-        b_values = b_values * (1.0 + scenarios[:, year]) - wd
-        b_values = np.maximum(b_values, 0.0)
+    if b_total is None:
+        b_total = _precompute_baseline(scenarios)
 
     cr = np.where(b_total > 0, g_total / b_total, 0.0)
     fr = g_min_wd / initial_wd
@@ -245,25 +247,26 @@ FIXED_GRID = {
 }
 
 
-def evaluate_fixed(rate: float, scenarios: np.ndarray) -> dict:
+def evaluate_fixed(rate: float, scenarios: np.ndarray, b_total: np.ndarray | None = None) -> dict:
     """向量化评估固定提取策略。"""
     n_sims, n_years = scenarios.shape
     initial_wd = INITIAL_PORTFOLIO * rate
     wds_arr = np.full((n_sims, n_years), initial_wd)
     combo = {"strategy": "fixed", "withdrawal_rate": rate}
-    return _aggregate_metrics(wds_arr, scenarios, initial_wd, rate, combo)
+    return _aggregate_metrics(wds_arr, scenarios, initial_wd, rate, combo, b_total=b_total)
 
 
 def search_fixed(scenarios: np.ndarray, label: str) -> pd.DataFrame:
     """网格搜索固定提取策略。"""
     rates = FIXED_GRID["withdrawal_rate"]
     print(f"\n  [{label}] 固定策略搜索: {len(rates)} 个提取率...")
+    b_total = _precompute_baseline(scenarios)
     t0 = time.time()
     results = []
     for rate in rates:
-        r = evaluate_fixed(rate, scenarios)
+        r = evaluate_fixed(rate, scenarios, b_total=b_total)
         results.append(r)
-    df = pd.DataFrame(results).sort_values("score", ascending=False).reset_index(drop=True)
+    df = pd.DataFrame(results).sort_values("score_v3", ascending=False).reset_index(drop=True)
     print(f"    完成 ({time.time()-t0:.1f}s)")
     return df
 
@@ -284,41 +287,48 @@ def evaluate_dynamic(
     ceiling: float,
     floor: float,
     scenarios: np.ndarray,
+    b_total: np.ndarray | None = None,
 ) -> dict:
-    """向量化评估 Vanguard 动态提取策略。"""
+    """向量化评估 Vanguard 动态提取策略（含 depletion 跟踪，避免双重模拟）。"""
     n_sims, n_years = scenarios.shape
     initial_wd = INITIAL_PORTFOLIO * rate
+    consumption_floor_val = CONSUMPTION_FLOOR * initial_wd
 
-    wds = np.full(n_sims, initial_wd)
-    wds_arr = np.zeros((n_sims, n_years))
-
-    for year in range(n_years):
-        wds_arr[:, year] = wds
-        # 用下一年初组合价值更新（但这里先记录本年提取）
-        # 提取后的组合价值在 _aggregate_metrics 中计算
-        # 这里需要跟踪组合价值以计算下一年的目标提取
-        if year == 0:
-            # 第一年已经设置好了，需要跟踪组合价值
-            pass
-        # 价值更新放在下面统一处理
-
-    # 需要完整模拟以跟踪动态调整
     values = np.full(n_sims, float(INITIAL_PORTFOLIO))
     wds = np.full(n_sims, initial_wd)
-    wds_arr = np.zeros((n_sims, n_years))
+    actual_wds = np.zeros((n_sims, n_years))
+
+    depleted = np.zeros(n_sims, dtype=bool)
+    depletion_year = np.full(n_sims, float(n_years))
+    eff_depleted = np.zeros(n_sims, dtype=bool)
+    eff_depletion = np.full(n_sims, float(n_years))
 
     for year in range(n_years):
         if year > 0:
             alive = values > 0
             target = values * rate
-            upper = wds * (1.0 + ceiling)
-            lower = wds * (1.0 - floor)
-            new_wds = np.clip(target, lower, upper)
-            wds = np.where(alive, new_wds, wds)
+            upper_lim = wds * (1.0 + ceiling)
+            lower_lim = wds * (1.0 - floor)
+            new_wds = np.clip(target, lower_lim, upper_lim)
+            wds = np.where(alive, new_wds, 0.0)
+        else:
+            alive = values > 0
 
-        wds_arr[:, year] = wds
-        values = values * (1.0 + scenarios[:, year]) - wds
+        actual_wds[:, year] = np.where(alive, wds, 0.0)
+
+        newly_eff = alive & (~eff_depleted) & (wds < consumption_floor_val)
+        eff_depletion[newly_eff] = year
+        eff_depleted |= newly_eff
+
+        values = values * (1.0 + scenarios[:, year]) - actual_wds[:, year]
+        newly_depleted = (~depleted) & (values <= 0)
+        depletion_year[newly_depleted] = year + 1
+        depleted |= values <= 0
         values = np.maximum(values, 0.0)
+
+    combined_depletion = np.minimum(depletion_year, eff_depletion)
+    g_survived = combined_depletion >= n_years
+    g_funded = np.minimum(combined_depletion / RETIREMENT_YEARS, 1.0)
 
     combo = {
         "strategy": "dynamic",
@@ -326,8 +336,11 @@ def evaluate_dynamic(
         "dynamic_ceiling": ceiling,
         "dynamic_floor": floor,
     }
-    # 重新计算指标（用 wds_arr 和原始 scenarios）
-    return _aggregate_metrics(wds_arr, scenarios, initial_wd, rate, combo)
+    depletion_info = (actual_wds, g_survived, g_funded)
+    return _aggregate_metrics(
+        actual_wds, scenarios, initial_wd, rate, combo,
+        b_total=b_total, depletion_info=depletion_info,
+    )
 
 
 def search_dynamic(scenarios: np.ndarray, label: str) -> pd.DataFrame:
@@ -337,17 +350,18 @@ def search_dynamic(scenarios: np.ndarray, label: str) -> pd.DataFrame:
     floors = DYNAMIC_GRID["dynamic_floor"]
     combos = list(itertools.product(rates, ceilings, floors))
     print(f"\n  [{label}] 动态策略搜索: {len(combos)} 个组合...")
+    b_total = _precompute_baseline(scenarios)
     t0 = time.time()
     results = []
     for i, (rate, ceiling, floor) in enumerate(combos):
-        r = evaluate_dynamic(rate, ceiling, floor, scenarios)
+        r = evaluate_dynamic(rate, ceiling, floor, scenarios, b_total=b_total)
         results.append(r)
         if (i + 1) % 200 == 0 or i == len(combos) - 1:
             elapsed = time.time() - t0
             speed = (i + 1) / elapsed
             eta = (len(combos) - i - 1) / speed if speed > 0 else 0
             print(f"    [{i+1}/{len(combos)}]  {speed:.0f} combo/s  ETA: {eta:.0f}s")
-    df = pd.DataFrame(results).sort_values("score", ascending=False).reset_index(drop=True)
+    df = pd.DataFrame(results).sort_values("score_v3", ascending=False).reset_index(drop=True)
     print(f"    完成 ({time.time()-t0:.1f}s)")
     return df
 
@@ -363,23 +377,11 @@ def search_guardrail(
     label: str,
     combos: list[dict] | None = None,
 ) -> pd.DataFrame:
-    """网格搜索护栏策略。"""
+    """网格搜索护栏策略（委托 _run_mc_search 实现并行化）。"""
     if combos is None:
         combos = generate_valid_combos(PARAM_GRID)
-    print(f"\n  [{label}] 护栏策略搜索: {len(combos)} 个组合...")
-    t0 = time.time()
-    results = []
-    for i, combo in enumerate(combos):
-        r = evaluate_combo_mc_fast(combo, scenarios, table, rate_grid)
-        r["strategy"] = "guardrail"
-        results.append(r)
-        if (i + 1) % 500 == 0 or i == len(combos) - 1:
-            elapsed = time.time() - t0
-            speed = (i + 1) / elapsed
-            eta = (len(combos) - i - 1) / speed if speed > 0 else 0
-            print(f"    [{i+1}/{len(combos)}]  {speed:.0f} combo/s  ETA: {eta:.0f}s")
-    df = pd.DataFrame(results).sort_values("score", ascending=False).reset_index(drop=True)
-    print(f"    完成 ({time.time()-t0:.1f}s)")
+    df = _run_mc_search(scenarios, table, rate_grid, combos, f"{label}-Guardrail")
+    df["strategy"] = "guardrail"
     return df
 
 
@@ -475,7 +477,7 @@ def compute_weighted_geo3(dfs_by_source: dict, source_labels: list, key_cols: li
         smap = {}
         for _, row in df.iterrows():
             k = tuple(row[c] for c in key_cols)
-            smap[k] = row["score"]
+            smap[k] = row["score_v3"]
         score_maps[key] = smap
 
     all_keys = set(score_maps["hist"].keys())
@@ -568,7 +570,7 @@ def plot_pareto_comparison(
         safe = df[df["p10_funded"] >= 0.80]
         if len(safe) == 0:
             safe = df.head(30)
-        top = safe.nlargest(min(50, len(safe)), "score")
+        top = safe.nlargest(min(50, len(safe)), "score_v3")
         ax.scatter(
             top["median_util"], top["p10_floor_self"],
             c=color, s=40, alpha=0.6, marker=marker, label=name, edgecolors="none",
@@ -592,7 +594,7 @@ def plot_pareto_comparison(
         safe = df[df["p10_funded"] >= 0.80]
         if len(safe) == 0:
             safe = df.head(30)
-        top = safe.nlargest(min(50, len(safe)), "score")
+        top = safe.nlargest(min(50, len(safe)), "score_v3")
         ax.scatter(
             top["median_util"], top["smoothness"],
             c=color, s=40, alpha=0.6, marker=marker, label=name, edgecolors="none",
@@ -629,7 +631,7 @@ def plot_sensitivity(
 
     # 固定策略: withdrawal_rate vs score
     ax = axes[0, 0]
-    ax.plot(fixed_df["withdrawal_rate"] * 100, fixed_df["score"], "b-o", markersize=3)
+    ax.plot(fixed_df["withdrawal_rate"] * 100, fixed_df["score_v3"], "b-o", markersize=3)
     best = fixed_df.iloc[0]
     ax.axvline(best["withdrawal_rate"] * 100, color="red", linestyle="--", alpha=0.5)
     ax.set_xlabel("提取率 (%)")
@@ -652,9 +654,9 @@ def plot_sensitivity(
     # 动态策略: withdrawal_rate vs score (按最优 ceiling/floor)
     ax = axes[0, 2]
     dyn_best_by_rate = dynamic_df.loc[
-        dynamic_df.groupby("withdrawal_rate")["score"].idxmax()
+        dynamic_df.groupby("withdrawal_rate")["score_v3"].idxmax()
     ].sort_values("withdrawal_rate")
-    ax.plot(dyn_best_by_rate["withdrawal_rate"] * 100, dyn_best_by_rate["score"], "o-",
+    ax.plot(dyn_best_by_rate["withdrawal_rate"] * 100, dyn_best_by_rate["score_v3"], "o-",
             color="#FF9800", markersize=4)
     dyn_best = dynamic_df.iloc[0]
     ax.axvline(dyn_best["withdrawal_rate"] * 100, color="red", linestyle="--", alpha=0.5)
@@ -668,7 +670,7 @@ def plot_sensitivity(
     best_rate = dyn_best["withdrawal_rate"]
     sub = dynamic_df[dynamic_df["withdrawal_rate"] == best_rate]
     if len(sub) > 1:
-        pivot = sub.pivot_table(values="score", index="dynamic_floor", columns="dynamic_ceiling")
+        pivot = sub.pivot_table(values="score_v3", index="dynamic_floor", columns="dynamic_ceiling")
         im = ax.imshow(pivot.values, aspect="auto", cmap="viridis", origin="lower")
         ax.set_xticks(range(len(pivot.columns)))
         ax.set_xticklabels([f"{v:.0%}" for v in pivot.columns], fontsize=8)
@@ -682,9 +684,9 @@ def plot_sensitivity(
     # 护栏策略: target_success vs score (按最优其他参数)
     ax = axes[1, 1]
     gr_best_by_ts = guardrail_df.loc[
-        guardrail_df.groupby("target_success")["score"].idxmax()
+        guardrail_df.groupby("target_success")["score_v3"].idxmax()
     ].sort_values("target_success")
-    ax.plot(gr_best_by_ts["target_success"] * 100, gr_best_by_ts["score"], "o-",
+    ax.plot(gr_best_by_ts["target_success"] * 100, gr_best_by_ts["score_v3"], "o-",
             color="#4CAF50", markersize=4)
     gr_best = guardrail_df.iloc[0]
     ax.axvline(gr_best["target_success"] * 100, color="red", linestyle="--", alpha=0.5)
@@ -695,9 +697,9 @@ def plot_sensitivity(
 
     # 三策略 Score 分布箱线图
     ax = axes[1, 2]
-    safe_fixed = fixed_df[fixed_df["p10_funded"] >= 0.80]["score"]
-    safe_dynamic = dynamic_df[dynamic_df["p10_funded"] >= 0.80]["score"]
-    safe_guardrail = guardrail_df[guardrail_df["p10_funded"] >= 0.80]["score"]
+    safe_fixed = fixed_df[fixed_df["p10_funded"] >= 0.80]["score_v3"]
+    safe_dynamic = dynamic_df[dynamic_df["p10_funded"] >= 0.80]["score_v3"]
+    safe_guardrail = guardrail_df[guardrail_df["p10_funded"] >= 0.80]["score_v3"]
     box_data = []
     box_labels = []
     if len(safe_fixed) > 0:
@@ -737,21 +739,21 @@ def plot_score_vs_rate(
 
     # 固定
     sorted_f = fixed_df.sort_values("initial_rate")
-    ax.plot(sorted_f["initial_rate"] * 100, sorted_f["score"],
+    ax.plot(sorted_f["initial_rate"] * 100, sorted_f["score_v3"],
             "-", color="#2196F3", linewidth=2, label="固定提取", alpha=0.8)
 
     # 动态: 每个 rate 取最优 ceiling/floor
     dyn_best = dynamic_df.loc[
-        dynamic_df.groupby("withdrawal_rate")["score"].idxmax()
+        dynamic_df.groupby("withdrawal_rate")["score_v3"].idxmax()
     ].sort_values("withdrawal_rate")
-    ax.plot(dyn_best["withdrawal_rate"] * 100, dyn_best["score"],
+    ax.plot(dyn_best["withdrawal_rate"] * 100, dyn_best["score_v3"],
             "s-", color="#FF9800", linewidth=2, markersize=5, label="Vanguard 动态 (最优 C/F)", alpha=0.8)
 
     # 护栏: 按 initial_rate 分 bin
     gr_sorted = guardrail_df.sort_values("initial_rate")
     gr_sorted["rate_bin"] = (gr_sorted["initial_rate"] * 200).round() / 200
-    gr_best = gr_sorted.loc[gr_sorted.groupby("rate_bin")["score"].idxmax()].sort_values("rate_bin")
-    ax.plot(gr_best["rate_bin"] * 100, gr_best["score"],
+    gr_best = gr_sorted.loc[gr_sorted.groupby("rate_bin")["score_v3"].idxmax()].sort_values("rate_bin")
+    ax.plot(gr_best["rate_bin"] * 100, gr_best["score_v3"],
             "^-", color="#4CAF50", linewidth=2, markersize=5, label="风险护栏 (最优参数)", alpha=0.8)
 
     ax.set_xlabel("初始提取率 (%)", fontsize=12)
@@ -835,7 +837,7 @@ def generate_report(
         ("smoothness", "平滑度"),
         ("p10_min_wd", "P10 最低年消费"),
         ("median_downside_cv", "中位下行CV"),
-        ("score", "综合得分"),
+        ("score_v3", "综合得分(v3)"),
     ]
 
     header = "| 指标 |"
@@ -906,7 +908,14 @@ def generate_report(
 def main():
     all_fixed, all_dynamic, all_guardrail, source_labels, source_names = run_all_sources()
 
-    # 保存原始结果
+    # 自适应 CEW cap（跨三种策略 × 四个数据源统一计算）
+    all_dfs = []
+    for key in source_labels:
+        all_dfs.extend([all_fixed[key], all_dynamic[key], all_guardrail[key]])
+    adaptive_cap = recompute_v3_with_adaptive_cap(all_dfs)
+    print(f"\n  自适应 CEW cap: {adaptive_cap:.6f} (P95 × 1.2)")
+
+    # 保存结果（包含更新后的 v3 scores）
     for key in source_labels:
         all_fixed[key].to_csv(STRAT_OUTPUT_DIR / f"fixed_{key}_results.csv", index=False, float_format="%.6f")
         all_dynamic[key].to_csv(STRAT_OUTPUT_DIR / f"dynamic_{key}_results.csv", index=False, float_format="%.6f")
@@ -986,7 +995,7 @@ def main():
         }
         for m in ["success_rate", "p10_funded", "median_util", "p10_util",
                    "median_discounted", "p10_floor_self", "smoothness",
-                   "p10_min_wd", "median_downside_cv", "score", "initial_rate"]:
+                   "p10_min_wd", "median_downside_cv", "score_v3", "initial_rate"]:
             row_data[m] = ref.get(m, 0)
         comparison_rows.append(row_data)
 

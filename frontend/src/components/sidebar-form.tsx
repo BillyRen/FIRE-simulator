@@ -29,12 +29,14 @@ import { ScenarioManager } from "./scenario-manager";
 import { fetchCountries } from "@/lib/api";
 import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, CountryInfo } from "@/lib/types";
+import { countryFlag } from "@/lib/utils";
 
 interface SidebarFormProps {
   params: FormParams;
   onChange: (params: FormParams) => void;
   showWithdrawalStrategy?: boolean;
   showAllocation?: boolean;
+  hideRetirementAge?: boolean;
   children?: React.ReactNode;
 }
 
@@ -146,6 +148,7 @@ export function SidebarForm({
   onChange,
   showWithdrawalStrategy = true,
   showAllocation = true,
+  hideRetirementAge = false,
   children,
 }: SidebarFormProps) {
   const t = useTranslations("sidebar");
@@ -182,42 +185,44 @@ export function SidebarForm({
 
   return (
     <div className="space-y-2">
-      <div className="space-y-1.5">
-        <NumberField
-          label={t("retirementAge")}
-          value={p.retirement_age}
-          onChange={(v) => {
-            onChange({ ...p, retirement_age: v, retirement_years: Math.max(1, p.life_expectancy - v) });
-          }}
-          min={18}
-          max={p.life_expectancy - 1}
-          step={1}
-        />
-        <p className="text-xs text-muted-foreground">
-          {t("computedYears", { years: p.life_expectancy - p.retirement_age })}
-          {" · "}
-          <button
-            type="button"
-            className="inline-flex items-center gap-0.5 hover:text-foreground transition-colors"
-            onClick={() => setShowLifeExpectancy(v => !v)}
-          >
-            {t("lifeExpectancy")}: {p.life_expectancy}
-            <ChevronDown className={`h-3 w-3 transition-transform ${showLifeExpectancy ? "rotate-180" : ""}`} />
-          </button>
-        </p>
-        {showLifeExpectancy && (
+      {!hideRetirementAge && (
+        <div className="space-y-1.5">
           <NumberField
-            label={t("lifeExpectancy")}
-            value={p.life_expectancy}
+            label={t("retirementAge")}
+            value={p.retirement_age}
             onChange={(v) => {
-              onChange({ ...p, life_expectancy: v, retirement_years: Math.max(1, v - p.retirement_age) });
+              onChange({ ...p, retirement_age: v, retirement_years: Math.max(1, p.life_expectancy - v) });
             }}
-            min={p.retirement_age + 1}
-            max={120}
+            min={18}
+            max={p.life_expectancy - 1}
             step={1}
           />
-        )}
-      </div>
+          <p className="text-xs text-muted-foreground">
+            {t("computedYears", { years: p.life_expectancy - p.retirement_age })}
+            {" · "}
+            <button
+              type="button"
+              className="inline-flex items-center gap-0.5 hover:text-foreground transition-colors"
+              onClick={() => setShowLifeExpectancy(v => !v)}
+            >
+              {t("lifeExpectancy")}: {p.life_expectancy}
+              <ChevronDown className={`h-3 w-3 transition-transform ${showLifeExpectancy ? "rotate-180" : ""}`} />
+            </button>
+          </p>
+          {showLifeExpectancy && (
+            <NumberField
+              label={t("lifeExpectancy")}
+              value={p.life_expectancy}
+              onChange={(v) => {
+                onChange({ ...p, life_expectancy: v, retirement_years: Math.max(1, v - p.retirement_age) });
+              }}
+              min={p.retirement_age + 1}
+              max={120}
+              step={1}
+            />
+          )}
+        </div>
+      )}
 
       {/* ── Core sections ── */}
       <Accordion type="multiple" defaultValue={coreDefaults}>
@@ -440,6 +445,16 @@ export function SidebarForm({
                       suffix="%"
                     />
                     <NumberField
+                      label={t("smileDeclineStartAge")}
+                      value={p.smile_decline_start_age}
+                      onChange={(v) => set("smile_decline_start_age", v)}
+                      min={18}
+                      max={100}
+                      step={1}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <NumberField
                       label={t("smileMinAge")}
                       value={p.smile_min_age}
                       onChange={(v) => set("smile_min_age", v)}
@@ -447,16 +462,16 @@ export function SidebarForm({
                       max={100}
                       step={1}
                     />
+                    <NumberField
+                      label={t("smileIncreaseRate")}
+                      value={+(p.smile_increase_rate * 100).toFixed(1)}
+                      onChange={(v) => set("smile_increase_rate", v / 100)}
+                      min={0}
+                      max={10}
+                      step={0.1}
+                      suffix="%"
+                    />
                   </div>
-                  <NumberField
-                    label={t("smileIncreaseRate")}
-                    value={+(p.smile_increase_rate * 100).toFixed(1)}
-                    onChange={(v) => set("smile_increase_rate", v / 100)}
-                    min={0}
-                    max={10}
-                    step={0.1}
-                    suffix="%"
-                  />
                 </div>
               )}
             </AccordionContent>
@@ -545,7 +560,7 @@ export function SidebarForm({
                     <SelectItem value="ALL">{t("allCountries")}</SelectItem>
                     {countries.map((c) => (
                       <SelectItem key={c.iso} value={c.iso}>
-                        {countryName(c)} ({c.iso})
+                        {countryFlag(c.iso)} {countryName(c)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -587,7 +602,7 @@ export function SidebarForm({
               value={p.data_start_year}
               onChange={(v) => set("data_start_year", v)}
               min={1871}
-              max={p.data_source === "fire_dataset" ? 2025 : 2020}
+              max={2025}
               step={1}
             />
           </AccordionContent>

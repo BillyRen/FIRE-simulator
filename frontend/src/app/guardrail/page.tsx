@@ -38,7 +38,7 @@ import type {
   ScenarioAnalysisResponse,
   SensitivityAnalysisResponse,
 } from "@/lib/types";
-import { fmt, pct } from "@/lib/utils";
+import { fmt, pct, countryFlag } from "@/lib/utils";
 
 function deltaPct(cur: number, pin: number): string {
   const d = cur - pin;
@@ -62,6 +62,7 @@ export default function GuardrailPage() {
     guardrailAdjustmentMode: adjustmentMode, setGuardrailAdjustmentMode: setAdjustmentMode,
     guardrailMinRemainingYears: minRemainingYears, setGuardrailMinRemainingYears: setMinRemainingYears,
     guardrailBaselineRate: baselineRate, setGuardrailBaselineRate: setBaselineRate,
+    guardrailConsumptionFloor: consumptionFloor, setGuardrailConsumptionFloor: setConsumptionFloor,
     histStartYear, setHistStartYear,
     singleCountry, setSingleCountry,
   } = useSharedParams();
@@ -132,6 +133,7 @@ export default function GuardrailPage() {
     adjustment_mode: adjustmentMode,
     min_remaining_years: minRemainingYears,
     baseline_rate: baselineRate,
+    consumption_floor: consumptionFloor,
     leverage: params.leverage,
     borrowing_spread: params.borrowing_spread,
     cash_flows: params.cash_flows,
@@ -263,6 +265,15 @@ export default function GuardrailPage() {
     if (!batchResult) return [];
     return Array.from(new Set(batchResult.paths.map((p) => p.country))).sort();
   }, [batchResult]);
+
+  const countryLabel = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of countries) {
+      const name = locale === "zh" ? c.name_zh : c.name_en;
+      map[c.iso] = `${countryFlag(c.iso)} ${name}`;
+    }
+    return (iso: string) => map[iso] ?? iso;
+  }, [countries, locale]);
 
   // Sorted & filtered paths for the table
   const sortedPaths = useMemo(() => {
@@ -416,6 +427,14 @@ export default function GuardrailPage() {
                     onChange={(v) => setMinRemainingYears(Math.round(v))}
                     min={1}
                     max={30}
+                  />
+                  <NumberField
+                    label={t("consumptionFloor")}
+                    value={+(consumptionFloor * 100).toFixed(0)}
+                    onChange={(v) => setConsumptionFloor(v / 100)}
+                    min={1}
+                    max={99}
+                    help={t("consumptionFloorHelp")}
                   />
                 </div>
               </div>
@@ -624,35 +643,35 @@ export default function GuardrailPage() {
                     xTitle={tf("ageAxis")}
                     color={CHART_COLORS.secondary.rgb}
                     showLogToggle
-                    extraTraces={[
-                      {
-                        y: mcResult.b_withdrawal_percentiles?.["50"] ?? Array(
-                          mcResult.g_withdrawal_percentiles["50"]?.length ?? 0
-                        ).fill(mcResult.baseline_annual_wd),
-                        mode: "lines",
-                        name: t("baselineP50Withdrawal"),
-                        line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
-                        type: "scatter",
-                        hovertemplate: tc.raw("baselineHover"),
-                      },
-                      {
-                        y: (() => {
-                          const bP50 = mcResult.b_withdrawal_percentiles?.["50"];
-                          const baseWd = mcResult.baseline_annual_wd;
-                          const initWd = mcResult.annual_withdrawal;
-                          if (bP50) {
-                            return bP50.map((v) => initWd + (v - baseWd));
-                          }
-                          const n = mcResult.g_withdrawal_percentiles["50"]?.length ?? 0;
-                          return Array(n).fill(initWd);
-                        })(),
-                        mode: "lines",
-                        name: tc("initialWithdrawalLine", { amount: fmt(mcResult.annual_withdrawal) }),
-                        line: { color: CHART_COLORS.neutral.hex, width: 1, dash: "dot" },
-                        type: "scatter",
-                        hovertemplate: tc.raw("initialWithdrawalHover"),
-                      },
-                    ]}
+                    extraTraces={(() => {
+                      const wdX = Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i);
+                      return [
+                        {
+                          x: wdX,
+                          y: mcResult.b_withdrawal_percentiles?.["50"] ?? Array(wdX.length).fill(mcResult.baseline_annual_wd),
+                          mode: "lines",
+                          name: t("baselineP50Withdrawal"),
+                          line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
+                          type: "scatter",
+                          hovertemplate: tc.raw("baselineHover"),
+                        },
+                        {
+                          x: wdX,
+                          y: (() => {
+                            const bP50 = mcResult.b_withdrawal_percentiles?.["50"];
+                            const baseWd = mcResult.baseline_annual_wd;
+                            const initWd = mcResult.annual_withdrawal;
+                            if (bP50) return bP50.map((v) => initWd + (v - baseWd));
+                            return Array(wdX.length).fill(initWd);
+                          })(),
+                          mode: "lines",
+                          name: tc("initialWithdrawalLine", { amount: fmt(mcResult.annual_withdrawal) }),
+                          line: { color: CHART_COLORS.neutral.hex, width: 1, dash: "dot" },
+                          type: "scatter",
+                          hovertemplate: tc.raw("initialWithdrawalHover"),
+                        },
+                      ];
+                    })()}
                   />
                 </CardContent>
               </Card>
@@ -846,7 +865,7 @@ export default function GuardrailPage() {
                                   });
                                 }}
                               >
-                                {c}
+                                {countryLabel(c)}
                               </button>
                             ))}
                           </div>
@@ -916,7 +935,7 @@ export default function GuardrailPage() {
                                 className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${!p.is_complete ? "opacity-60" : ""}`}
                                 onClick={() => setSelectedPath(p)}
                               >
-                                <td className="px-3 py-1.5">{p.country}</td>
+                                <td className="px-3 py-1.5">{countryLabel(p.country)}</td>
                                 <td className="px-3 py-1.5">{p.start_year}</td>
                                 <td className="px-3 py-1.5 text-right">
                                   {p.years_simulated}
@@ -958,7 +977,7 @@ export default function GuardrailPage() {
                   </Button>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <MetricCard label={t("backtestCountry")} value={selectedPath.country} />
+                    <MetricCard label={t("backtestCountry")} value={countryLabel(selectedPath.country)} />
                     <MetricCard label={t("backtestStartYear")} value={`${selectedPath.start_year}`} />
                     <MetricCard label={t("yearsSimulated")} value={`${selectedPath.years_simulated}`} />
                     <MetricCard label={t("adjustmentCount")} value={`${selectedPath.num_adjustments}`} />

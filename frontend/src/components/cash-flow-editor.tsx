@@ -315,6 +315,19 @@ function CashFlowCard({
           <Label className="text-xs cursor-pointer">
             {t("inflationAdjusted")}
           </Label>
+          <div className="flex items-center gap-1 ml-auto">
+            <Label className="text-xs text-muted-foreground whitespace-nowrap" title={item.inflation_adjusted ? t("growthRateHintReal") : t("growthRateHintNominal")}>
+              {t("growthRate")}
+            </Label>
+            <CfNumberInput
+              value={Math.round((item.growth_rate ?? 0) * 1000) / 10}
+              onChange={(v) => onUpdate({ growth_rate: Math.round(v * 10) / 1000 })}
+              min={-50}
+              max={50}
+              step={0.5}
+              className="h-7 text-xs w-16"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -450,14 +463,30 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
   const addVariant = (groupName: string) => {
     const newIdx = items.length;
     const groupItems = items.filter((it) => it.group === groupName);
+    const uniqueNames = new Set(groupItems.map((it) => it.name));
     const variant: CashFlowItem = {
       ...NEW_ITEM,
-      name: t("variant", { n: groupItems.length + 1 }),
+      name: t("variant", { n: uniqueNames.size + 1 }),
       group: groupName,
       probability: 0.1,
     };
     setExpandedCards((prev) => new Set([...prev, newIdx]));
     sync([...items, variant], [...types, "income"]);
+  };
+
+  const addPhase = (groupName: string, variantName: string) => {
+    const newIdx = items.length;
+    const ref = items.find(
+      (it) => it.group === groupName && it.name === variantName
+    );
+    const phase: CashFlowItem = {
+      ...NEW_ITEM,
+      name: variantName,
+      group: groupName,
+      probability: ref?.probability ?? 0.5,
+    };
+    setExpandedCards((prev) => new Set([...prev, newIdx]));
+    sync([...items, phase], [...types, "expense"]);
   };
 
   const ungroupedIndices: number[] = [];
@@ -528,8 +557,22 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
       ))}
 
       {Array.from(groupMap.entries()).map(([groupName, indices]) => {
-        const totalProb = indices.reduce(
-          (sum, i) => sum + (items[i].probability ?? 1),
+        const variantMap = new Map<string, number[]>();
+        indices.forEach((i) => {
+          const name = items[i].name;
+          const arr = variantMap.get(name) ?? [];
+          arr.push(i);
+          variantMap.set(name, arr);
+        });
+
+        const variantProbs = new Map<string, number>();
+        indices.forEach((i) => {
+          const name = items[i].name;
+          if (!variantProbs.has(name))
+            variantProbs.set(name, items[i].probability ?? 1);
+        });
+        const totalProb = Array.from(variantProbs.values()).reduce(
+          (a, b) => a + b,
           0
         );
         const overLimit = totalProb > 1.0 + 1e-9;
@@ -554,7 +597,7 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
                   </span>
                   <span className="text-xs truncate">{groupName}</span>
                   <span className="text-[10px] text-muted-foreground shrink-0">
-                    {t("variantCount", { n: indices.length })} ·{" "}
+                    {t("variantCount", { n: variantMap.size })} ·{" "}
                     {Math.round(totalProb * 100)}%
                   </span>
                 </button>
@@ -570,6 +613,8 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
             </div>
           );
         }
+
+        const variantEntries = Array.from(variantMap.entries());
 
         return (
           <div
@@ -617,21 +662,64 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
               </Button>
             </div>
 
-            {indices.map((i, vi) => (
-              <CashFlowCard
-                key={`cf-${i}`}
-                item={items[i]}
-                itemType={types[i] ?? "income"}
-                label={t("variant", { n: vi + 1 })}
-                showProbability={true}
-                expanded={expandedCards.has(i)}
-                t={t}
-                onUpdate={(patch) => update(i, patch)}
-                onSetType={(tp) => setType(i, tp)}
-                onRemove={() => remove(i)}
-                onToggle={() => toggleCard(i)}
-              />
-            ))}
+            {variantEntries.map(([vname, vindices], vi) => {
+              const isMultiPhase = vindices.length > 1;
+              return (
+                <div
+                  key={`variant-${vname}`}
+                  className={
+                    isMultiPhase
+                      ? "border-l-2 border-primary/20 pl-2 space-y-2"
+                      : ""
+                  }
+                >
+                  {vindices.map((i, pi) => (
+                    <CashFlowCard
+                      key={`cf-${i}`}
+                      item={items[i]}
+                      itemType={types[i] ?? "income"}
+                      label={
+                        isMultiPhase
+                          ? t("phase", { n: pi + 1 })
+                          : t("variant", { n: vi + 1 })
+                      }
+                      showProbability={pi === 0}
+                      expanded={expandedCards.has(i)}
+                      t={t}
+                      onUpdate={(patch) => {
+                        if (
+                          "probability" in patch &&
+                          patch.probability !== undefined
+                        ) {
+                          const copy = [...items];
+                          vindices.forEach((j) => {
+                            copy[j] = {
+                              ...copy[j],
+                              probability: patch.probability!,
+                            };
+                          });
+                          copy[i] = { ...copy[i], ...patch };
+                          sync(copy, types);
+                        } else {
+                          update(i, patch);
+                        }
+                      }}
+                      onSetType={(tp) => setType(i, tp)}
+                      onRemove={() => remove(i)}
+                      onToggle={() => toggleCard(i)}
+                    />
+                  ))}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-2 text-[10px] text-muted-foreground"
+                    onClick={() => addPhase(groupName, vname)}
+                  >
+                    {t("addPhase")}
+                  </Button>
+                </div>
+              );
+            })}
 
             <div className="flex items-center justify-between px-1">
               <Button

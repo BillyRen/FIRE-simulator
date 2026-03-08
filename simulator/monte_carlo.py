@@ -33,7 +33,8 @@ def run_simulation(
     declining_rate: float = 0.02,
     declining_start_age: int = 65,
     smile_decline_rate: float = 0.01,
-    smile_min_age: int = 75,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
     smile_increase_rate: float = 0.01,
     glide_path_end_allocation: dict[str, float] | None = None,
     glide_path_years: int = 20,
@@ -193,10 +194,12 @@ def run_simulation(
                     withdrawal = annual_withdrawal
             elif withdrawal_strategy == "smile" and value > 0:
                 age = retirement_age + year
-                if age < smile_min_age:
-                    withdrawal = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - retirement_age)
+                if age < smile_decline_start_age:
+                    withdrawal = annual_withdrawal
+                elif age < smile_min_age:
+                    withdrawal = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - smile_decline_start_age)
                 else:
-                    min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - retirement_age)
+                    min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - smile_decline_start_age)
                     withdrawal = min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
             else:
                 withdrawal = annual_withdrawal
@@ -268,7 +271,8 @@ def run_simple_historical_backtest(
     declining_rate: float = 0.02,
     declining_start_age: int = 65,
     smile_decline_rate: float = 0.01,
-    smile_min_age: int = 75,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
     smile_increase_rate: float = 0.01,
 ) -> dict:
     """在单条历史回报路径上运行退休模拟（无 bootstrap）。
@@ -342,10 +346,12 @@ def run_simple_historical_backtest(
                 wd = annual_withdrawal
         elif withdrawal_strategy == "smile" and value > 0:
             age = retirement_age + year
-            if age < smile_min_age:
-                wd = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - retirement_age)
+            if age < smile_decline_start_age:
+                wd = annual_withdrawal
+            elif age < smile_min_age:
+                wd = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - smile_decline_start_age)
             else:
-                min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - retirement_age)
+                min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - smile_decline_start_age)
                 wd = min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
         else:
             wd = annual_withdrawal

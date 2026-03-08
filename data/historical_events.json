@@ -36,5 +36,8 @@
   {"year": 2011, "countries": ["JPN"], "label_en": "Tōhoku Earthquake", "label_zh": "东日本大地震", "category": "crisis"},
   {"year": 2015, "countries": ["CHE"], "label_en": "SNB Franc Shock", "label_zh": "瑞郎脱钩冲击", "category": "policy"},
   {"year": 2016, "countries": ["GBR"], "label_en": "Brexit Referendum", "label_zh": "脱欧公投", "category": "policy"},
-  {"year": 2020, "countries": ["ALL"], "label_en": "COVID-19 Pandemic", "label_zh": "新冠疫情", "category": "crisis"}
+  {"year": 2020, "countries": ["ALL"], "label_en": "COVID-19 Pandemic", "label_zh": "新冠疫情", "category": "crisis"},
+  {"year": 2022, "countries": ["ALL"], "label_en": "Russia-Ukraine War", "label_zh": "俄乌战争", "category": "war"},
+  {"year": 2022, "year_end": 2023, "countries": ["ALL"], "label_en": "Global Inflation / Rate Hikes", "label_zh": "全球通胀 / 加息周期", "category": "crisis"},
+  {"year": 2023, "countries": ["USA"], "label_en": "Regional Bank Crisis (SVB)", "label_zh": "地区银行危机 (SVB)", "category": "crisis"}
 ]

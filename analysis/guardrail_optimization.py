@@ -10,6 +10,7 @@ import sys
 import os
 import time
 import itertools
+import multiprocessing as mp
 from pathlib import Path
 
 import numpy as np
@@ -50,7 +51,7 @@ BASELINE_RATE = ANNUAL_WITHDRAWAL / INITIAL_PORTFOLIO  # 0.03
 MIN_BLOCK = 5
 MAX_BLOCK = 15
 NUM_SIMULATIONS = 2000
-DATA_START_YEAR = 1926
+DATA_START_YEAR = 1900
 SEED = 42
 MIN_BACKTEST_YEARS = 10
 
@@ -95,13 +96,19 @@ def generate_valid_combos(grid: dict) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def prepare_scenarios(returns_df: pd.DataFrame, expense_ratios: dict | None = None) -> np.ndarray:
-    """生成 MC scenarios。"""
+    """生成 MC scenarios（批量化：预算 portfolio returns 再 bootstrap 索引）。"""
     er = expense_ratios or EXPENSE_RATIOS
+    real_returns = compute_real_portfolio_returns(returns_df, ALLOCATION, er)
+    n = len(real_returns)
     rng = np.random.default_rng(SEED)
     scenarios = np.zeros((NUM_SIMULATIONS, RETIREMENT_YEARS))
     for i in range(NUM_SIMULATIONS):
-        sampled = block_bootstrap(returns_df, RETIREMENT_YEARS, MIN_BLOCK, MAX_BLOCK, rng=rng)
-        scenarios[i] = compute_real_portfolio_returns(sampled, ALLOCATION, er)
+        idx = []
+        while len(idx) < RETIREMENT_YEARS:
+            bl = int(rng.integers(MIN_BLOCK, MAX_BLOCK + 1))
+            start = int(rng.integers(0, n))
+            idx.extend(((start + np.arange(bl)) % n).tolist())
+        scenarios[i] = real_returns[idx[:RETIREMENT_YEARS]]
     return scenarios
 
 
@@ -136,10 +143,11 @@ def prepare_historical_paths(returns_df: pd.DataFrame, expense_ratios: dict | No
 
 # v3 评分默认参数
 V3_DEFAULTS = dict(
-    safety_exponent=2.0,
+    safety_exponent=1.0,
     smoothness_decay=50.0,
     cew_gamma=2.0,
     cew_cap=0.15,
+    cew_delta=0.02,
     p10u_cap=0.05,
 )
 
@@ -157,7 +165,7 @@ def compute_v3_score(
     p90_years_below_ratio: float,
     median_cew: float,
     *,
-    safety_exponent: float = 2.0,
+    safety_exponent: float = 1.0,
     smoothness_decay: float = 50.0,
     cew_cap: float = 0.15,
     p10u_cap: float = 0.05,
@@ -208,23 +216,69 @@ def compute_v3_score(
     return score_v3, detail
 
 
-def compute_cew(wds_arr: np.ndarray, gamma: float = 2.0) -> np.ndarray:
+def compute_cew(
+    wds_arr: np.ndarray, gamma: float = 2.0, delta: float = 0.02,
+) -> np.ndarray:
     """计算每条路径的确定性等价消费 (Certainty-Equivalent Withdrawal)。
 
-    使用 CRRA (Constant Relative Risk Aversion) 效用函数。
+    使用 CRRA 效用函数 + 时间偏好折扣。
+    delta > 0 表示更重视早期消费（退休 go-go years）。
     返回 shape (n_sims,) 的 CEW 数组。
     """
+    n_years = wds_arr.shape[1]
     safe_wds = np.maximum(wds_arr, 1e-10)
+
+    weights = (1.0 / (1.0 + delta)) ** np.arange(n_years)
+    weights = weights / weights.sum()
+
     if abs(gamma - 1.0) < 1e-9:
         utility = np.log(safe_wds)
     else:
         utility = safe_wds ** (1.0 - gamma) / (1.0 - gamma)
-    mean_utility = utility.mean(axis=1)
+    mean_utility = (utility * weights[np.newaxis, :]).sum(axis=1)
     if abs(gamma - 1.0) < 1e-9:
         cew = np.exp(mean_utility)
     else:
         cew = (mean_utility * (1.0 - gamma)) ** (1.0 / (1.0 - gamma))
     return cew
+
+
+def recompute_v3_with_adaptive_cap(
+    dfs: list[pd.DataFrame],
+    percentile: float = 95,
+    margin: float = 1.2,
+) -> float:
+    """根据所有策略的 median_cew 分布自适应计算 cew_cap，并重算 v3 评分。
+
+    adaptive_cap = P{percentile}(所有正 median_cew) × margin
+    所有 DataFrame 的 v3_norm_cew 和 score_v3 会被原地更新。
+    返回计算出的 adaptive cew_cap。
+    """
+    all_cews = []
+    for df in dfs:
+        if "median_cew" in df.columns:
+            valid = df["median_cew"][df["median_cew"] > 0]
+            all_cews.extend(valid.tolist())
+
+    if not all_cews:
+        return V3_DEFAULTS["cew_cap"]
+
+    adaptive_cap = float(np.percentile(all_cews, percentile)) * margin
+    adaptive_cap = max(adaptive_cap, 0.01)
+
+    for df in dfs:
+        if "median_cew" not in df.columns or "v3_safety" not in df.columns:
+            continue
+        df["v3_norm_cew"] = np.minimum(df["median_cew"] / adaptive_cap, 1.0)
+        df["score_v3"] = df["v3_safety"] * (
+            0.50 * df["v3_norm_cew"]
+            + 0.15 * df["v3_norm_p10u"]
+            + 0.10 * df["v3_norm_floor_abs"]
+            + 0.10 * df["v3_norm_no_crash"]
+            + 0.15 * df["v3_norm_no_poverty"]
+        )
+
+    return adaptive_cap
 
 
 def compute_max_drawdown(wds_arr: np.ndarray) -> np.ndarray:
@@ -351,7 +405,7 @@ def evaluate_combo(
             })
 
     if len(complete_metrics) == 0:
-        return {**combo, "n_complete": 0, "score": -999}
+        return {**combo, "n_complete": 0, "score": -999, "score_v3": -999}
 
     n_complete = len(complete_metrics)
     survived_arr = np.array([m["g_survived"] for m in complete_metrics])
@@ -470,6 +524,37 @@ def evaluate_combo(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 并行评估辅助
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _precompute_baseline(scenarios: np.ndarray) -> np.ndarray:
+    """预计算 baseline 固定提取总消费（只需算一次，所有 combo 共享）。"""
+    n_sims = scenarios.shape[0]
+    n_years = min(RETIREMENT_YEARS, scenarios.shape[1])
+    b_wd_fixed = float(INITIAL_PORTFOLIO * BASELINE_RATE)
+    b_values = np.full(n_sims, float(INITIAL_PORTFOLIO))
+    b_total = np.zeros(n_sims)
+    for year in range(n_years):
+        wd = np.where(b_values > 0, b_wd_fixed, 0.0)
+        b_total += wd
+        b_values = b_values * (1.0 + scenarios[:, year]) - wd
+        b_values = np.maximum(b_values, 0.0)
+    return b_total
+
+
+def _build_initial_wd_cache(
+    combos: list[dict], table: np.ndarray, rate_grid: np.ndarray,
+) -> dict:
+    """预计算所有 target_success 对应的 (initial_rate, initial_wd)。"""
+    cache: dict[float, tuple[float, float]] = {}
+    for combo in combos:
+        ts = combo["target_success"]
+        if ts not in cache:
+            cache[ts] = _compute_initial_wd(ts, table, rate_grid)
+    return cache
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 向量化 MC 评估（numpy 批量处理所有 scenarios，避免逐条 Python 循环）
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -478,11 +563,18 @@ def evaluate_combo_mc_fast(
     scenarios: np.ndarray,
     table: np.ndarray,
     rate_grid: np.ndarray,
+    b_total: np.ndarray | None = None,
+    initial_wd_cache: dict | None = None,
 ) -> dict:
     """向量化评估：同时在所有 MC scenarios 上运行护栏策略。
 
     相比 evaluate_combo 逐条调用 run_historical_backtest，
     此函数用 numpy 一次处理全部 scenarios，速度快 ~100x。
+
+    Parameters
+    ----------
+    b_total : 预计算的 baseline 总消费，避免每次 combo 重复计算。
+    initial_wd_cache : {target_success: (rate, wd)} 缓存。
     """
     n_sims = scenarios.shape[0]
     n_years = min(RETIREMENT_YEARS, scenarios.shape[1])
@@ -495,8 +587,10 @@ def evaluate_combo_mc_fast(
     mode = combo["adjustment_mode"]
     min_rem = combo["min_remaining_years"]
 
-    # 根据 target_success 反算初始提取
-    initial_rate, initial_wd = _compute_initial_wd(target_success, table, rate_grid)
+    if initial_wd_cache is not None and target_success in initial_wd_cache:
+        initial_rate, initial_wd = initial_wd_cache[target_success]
+    else:
+        initial_rate, initial_wd = _compute_initial_wd(target_success, table, rate_grid)
 
     # ── Guardrail 策略（向量化） ──
     g_values = np.full(n_sims, float(INITIAL_PORTFOLIO))
@@ -551,16 +645,16 @@ def evaluate_combo_mc_fast(
         g_depleted |= g_values <= 0
         g_values = np.maximum(g_values, 0.0)
 
-    # ── Baseline 固定提取策略（向量化） ──
-    b_wd_fixed = float(INITIAL_PORTFOLIO * BASELINE_RATE)
-    b_values = np.full(n_sims, float(INITIAL_PORTFOLIO))
-    b_total = np.zeros(n_sims)
-
-    for year in range(n_years):
-        wd = np.where(b_values > 0, b_wd_fixed, 0.0)
-        b_total += wd
-        b_values = b_values * (1.0 + scenarios[:, year]) - wd
-        b_values = np.maximum(b_values, 0.0)
+    # ── Baseline 固定提取策略 ──
+    if b_total is None:
+        b_wd_fixed = float(INITIAL_PORTFOLIO * BASELINE_RATE)
+        b_values = np.full(n_sims, float(INITIAL_PORTFOLIO))
+        b_total = np.zeros(n_sims)
+        for year in range(n_years):
+            wd = np.where(b_values > 0, b_wd_fixed, 0.0)
+            b_total += wd
+            b_values = b_values * (1.0 + scenarios[:, year]) - wd
+            b_values = np.maximum(b_values, 0.0)
 
     # ── 聚合指标 ──
     combined_depletion = np.minimum(g_depletion_year, g_eff_depletion)
@@ -683,8 +777,32 @@ def evaluate_combo_mc_fast(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 网格搜索
+# 网格搜索（多进程并行）
 # ═══════════════════════════════════════════════════════════════════════════
+
+_worker_data: dict = {}
+
+
+def _init_mc_worker(scenarios, table, rate_grid, b_total, initial_wd_cache):
+    """多进程 worker 初始化：存储共享数据到进程全局变量。"""
+    _worker_data["scenarios"] = scenarios
+    _worker_data["table"] = table
+    _worker_data["rate_grid"] = rate_grid
+    _worker_data["b_total"] = b_total
+    _worker_data["initial_wd_cache"] = initial_wd_cache
+
+
+def _eval_mc_worker(combo):
+    """多进程 worker：评估单个参数组合。"""
+    return evaluate_combo_mc_fast(
+        combo,
+        _worker_data["scenarios"],
+        _worker_data["table"],
+        _worker_data["rate_grid"],
+        b_total=_worker_data["b_total"],
+        initial_wd_cache=_worker_data["initial_wd_cache"],
+    )
+
 
 def _run_search(
     paths: list[dict],
@@ -708,9 +826,12 @@ def _run_search(
             print(f"    [{i+1}/{len(combos)}]  {speed:.0f} combo/s  ETA: {eta:.0f}s")
 
     df = pd.DataFrame(results)
-    df = df.sort_values("score", ascending=False).reset_index(drop=True)
+    df = df.sort_values("score_v3", ascending=False).reset_index(drop=True)
     print(f"\n  {label} 搜索完成: {time.time()-t0:.1f}s")
     return df
+
+
+MIN_COMBOS_FOR_PARALLEL = 100
 
 
 def _run_mc_search(
@@ -720,22 +841,51 @@ def _run_mc_search(
     combos: list[dict],
     label: str,
 ) -> pd.DataFrame:
-    """向量化 MC 网格搜索：用 evaluate_combo_mc_fast 批量处理所有 scenarios。"""
-    print(f"\n  开始向量化 MC 搜索 {len(combos)} 个参数组合 ({scenarios.shape[0]} paths)...")
+    """向量化 MC 网格搜索（多进程并行 + baseline/initial_wd 预计算）。"""
+    n_combos = len(combos)
+    print(f"\n  开始向量化 MC 搜索 {n_combos} 个参数组合 ({scenarios.shape[0]} paths)...")
 
-    results = []
+    b_total = _precompute_baseline(scenarios)
+    initial_wd_cache = _build_initial_wd_cache(combos, table, rate_grid)
+
     t0 = time.time()
-    for i, combo in enumerate(combos):
-        r = evaluate_combo_mc_fast(combo, scenarios, table, rate_grid)
-        results.append(r)
-        if (i + 1) % 200 == 0 or i == len(combos) - 1:
-            elapsed = time.time() - t0
-            speed = (i + 1) / elapsed
-            eta = (len(combos) - i - 1) / speed if speed > 0 else 0
-            print(f"    [{i+1}/{len(combos)}]  {speed:.0f} combo/s  ETA: {eta:.0f}s")
+    n_workers = min(os.cpu_count() or 1, 8)
+    use_parallel = n_combos >= MIN_COMBOS_FOR_PARALLEL and n_workers > 1
+
+    if use_parallel:
+        print(f"    使用 {n_workers} 进程并行...")
+        chunksize = max(1, n_combos // (n_workers * 4))
+        with mp.Pool(
+            n_workers,
+            initializer=_init_mc_worker,
+            initargs=(scenarios, table, rate_grid, b_total, initial_wd_cache),
+        ) as pool:
+            results = []
+            for i, r in enumerate(
+                pool.imap_unordered(_eval_mc_worker, combos, chunksize=chunksize)
+            ):
+                results.append(r)
+                if (i + 1) % 500 == 0 or i == n_combos - 1:
+                    elapsed = time.time() - t0
+                    speed = (i + 1) / elapsed
+                    eta = (n_combos - i - 1) / speed if speed > 0 else 0
+                    print(f"    [{i+1}/{n_combos}]  {speed:.0f} combo/s  ETA: {eta:.0f}s")
+    else:
+        results = []
+        for i, combo in enumerate(combos):
+            r = evaluate_combo_mc_fast(
+                combo, scenarios, table, rate_grid,
+                b_total=b_total, initial_wd_cache=initial_wd_cache,
+            )
+            results.append(r)
+            if (i + 1) % 200 == 0 or i == n_combos - 1:
+                elapsed = time.time() - t0
+                speed = (i + 1) / elapsed
+                eta = (n_combos - i - 1) / speed if speed > 0 else 0
+                print(f"    [{i+1}/{n_combos}]  {speed:.0f} combo/s  ETA: {eta:.0f}s")
 
     df = pd.DataFrame(results)
-    df = df.sort_values("score", ascending=False).reset_index(drop=True)
+    df = df.sort_values("score_v3", ascending=False).reset_index(drop=True)
     print(f"\n  {label} 搜索完成: {time.time()-t0:.1f}s")
     return df
 
@@ -843,16 +993,29 @@ def run_jst_cross_validation(
     print(f"  JST 历史路径: {len(all_paths)} 条 (完整: {n_complete})")
 
     combos_to_test = top_combos[:n_top]
-    print(f"  评估 {len(combos_to_test)} 个参数组合...")
+
+    complete_paths = [p for p in all_paths if p["is_complete"]]
+    if len(complete_paths) == 0:
+        print(f"  警告: 没有完整 JST 路径")
+        return pd.DataFrame()
+
+    jst_scenarios = np.array([p["real_returns"] for p in complete_paths])
+    b_total = _precompute_baseline(jst_scenarios)
+    initial_wd_cache = _build_initial_wd_cache(combos_to_test, table, rate_grid)
+
+    print(f"  评估 {len(combos_to_test)} 个参数组合 (向量化, {len(complete_paths)} 完整路径)...")
     t0 = time.time()
     results = []
     for i, combo in enumerate(combos_to_test):
-        r = evaluate_combo(combo, all_paths, table, rate_grid)
+        r = evaluate_combo_mc_fast(
+            combo, jst_scenarios, table, rate_grid,
+            b_total=b_total, initial_wd_cache=initial_wd_cache,
+        )
         r[rank_col] = i + 1
         results.append(r)
 
     df = pd.DataFrame(results)
-    df["jst_rank"] = df["score"].rank(ascending=False).astype(int)
+    df["jst_rank"] = df["score_v3"].rank(ascending=False).astype(int)
     df = df.sort_values(rank_col)
     print(f"  完成 ({time.time()-t0:.1f}s)")
     return df
@@ -889,13 +1052,13 @@ def plot_pareto(df: pd.DataFrame, label: str = "FIRE"):
         return
 
     fig, axes = plt.subplots(1, 3, figsize=(22, 7))
-    top10 = safe.nlargest(10, "score")
+    top10 = safe.nlargest(10, "score_v3")
 
     # 左图: median_avg_wd_ratio vs p10_fr (平均消费水平 vs 尾部保护)
     ax = axes[0]
     sc = ax.scatter(
         safe["median_avg_wd_ratio"], safe["p10_fr"],
-        c=safe["score"], cmap="viridis", s=20, alpha=0.6, edgecolors="none",
+        c=safe["score_v3"], cmap="viridis", s=20, alpha=0.6, edgecolors="none",
     )
     plt.colorbar(sc, ax=ax, label="Score")
     for _, row in top10.iterrows():
@@ -914,7 +1077,7 @@ def plot_pareto(df: pd.DataFrame, label: str = "FIRE"):
     ax = axes[1]
     sc2 = ax.scatter(
         safe["median_avg_wd_ratio"], safe["median_fr"],
-        c=safe["score"], cmap="viridis", s=20, alpha=0.6, edgecolors="none",
+        c=safe["score_v3"], cmap="viridis", s=20, alpha=0.6, edgecolors="none",
     )
     plt.colorbar(sc2, ax=ax, label="Score")
     for _, row in top10.iterrows():
@@ -933,7 +1096,7 @@ def plot_pareto(df: pd.DataFrame, label: str = "FIRE"):
     ax = axes[2]
     sc3 = ax.scatter(
         safe["median_avg_wd_ratio"], safe["median_downside_cv"],
-        c=safe["score"], cmap="viridis", s=20, alpha=0.6, edgecolors="none",
+        c=safe["score_v3"], cmap="viridis", s=20, alpha=0.6, edgecolors="none",
     )
     plt.colorbar(sc3, ax=ax, label="Score")
     for _, row in top10.iterrows():
@@ -983,7 +1146,7 @@ def plot_heatmaps(df: pd.DataFrame, label: str = "FIRE"):
             ax.set_title(f"{p1} vs {p2}\n(no data)", fontsize=10)
             continue
 
-        pivot = sub.pivot_table(values="score", index=p2, columns=p1, aggfunc="mean")
+        pivot = sub.pivot_table(values="score_v3", index=p2, columns=p1, aggfunc="mean")
         im = ax.imshow(pivot.values, aspect="auto", cmap="viridis", origin="lower")
         ax.set_xticks(range(len(pivot.columns)))
         ax.set_xticklabels([f"{v:.2f}" for v in pivot.columns], fontsize=8)
@@ -1010,7 +1173,7 @@ def plot_cross_validation(fire_df: pd.DataFrame, jst_df: pd.DataFrame):
     for _, row in jst_df.iterrows():
         key = (row["target_success"], row["upper_guardrail"], row["lower_guardrail"],
                row["adjustment_pct"], row["adjustment_mode"], row["min_remaining_years"])
-        jst_scores[key] = row["score"]
+        jst_scores[key] = row["score_v3"]
 
     merged["jst_score"] = merged.apply(
         lambda r: jst_scores.get(
@@ -1026,13 +1189,13 @@ def plot_cross_validation(fire_df: pd.DataFrame, jst_df: pd.DataFrame):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
     # Score comparison
-    ax1.scatter(merged["score"], merged["jst_score"], s=50, alpha=0.7)
+    ax1.scatter(merged["score_v3"], merged["jst_score"], s=50, alpha=0.7)
     for _, row in merged.iterrows():
-        ax1.annotate(f"#{int(row['fire_rank'])}", (row["score"], row["jst_score"]),
+        ax1.annotate(f"#{int(row['fire_rank'])}", (row["score_v3"], row["jst_score"]),
                      fontsize=7, textcoords="offset points", xytext=(4, 4))
     lims = [
-        min(merged["score"].min(), merged["jst_score"].min()) * 0.9,
-        max(merged["score"].max(), merged["jst_score"].max()) * 1.1,
+        min(merged["score_v3"].min(), merged["jst_score"].min()) * 0.9,
+        max(merged["score_v3"].max(), merged["jst_score"].max()) * 1.1,
     ]
     ax1.plot(lims, lims, "k--", alpha=0.3)
     ax1.set_xlabel("FIRE Score", fontsize=11)
@@ -1074,7 +1237,7 @@ def print_top_results(df: pd.DataFrame, label: str, n: int = 20):
         "target_success", "upper_guardrail", "lower_guardrail",
         "adjustment_pct", "adjustment_mode", "min_remaining_years",
         "initial_rate", "initial_wd",
-        "score", "success_rate", "median_funded", "p10_funded",
+        "score_v3", "success_rate", "median_funded", "p10_funded",
         "median_util", "p10_util", "median_discounted",
         "p10_floor_self", "smoothness",
         "median_avg_wd_ratio", "p10_avg_wd_ratio",
@@ -1132,8 +1295,8 @@ def generate_recommendation(fire_df: pd.DataFrame, jst_df: pd.DataFrame | None =
     print(f"    P10底线保护:          {pfs:.4f}  (P10 min_wd / initial_wd)")
     print(f"    平滑度:               {sm:.4f}  (1/(1+20*dcv))")
     print(f"    P10 最低年消费:       ${best['p10_min_wd']:,.0f}")
-    print(f"    复合得分:             {best['score']:.6f}")
-    print(f"    (v2: safety*[0.25*util + 0.15*p10_util + 0.20*disc + 0.20*floor + 0.20*smooth] *15)")
+    print(f"    复合得分(v3):         {best['score_v3']:.6f}")
+    print(f"    (v3: safety*(0.50*CEW + 0.15*p10u + 0.10*floor + 0.10*no_crash + 0.15*no_poverty))")
 
     if jst_df is not None and len(jst_df) > 0:
         jst_best_row = jst_df[
@@ -1151,7 +1314,7 @@ def generate_recommendation(fire_df: pd.DataFrame, jst_df: pd.DataFrame | None =
             print(f"    JST 成功率:           {jb['success_rate']:.1%}")
             print(f"    JST P10 Funded Ratio: {jb['p10_funded']:.4f}")
             print(f"    JST 中位消费比:       {jb['median_cr']:.4f}")
-            print(f"    JST 复合得分:         {jb['score']:.6f}")
+            print(f"    JST 复合得分(v3):     {jb['score_v3']:.6f}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1176,11 +1339,11 @@ def generate_combined_recommendation(
     # 预构建 key → (score, rank, initial_rate) 字典，避免 O(n²) 的 apply 查找
     hist_data = {}
     for idx, (_, row) in enumerate(hist_df.iterrows()):
-        hist_data[combo_key(row)] = (row["score"], idx + 1, row.get("initial_rate", 0))
+        hist_data[combo_key(row)] = (row["score_v3"], idx + 1, row.get("initial_rate", 0))
 
     mc_data = {}
     for idx, (_, row) in enumerate(mc_df.iterrows()):
-        mc_data[combo_key(row)] = (row["score"], idx + 1, row.get("initial_rate", 0))
+        mc_data[combo_key(row)] = (row["score_v3"], idx + 1, row.get("initial_rate", 0))
 
     all_keys = set(hist_data.keys()) & set(mc_data.keys())
     combined = []
@@ -1216,7 +1379,7 @@ def generate_combined_recommendation(
         jst_scores = {}
         for _, row in jst_df.iterrows():
             k = combo_key(row)
-            jst_scores[k] = row["score"]
+            jst_scores[k] = row["score_v3"]
 
         print(f"\n  Top-20 加入 JST (综合 = (Hist × MC × JST)^(1/3)):")
         print(f"  {'Rank':>4}  {'target':>7}  {'upper':>6}  {'lower':>6}  {'adj%':>5}  {'mode':>13}  {'min_yr':>6}"
@@ -1277,27 +1440,26 @@ def generate_combined_recommendation(
 
 
 def prepare_jst_intl_scenarios(data_start_year: int = 1970) -> np.ndarray:
-    """用 JST 多国数据池化生成 MC scenarios（真正的国际化数据）。"""
+    """用 JST 多国数据池化生成 MC scenarios（批量化 bootstrap）。"""
     jst_df = load_returns_data()
     country_dfs = get_country_dfs(jst_df, data_start_year)
-    all_returns = []
+    all_returns_list = []
     for iso, cdf in country_dfs.items():
         cdf_sorted = cdf.sort_values("Year").reset_index(drop=True)
         real_ret = compute_real_portfolio_returns(cdf_sorted, ALLOCATION, EXPENSE_RATIOS)
-        all_returns.extend(real_ret.tolist())
+        all_returns_list.extend(real_ret.tolist())
 
-    pooled_df = pd.DataFrame({"Year": range(len(all_returns)), "real_return": all_returns})
-
+    all_returns = np.array(all_returns_list)
     rng = np.random.default_rng(SEED + 1)
     n_pool = len(all_returns)
     scenarios = np.zeros((NUM_SIMULATIONS, RETIREMENT_YEARS))
     for i in range(NUM_SIMULATIONS):
-        block_len = rng.integers(MIN_BLOCK, MAX_BLOCK + 1)
         idx = []
         while len(idx) < RETIREMENT_YEARS:
-            start = rng.integers(0, max(1, n_pool - block_len))
-            idx.extend(range(start, min(start + block_len, n_pool)))
-        scenarios[i] = np.array(all_returns)[idx[:RETIREMENT_YEARS]]
+            bl = int(rng.integers(MIN_BLOCK, MAX_BLOCK + 1))
+            start = int(rng.integers(0, max(1, n_pool - bl)))
+            idx.extend(range(start, min(start + bl, n_pool)))
+        scenarios[i] = all_returns[idx[:RETIREMENT_YEARS]]
     return scenarios
 
 
@@ -1359,11 +1521,22 @@ def main():
     plot_pareto(jst_mc_results, "JST-MC")
     plot_heatmaps(jst_mc_results, "JST-MC")
 
+    # ── 自适应 CEW cap ──
+    all_result_dfs = [hist_results, mc_results, mc_1970_results, jst_mc_results]
+    adaptive_cap = recompute_v3_with_adaptive_cap(all_result_dfs)
+    print(f"\n  自适应 CEW cap: {adaptive_cap:.6f} (P95 × 1.2)")
+
+    # 用更新后的 v3 重新保存 CSV
+    save_results_csv(hist_results, "fire_hist_results.csv")
+    save_results_csv(mc_results, "fire_mc_results.csv")
+    save_results_csv(mc_1970_results, "fire_mc_1970_results.csv")
+    save_results_csv(jst_mc_results, "jst_mc_results.csv")
+
     # ── 第三阶段: JST 历史回测交叉验证 (用综合 top-20) ──
     param_keys = list(PARAM_GRID.keys())
 
     def _build_score_map(df):
-        return {tuple(row[k] for k in param_keys): row["score"]
+        return {tuple(row[k] for k in param_keys): row["score_v3"]
                 for row in df.to_dict("records")}
 
     hist_map = _build_score_map(hist_results)

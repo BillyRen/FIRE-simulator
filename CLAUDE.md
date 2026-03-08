@@ -73,6 +73,11 @@ pytest tests/test_core.py::TestBlockBootstrap::test_output_shape  # single test
 - Guardrail strategy uses precomputed success-rate lookup tables for real-time adjustments
 - All monetary values in responses are real (inflation-adjusted) dollars
 
+### JST data extension (2021-2025)
+- JST R6 official data ends at 2020; years 2021-2025 are an unofficial extension using IMF/OECD/yfinance
+- Extension scripts: `scripts/extend_jst_2021_2025.py` → `scripts/build_dataset_from_jst.py` → `scripts/validate_jst_extension.py`
+- **Critical methodology**: see `scripts/DATA_UPDATE_GUIDE.md` for annual-average equity pricing, Eurozone legacy currency conversion, and other pitfalls
+
 ## Environment Variables
 - Backend: `ALLOWED_ORIGINS` (CORS), `PYTHON_VERSION`
 - Frontend: `NEXT_PUBLIC_API_URL` (backend URL)

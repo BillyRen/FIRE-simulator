@@ -53,14 +53,14 @@ def build_success_rate_table(
     table = np.zeros((num_rates, max_years + 1))
     table[:, 0] = 1.0
 
-    for rate_idx in range(num_rates):
-        rate = rate_grid[rate_idx]
-        values = np.ones(num_sims)
-        for year in range(max_years):
-            values = values * (1.0 + scenarios[:, year]) - rate
-            alive = values > 0
-            values = np.where(alive, values, 0.0)
-            table[rate_idx, year + 1] = np.mean(alive)
+    # 2D 广播：同时处理所有 rates, shape (num_rates, num_sims)
+    values = np.ones((num_rates, num_sims))
+    rates_col = rate_grid[:, np.newaxis]  # (num_rates, 1)
+    for year in range(max_years):
+        values = values * (1.0 + scenarios[np.newaxis, :, year]) - rates_col
+        alive = values > 0
+        values = np.where(alive, values, 0.0)
+        table[:, year + 1] = np.mean(alive, axis=1)
 
     return rate_grid, table
 

@@ -187,6 +187,7 @@ def _to_cash_flows(items) -> list[CashFlowItem] | None:
             start_year=cf.start_year,
             duration=cf.duration,
             inflation_adjusted=cf.inflation_adjusted,
+            growth_rate=getattr(cf, "growth_rate", 0.0),
             probability=getattr(cf, "probability", 1.0),
             group=getattr(cf, "group", None),
         )
@@ -331,6 +332,7 @@ def api_simulate(request: Request, req: SimulationRequest):
         declining_rate=req.declining_rate,
         declining_start_age=req.declining_start_age,
         smile_decline_rate=req.smile_decline_rate,
+        smile_decline_start_age=req.smile_decline_start_age,
         smile_min_age=req.smile_min_age,
         smile_increase_rate=req.smile_increase_rate,
         glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
@@ -424,6 +426,7 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
         declining_rate=req.declining_rate,
         declining_start_age=req.declining_start_age,
         smile_decline_rate=req.smile_decline_rate,
+        smile_decline_start_age=req.smile_decline_start_age,
         smile_min_age=req.smile_min_age,
         smile_increase_rate=req.smile_increase_rate,
     )
@@ -476,6 +479,7 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
         declining_rate=req.declining_rate,
         declining_start_age=req.declining_start_age,
         smile_decline_rate=req.smile_decline_rate,
+        smile_decline_start_age=req.smile_decline_start_age,
         smile_min_age=req.smile_min_age,
         smile_increase_rate=req.smile_increase_rate,
     )
@@ -541,6 +545,7 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
             declining_rate=req.declining_rate,
             declining_start_age=req.declining_start_age,
             smile_decline_rate=req.smile_decline_rate,
+            smile_decline_start_age=req.smile_decline_start_age,
             smile_min_age=req.smile_min_age,
             smile_increase_rate=req.smile_increase_rate,
             glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
@@ -623,6 +628,7 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
             declining_rate=req.declining_rate,
             declining_start_age=req.declining_start_age,
             smile_decline_rate=req.smile_decline_rate,
+            smile_decline_start_age=req.smile_decline_start_age,
             smile_min_age=req.smile_min_age,
             smile_increase_rate=req.smile_increase_rate,
             glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
@@ -872,7 +878,9 @@ def api_guardrail(request: Request, req: GuardrailRequest):
     )
 
     g_fr, g_success = compute_effective_funded_ratio(
-        wd_g, annual_wd, req.retirement_years, trajectories=traj_g,
+        wd_g, annual_wd, req.retirement_years,
+        consumption_floor=req.consumption_floor,
+        trajectories=traj_g,
     )
     b_success = float(np.mean(traj_b[:, -1] > 0))
     b_fr = compute_funded_ratio(traj_b, req.retirement_years)
@@ -1096,7 +1104,9 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
         ip, aw, traj, wd = run_guardrail_simulation(**sim_kwargs)
 
         g_fr, g_sr = compute_effective_funded_ratio(
-            wd, aw, req.retirement_years, trajectories=traj,
+            wd, aw, req.retirement_years,
+            consumption_floor=req.consumption_floor,
+            trajectories=traj,
         )
         g_total = np.sum(wd, axis=1)
         return ScenarioResult(
@@ -1203,7 +1213,11 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
             sim_kw["initial_portfolio"] = req.initial_portfolio
 
         r_ip, r_aw, r_traj, r_wd = run_guardrail_simulation(**sim_kw)
-        _, r_sr = compute_effective_funded_ratio(r_wd, r_aw, years, trajectories=r_traj)
+        _, r_sr = compute_effective_funded_ratio(
+            r_wd, r_aw, years,
+            consumption_floor=req.consumption_floor,
+            trajectories=r_traj,
+        )
         r_fr = compute_funded_ratio(r_traj, years)
         return r_ip, r_aw, r_sr, r_fr
 
@@ -1497,6 +1511,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         cf_scale_grid=_batch_cf_sg,
         cf_ref=_batch_cf_ref,
         last_cf_year=_batch_last_cf_y,
+        consumption_floor=req.consumption_floor,
     )
 
     # 构建路径摘要

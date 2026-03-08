@@ -519,7 +519,7 @@ export default function BuyVsRentPage() {
                   </div>
                 )}
 
-                <NumberField label={ts("dataStartYear")} value={mcDataStartYear} onChange={setMcDataStartYear} min={1871} max={2020} step={1} />
+                <NumberField label={ts("dataStartYear")} value={mcDataStartYear} onChange={setMcDataStartYear} min={1871} max={2025} step={1} />
                 <NumberField label={ts("numSimulations")} value={mcNumSim} onChange={setMcNumSim} min={100} max={20000} step={100} />
                 <NumberField label={ts("minBlock")} value={mcMinBlock} onChange={setMcMinBlock} min={1} max={30} step={1} />
                 <NumberField label={ts("maxBlock")} value={mcMaxBlock} onChange={setMcMaxBlock} min={1} max={55} step={1} />
