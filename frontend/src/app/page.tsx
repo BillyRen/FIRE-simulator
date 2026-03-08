@@ -30,7 +30,7 @@ import { DownloadButton } from "@/components/download-button";
 import { PdfExportButton } from "@/components/pdf-export-button";
 import { useSharedParams } from "@/lib/params-context";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
-import { fmt, pct } from "@/lib/utils";
+import { fmt, pct, countryFlag } from "@/lib/utils";
 
 function deltaPct(cur: number, pin: number): string {
   const d = cur - pin;
@@ -228,6 +228,15 @@ export default function SimulatorPage() {
     if (!batchResult) return [];
     return Array.from(new Set(batchResult.paths.map((p) => p.country))).sort();
   }, [batchResult]);
+
+  const countryLabel = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of countries) {
+      const name = locale === "zh" ? c.name_zh : c.name_en;
+      map[c.iso] = `${countryFlag(c.iso)} ${name}`;
+    }
+    return (iso: string) => map[iso] ?? iso;
+  }, [countries, locale]);
 
   // Sorted & filtered paths for the table
   const sortedPaths = useMemo(() => {
@@ -619,7 +628,7 @@ export default function SimulatorPage() {
                                 });
                               }}
                             >
-                              {c}
+                              {countryLabel(c)}
                             </button>
                           ))}
                         </div>
@@ -688,7 +697,7 @@ export default function SimulatorPage() {
                               className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${!p.is_complete ? "opacity-60" : ""}`}
                               onClick={() => setSelectedPath(p)}
                             >
-                              <td className="px-3 py-1.5">{p.country}</td>
+                              <td className="px-3 py-1.5">{countryLabel(p.country)}</td>
                               <td className="px-3 py-1.5">{p.start_year}</td>
                               <td className="px-3 py-1.5 text-right">
                                 {p.years_simulated}
@@ -730,7 +739,7 @@ export default function SimulatorPage() {
                 </Button>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <MetricCard label={t("country")} value={selectedPath.country} />
+                  <MetricCard label={t("country")} value={countryLabel(selectedPath.country)} />
                   <MetricCard label={t("startYear")} value={`${selectedPath.start_year}`} />
                   <MetricCard label={t("yearsSimulated")} value={`${selectedPath.years_simulated}`} />
                   <MetricCard

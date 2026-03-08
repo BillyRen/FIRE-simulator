@@ -19,3 +19,19 @@ export function fmt(n: number): string {
 export function pct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
+
+const ISO3_TO_ALPHA2: Record<string, string> = {
+  AUS: "AU", BEL: "BE", CHE: "CH", DEU: "DE",
+  DNK: "DK", ESP: "ES", FIN: "FI", FRA: "FR",
+  GBR: "GB", ITA: "IT", JPN: "JP", NLD: "NL",
+  NOR: "NO", PRT: "PT", SWE: "SE", USA: "US",
+};
+
+/** Convert ISO 3166-1 alpha-3 country code to its flag emoji via regional indicator symbols. */
+export function countryFlag(iso3: string): string {
+  const alpha2 = ISO3_TO_ALPHA2[iso3];
+  if (!alpha2) return "";
+  return String.fromCodePoint(
+    ...alpha2.split("").map((c) => 0x1f1e6 + c.charCodeAt(0) - 65)
+  );
+}
