@@ -90,7 +90,13 @@ def lookup_success_rate(
 
     idx = np.searchsorted(rate_grid, rate) - 1
     idx = max(0, min(idx, len(rate_grid) - 2))
-    frac = (rate - rate_grid[idx]) / (rate_grid[idx + 1] - rate_grid[idx])
+
+    # 防止除零：如果相邻 rate_grid 值相等，直接返回下限值
+    denominator = rate_grid[idx + 1] - rate_grid[idx]
+    if denominator == 0:
+        return float(table[idx, remaining_years])
+
+    frac = (rate - rate_grid[idx]) / denominator
 
     val_low = table[idx, remaining_years]
     val_high = table[idx + 1, remaining_years]

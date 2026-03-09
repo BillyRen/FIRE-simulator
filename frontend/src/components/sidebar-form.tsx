@@ -77,6 +77,7 @@ export function NumberField({
   tooltip?: string;
 }) {
   const [display, setDisplay] = useState(String(value));
+  const [validationMsg, setValidationMsg] = useState<string>("");
 
   useEffect(() => {
     setDisplay(String(value));
@@ -85,11 +86,20 @@ export function NumberField({
   const commit = () => {
     const parsed = parseFloat(display);
     if (isNaN(parsed)) {
-      onChange(min ?? 0);
-      setDisplay(String(min ?? 0));
+      const fallback = min ?? 0;
+      onChange(fallback);
+      setDisplay(String(fallback));
+      setValidationMsg(`已调整为 ${fallback}`);
+      setTimeout(() => setValidationMsg(""), 3000);
     } else {
       const clamped =
         Math.min(max ?? Infinity, Math.max(min ?? -Infinity, parsed));
+      if (clamped !== parsed) {
+        setValidationMsg(`已调整为 ${clamped}（范围：${min ?? "-∞"} - ${max ?? "∞"}）`);
+        setTimeout(() => setValidationMsg(""), 3000);
+      } else {
+        setValidationMsg("");
+      }
       onChange(clamped);
       setDisplay(String(clamped));
     }
@@ -118,6 +128,11 @@ export function NumberField({
         {suffix && <span className="text-xs text-muted-foreground shrink-0">{suffix}</span>}
       </div>
       {help && <p className="text-[10px] text-muted-foreground mt-0.5">{help}</p>}
+      {validationMsg && (
+        <p className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 animate-in fade-in duration-200">
+          ⚠️ {validationMsg}
+        </p>
+      )}
     </div>
   );
 }

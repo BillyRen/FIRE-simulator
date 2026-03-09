@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -126,6 +127,37 @@ from schemas import (
 )
 
 # ---------------------------------------------------------------------------
+# 自定义异常类：提供结构化错误响应
+# ---------------------------------------------------------------------------
+
+class DataNotFoundError(HTTPException):
+    """数据未找到异常（404）"""
+    def __init__(self, message: str):
+        super().__init__(
+            status_code=404,
+            detail={"error": "DATA_NOT_FOUND", "message": message}
+        )
+
+
+class ValidationError(HTTPException):
+    """参数验证失败异常（400）"""
+    def __init__(self, message: str):
+        super().__init__(
+            status_code=400,
+            detail={"error": "VALIDATION_ERROR", "message": message}
+        )
+
+
+class ComputationError(HTTPException):
+    """计算过程错误异常（500）"""
+    def __init__(self, message: str):
+        super().__init__(
+            status_code=500,
+            detail={"error": "COMPUTATION_ERROR", "message": message}
+        )
+
+
+# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
@@ -136,7 +168,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS: 生产环境通过 ALLOWED_ORIGINS 环境变量限制，多域名用逗号分隔
-_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -145,9 +177,15 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+# GZIP 响应压缩：减少大型 JSON 响应的网络传输量（60-80% 压缩率）
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # 全局缓存（按 data_source 键分别缓存）
 _returns_cache: dict[str, object] = {}
 _country_list_cache: dict[str, list] = {}
+# 新增：按 (data_start_year, data_source) 缓存 country_dfs 和 combined DataFrame
+_country_dfs_cache: dict[tuple[int, str], dict] = {}
+_combined_df_cache: dict[tuple[int, str], object] = {}
 
 
 def _get_returns_df(data_source: str = "jst"):
@@ -169,9 +207,29 @@ def _filter_df(country: str, data_start_year: int, data_source: str = "jst"):
 
 
 def _get_country_dfs_cached(data_start_year: int, data_source: str = "jst") -> dict[str, "pd.DataFrame"]:
-    """获取按国家拆分的 DataFrames（池化 bootstrap 用）。"""
-    df = _get_returns_df(data_source)
-    return get_country_dfs(df, data_start_year)
+    """获取按国家拆分的 DataFrames（池化 bootstrap 用）。
+
+    使用 (data_start_year, data_source) 作为缓存键，避免重复过滤。
+    """
+    cache_key = (data_start_year, data_source)
+    if cache_key not in _country_dfs_cache:
+        df = _get_returns_df(data_source)
+        _country_dfs_cache[cache_key] = get_country_dfs(df, data_start_year)
+    return _country_dfs_cache[cache_key]
+
+
+def _get_combined_df(data_start_year: int, data_source: str = "jst"):
+    """获取合并后的多国 DataFrame（ALL模式），带缓存。"""
+    import pandas as pd
+
+    cache_key = (data_start_year, data_source)
+    if cache_key not in _combined_df_cache:
+        country_dfs = _get_country_dfs_cached(data_start_year, data_source)
+        if not country_dfs:
+            _combined_df_cache[cache_key] = pd.DataFrame()
+        else:
+            _combined_df_cache[cache_key] = pd.concat(country_dfs.values(), ignore_index=True)
+    return _combined_df_cache[cache_key]
 
 
 def _to_cash_flows(items) -> list[CashFlowItem] | None:
@@ -225,7 +283,8 @@ def _resolve_data(req):
         country_dfs = _get_country_dfs_cached(req.data_start_year, ds)
         if not country_dfs:
             return pd.DataFrame(), None
-        combined = pd.concat(country_dfs.values(), ignore_index=True)
+        # 使用缓存的 combined DataFrame，避免每次请求都 concat
+        combined = _get_combined_df(req.data_start_year, ds)
         return combined, country_dfs
     else:
         filtered = _filter_df(country, req.data_start_year, ds)

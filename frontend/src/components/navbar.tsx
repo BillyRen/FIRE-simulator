@@ -49,9 +49,10 @@ export function Navbar() {
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
               )}
               title={label}
+              aria-label={label}
             >
-              <span className="sm:hidden">{icon}</span>
-              <span className="hidden sm:inline">{label}</span>
+              <span className="md:hidden">{icon}</span>
+              <span className="hidden md:inline">{label}</span>
             </Link>
           ))}
           </nav>

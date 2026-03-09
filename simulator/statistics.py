@@ -58,6 +58,9 @@ def compute_funded_ratio(
     float
         Funded Ratio，范围 [0, 1]。
     """
+    if retirement_years <= 0:
+        raise ValueError("retirement_years must be > 0")
+
     num_sims = trajectories.shape[0]
     # 跳过第 0 列（初始资产），从第 1 列开始检测
     depleted = trajectories[:, 1:] <= 0  # shape (num_sims, retirement_years)

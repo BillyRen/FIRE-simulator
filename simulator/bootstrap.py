@@ -55,19 +55,20 @@ def block_bootstrap(
     data = returns_df[cols].values
     n = len(data)
 
-    sampled_rows: list[np.ndarray] = []
-    total_sampled = 0
+    # 预分配输出数组，避免动态list增长和concatenate
+    output = np.empty((retirement_years, len(cols)), dtype=data.dtype)
+    pos = 0
 
-    while total_sampled < retirement_years:
-        block_size = rng.integers(min_block, max_block + 1)
+    while pos < retirement_years:
+        # 计算本次block大小，确保不超出剩余空间
+        block_size = min(rng.integers(min_block, max_block + 1), retirement_years - pos)
         start = rng.integers(0, n)
         indices = np.arange(start, start + block_size) % n
-        block = data[indices]
-        sampled_rows.append(block)
-        total_sampled += block_size
+        # 直接写入预分配数组
+        output[pos:pos + block_size] = data[indices]
+        pos += block_size
 
-    all_rows = np.concatenate(sampled_rows, axis=0)[:retirement_years]
-    return pd.DataFrame(all_rows, columns=cols)
+    return pd.DataFrame(output, columns=cols)
 
 
 def block_bootstrap_pooled(
@@ -112,6 +113,7 @@ def block_bootstrap_pooled(
     cols = columns if columns is not None else RETURN_COLS
 
     # 预转换为 numpy 数组
+    # NOTE: 这个转换可以在调用端缓存以进一步提升性能
     country_list = list(country_dfs.keys())
     country_arrays = {
         iso: df[cols].values for iso, df in country_dfs.items()
@@ -129,10 +131,11 @@ def block_bootstrap_pooled(
     else:
         probs = None  # 等概率
 
-    sampled_rows: list[np.ndarray] = []
-    total_sampled = 0
+    # 预分配输出数组，避免动态list增长和concatenate
+    output = np.empty((retirement_years, len(cols)), dtype=np.float64)
+    pos = 0
 
-    while total_sampled < retirement_years:
+    while pos < retirement_years:
         # 1. 随机选国家
         if probs is not None:
             country_idx = rng.choice(n_countries, p=probs)
@@ -143,13 +146,13 @@ def block_bootstrap_pooled(
         n = len(data)
 
         # 2. 该国内环形采样
-        block_size = rng.integers(min_block, max_block + 1)
+        # 计算本次block大小，确保不超出剩余空间
+        block_size = min(rng.integers(min_block, max_block + 1), retirement_years - pos)
         start = rng.integers(0, n)
         indices = np.arange(start, start + block_size) % n
-        block = data[indices]
 
-        sampled_rows.append(block)
-        total_sampled += block_size
+        # 直接写入预分配数组
+        output[pos:pos + block_size] = data[indices]
+        pos += block_size
 
-    all_rows = np.concatenate(sampled_rows, axis=0)[:retirement_years]
-    return pd.DataFrame(all_rows, columns=cols)
+    return pd.DataFrame(output, columns=cols)

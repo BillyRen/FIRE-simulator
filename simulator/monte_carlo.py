@@ -233,26 +233,45 @@ def _compute_glide_path_returns(
     leverage: float,
     borrowing_spread: float,
 ) -> np.ndarray:
-    """Per-year portfolio returns with linearly interpolated allocation."""
+    """Per-year portfolio returns with linearly interpolated allocation.
+
+    优化版本：预计算所有年份的配置权重，使用向量化计算。
+    """
     n = len(sampled)
     asset_map = {
         "domestic_stock": "Domestic_Stock",
         "global_stock": "Global_Stock",
         "domestic_bond": "Domestic_Bond",
     }
-    inflation = sampled["Inflation"].values
-    real_returns = np.zeros(n)
 
-    for year in range(n):
-        t = min(year / max(glide_years, 1), 1.0)
-        nominal = 0.0
-        for key, col in asset_map.items():
-            w = start_alloc.get(key, 0.0) * (1.0 - t) + end_alloc.get(key, 0.0) * t
-            e = expense_ratios.get(key, 0.0)
-            nominal += w * (sampled[col].iloc[year] - e)
-        if leverage != 1.0:
-            nominal = leverage * nominal - (leverage - 1.0) * (inflation[year] + borrowing_spread)
-        real_returns[year] = (1.0 + nominal) / (1.0 + inflation[year]) - 1.0
+    # 预计算所有年份的插值比例 t
+    years = np.arange(n)
+    t_values = np.minimum(years / max(glide_years, 1), 1.0)
+
+    # 预计算所有资产的权重矩阵 (n_years, n_assets)
+    weights = np.zeros((n, len(asset_map)))
+    asset_keys = list(asset_map.keys())
+    for i, key in enumerate(asset_keys):
+        w_start = start_alloc.get(key, 0.0)
+        w_end = end_alloc.get(key, 0.0)
+        weights[:, i] = w_start * (1.0 - t_values) + w_end * t_values
+
+    # 获取资产回报和费用率（向量化）
+    returns_matrix = np.column_stack([
+        sampled[asset_map[key]].values for key in asset_keys
+    ])
+    expense_array = np.array([expense_ratios.get(key, 0.0) for key in asset_keys])
+
+    # 向量化计算名义回报：sum(weight * (return - expense)) for each year
+    nominal_returns = np.sum(weights * (returns_matrix - expense_array), axis=1)
+
+    # 考虑杠杆
+    inflation = sampled["Inflation"].values
+    if leverage != 1.0:
+        nominal_returns = leverage * nominal_returns - (leverage - 1.0) * (inflation + borrowing_spread)
+
+    # 计算实际回报
+    real_returns = (1.0 + nominal_returns) / (1.0 + inflation) - 1.0
 
     return real_returns
 
