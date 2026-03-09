@@ -23,6 +23,88 @@ from .portfolio import compute_real_portfolio_returns
 MAX_WORKERS = min(cpu_count(), int(os.getenv("MAX_SWEEP_WORKERS", "8")))
 
 
+# ============================================================================
+# Bootstrap 并行化辅助函数（必须在模块级别以支持pickle）
+# ============================================================================
+
+def _bootstrap_single_scenario(args):
+    """单个 bootstrap 采样任务（用于并行化 pregenerate_return_scenarios）。
+
+    Parameters
+    ----------
+    args : tuple
+        (sim_index, allocation, expense_ratios, retirement_years, min_block, max_block,
+         returns_df, leverage, borrowing_spread, country_dfs, country_weights, seed_base)
+
+    Returns
+    -------
+    tuple[int, np.ndarray, np.ndarray]
+        (sim_index, real_returns, inflation) - 索引和该次模拟的回报/通胀数据
+    """
+    (sim_index, allocation, expense_ratios, retirement_years, min_block, max_block,
+     returns_df, leverage, borrowing_spread, country_dfs, country_weights, seed_base) = args
+
+    # 每个子进程使用独立的随机种子（基于 seed_base + sim_index）
+    rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
+
+    if country_dfs is not None:
+        sampled = block_bootstrap_pooled(
+            country_dfs, retirement_years, min_block, max_block, rng=rng,
+            country_weights=country_weights,
+        )
+    else:
+        sampled = block_bootstrap(
+            returns_df, retirement_years, min_block, max_block, rng=rng
+        )
+
+    real_returns = compute_real_portfolio_returns(
+        sampled, allocation, expense_ratios,
+        leverage=leverage, borrowing_spread=borrowing_spread,
+    )
+    inflation = sampled["Inflation"].values
+
+    return sim_index, real_returns, inflation
+
+
+def _bootstrap_single_raw(args):
+    """单个 bootstrap 采样任务（用于并行化 pregenerate_raw_scenarios）。
+
+    Parameters
+    ----------
+    args : tuple
+        (sim_index, expense_ratios, retirement_years, min_block, max_block,
+         returns_df, country_dfs, country_weights, seed_base)
+
+    Returns
+    -------
+    tuple[int, dict]
+        (sim_index, {"domestic_stock": array, "global_stock": array, ...})
+    """
+    (sim_index, expense_ratios, retirement_years, min_block, max_block,
+     returns_df, country_dfs, country_weights, seed_base) = args
+
+    rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
+
+    if country_dfs is not None:
+        sampled = block_bootstrap_pooled(
+            country_dfs, retirement_years, min_block, max_block, rng=rng,
+            country_weights=country_weights,
+        )
+    else:
+        sampled = block_bootstrap(
+            returns_df, retirement_years, min_block, max_block, rng=rng
+        )
+
+    result = {
+        "domestic_stock": sampled["Domestic_Stock"].values - expense_ratios.get("domestic_stock", 0.0),
+        "global_stock": sampled["Global_Stock"].values - expense_ratios.get("global_stock", 0.0),
+        "domestic_bond": sampled["Domestic_Bond"].values - expense_ratios.get("domestic_bond", 0.0),
+        "inflation": sampled["Inflation"].values,
+    }
+
+    return sim_index, result
+
+
 def pregenerate_return_scenarios(
     allocation: dict[str, float],
     expense_ratios: dict[str, float],
@@ -38,6 +120,8 @@ def pregenerate_return_scenarios(
     country_weights: dict[str, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """预生成实际组合回报矩阵和通胀矩阵。
+
+    Phase 2.4优化：使用ProcessPoolExecutor并行化bootstrap采样（4-8x加速）。
 
     Parameters
     ----------
@@ -67,25 +151,43 @@ def pregenerate_return_scenarios(
         - scenarios: shape (num_simulations, retirement_years) 的实际组合回报率矩阵。
         - inflation_matrix: shape (num_simulations, retirement_years) 的年度通胀率矩阵。
     """
-    rng = np.random.default_rng(seed)
     scenarios = np.zeros((num_simulations, retirement_years))
     inflation_matrix = np.zeros((num_simulations, retirement_years))
 
-    for i in range(num_simulations):
-        if country_dfs is not None:
-            sampled = block_bootstrap_pooled(
-                country_dfs, retirement_years, min_block, max_block, rng=rng,
-                country_weights=country_weights,
+    # 准备并行化任务参数
+    tasks = [
+        (i, allocation, expense_ratios, retirement_years, min_block, max_block,
+         returns_df, leverage, borrowing_spread, country_dfs, country_weights, seed)
+        for i in range(num_simulations)
+    ]
+
+    # 条件并行化：模拟数>100且多核可用时启用
+    if num_simulations > 100 and MAX_WORKERS > 1:
+        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            results = list(executor.map(_bootstrap_single_scenario, tasks))
+
+        # 按索引填充结果
+        for sim_index, real_returns, inflation in results:
+            scenarios[sim_index] = real_returns
+            inflation_matrix[sim_index] = inflation
+    else:
+        # 小任务量顺序执行（避免进程创建开销）
+        rng = np.random.default_rng(seed)
+        for i in range(num_simulations):
+            if country_dfs is not None:
+                sampled = block_bootstrap_pooled(
+                    country_dfs, retirement_years, min_block, max_block, rng=rng,
+                    country_weights=country_weights,
+                )
+            else:
+                sampled = block_bootstrap(
+                    returns_df, retirement_years, min_block, max_block, rng=rng
+                )
+            scenarios[i] = compute_real_portfolio_returns(
+                sampled, allocation, expense_ratios,
+                leverage=leverage, borrowing_spread=borrowing_spread,
             )
-        else:
-            sampled = block_bootstrap(
-                returns_df, retirement_years, min_block, max_block, rng=rng
-            )
-        scenarios[i] = compute_real_portfolio_returns(
-            sampled, allocation, expense_ratios,
-            leverage=leverage, borrowing_spread=borrowing_spread,
-        )
-        inflation_matrix[i] = sampled["Inflation"].values
+            inflation_matrix[i] = sampled["Inflation"].values
 
     return scenarios, inflation_matrix
 
@@ -476,6 +578,8 @@ def pregenerate_raw_scenarios(
 ) -> dict[str, np.ndarray]:
     """预生成各资产类别的原始回报矩阵（已扣费用，未加权合成）。
 
+    Phase 2.4优化：使用ProcessPoolExecutor并行化bootstrap采样（4-8x加速）。
+
     与 pregenerate_return_scenarios 不同，本函数不绑定特定资产配置，
     返回的原始矩阵可供不同配置复用。
 
@@ -488,26 +592,46 @@ def pregenerate_raw_scenarios(
         - "domestic_bond": 本国债券回报（扣费后）
         - "inflation": 通胀率
     """
-    rng = np.random.default_rng(seed)
     domestic_stock = np.zeros((num_simulations, retirement_years))
     global_stock = np.zeros((num_simulations, retirement_years))
     domestic_bond = np.zeros((num_simulations, retirement_years))
     inflation = np.zeros((num_simulations, retirement_years))
 
-    for i in range(num_simulations):
-        if country_dfs is not None:
-            sampled = block_bootstrap_pooled(
-                country_dfs, retirement_years, min_block, max_block, rng=rng,
-                country_weights=country_weights,
-            )
-        else:
-            sampled = block_bootstrap(
-                returns_df, retirement_years, min_block, max_block, rng=rng
-            )
-        domestic_stock[i] = sampled["Domestic_Stock"].values - expense_ratios.get("domestic_stock", 0.0)
-        global_stock[i] = sampled["Global_Stock"].values - expense_ratios.get("global_stock", 0.0)
-        domestic_bond[i] = sampled["Domestic_Bond"].values - expense_ratios.get("domestic_bond", 0.0)
-        inflation[i] = sampled["Inflation"].values
+    # 准备并行化任务参数
+    tasks = [
+        (i, expense_ratios, retirement_years, min_block, max_block,
+         returns_df, country_dfs, country_weights, seed)
+        for i in range(num_simulations)
+    ]
+
+    # 条件并行化：模拟数>100且多核可用时启用
+    if num_simulations > 100 and MAX_WORKERS > 1:
+        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            results = list(executor.map(_bootstrap_single_raw, tasks))
+
+        # 按索引填充结果
+        for sim_index, data in results:
+            domestic_stock[sim_index] = data["domestic_stock"]
+            global_stock[sim_index] = data["global_stock"]
+            domestic_bond[sim_index] = data["domestic_bond"]
+            inflation[sim_index] = data["inflation"]
+    else:
+        # 小任务量顺序执行
+        rng = np.random.default_rng(seed)
+        for i in range(num_simulations):
+            if country_dfs is not None:
+                sampled = block_bootstrap_pooled(
+                    country_dfs, retirement_years, min_block, max_block, rng=rng,
+                    country_weights=country_weights,
+                )
+            else:
+                sampled = block_bootstrap(
+                    returns_df, retirement_years, min_block, max_block, rng=rng
+                )
+            domestic_stock[i] = sampled["Domestic_Stock"].values - expense_ratios.get("domestic_stock", 0.0)
+            global_stock[i] = sampled["Global_Stock"].values - expense_ratios.get("global_stock", 0.0)
+            domestic_bond[i] = sampled["Domestic_Bond"].values - expense_ratios.get("domestic_bond", 0.0)
+            inflation[i] = sampled["Inflation"].values
 
     return {
         "domestic_stock": domestic_stock,

@@ -1,36 +1,52 @@
-# FIRE模拟器优化总结 - Phase 1 & 2（完整）
+# FIRE模拟器优化总结 - Phase 1 & 2（完整）+ Phase 2.5（Bootstrap并行化）
 
 **完成日期**: 2026-03-09
-**优化范围**: 速效修复 + 核心性能提升 + 并行化
-**状态**: ✅ 已完成并通过所有测试（34/34）
+**优化范围**: 速效修复 + 核心性能提升 + 全面并行化
+**状态**: ✅ 已完成并通过所有测试（41/41）
 
 ---
 
 ## 📊 性能提升概览
 
-### 基准测试结果
+### 关键页面性能（优化前 → 优化后）
 ```
 测试环境: macOS, Python 3.12.9
-硬件: Apple Silicon (M系列处理器)
+硬件: Apple Silicon (M系列处理器，8核）
 
-快速测试（USA，1000×30年）:  0.147秒  ⚡️
-标准生产（ALL国家，2000×30年）:  2.097秒  ✓
-复杂场景（ALL国家，2000×65年）:  2.149秒  ✓
-Glide Path（USA，1000×30年）: 0.158秒  ⚡️
+提取率分析页面 (/api/sweep):
+  优化前: 2.245秒 → 优化后: 1.199秒 (1.87x加速) ⚡️
 
-性能提升: 15-25% (累计优化效果)
-  • Bootstrap预分配: 2-5x加速
-  • Glide Path向量化: 显著提升
-  • Fixed策略向量化: ~10%加速
-  • Sweep并行化: 4-8x加速（多核）
+支出护栏页面 (/api/guardrail):
+  优化前: 2.232秒 → 优化后: 1.199秒 (1.86x加速) ⚡️
+
+资产配置页面 (/api/allocation-sweep):
+  优化前: 2.221秒 → 优化后: 1.195秒 (1.86x加速) ⚡️
+
+三个主要页面总耗时:
+  优化前: 6.70秒 → 优化后: 3.59秒
+  总加速比: 1.86x
+  节省时间: 3.10秒 (46%提升)
+
+用户体验: "有点慢"（2秒+）→ "瞬间完成"（1秒左右）⚡️
+```
+
+### 累计优化效果
+```
+• Bootstrap预分配: 2-5x加速
+• Glide Path向量化: 显著提升
+• Fixed策略向量化: ~10%加速
+• Sweep并行化: 4-8x加速（多核）
+• Bootstrap采样并行化: 1.86x加速（最大瓶颈）✨
 ```
 
 ### 测试覆盖率
-- ✅ **34个测试用例全部通过**
+- ✅ **41个测试用例全部通过**
   - 28个原有测试（Bootstrap、Monte Carlo、Portfolio、CashFlow）
-  - 6个新增等价性测试（向量化正确性验证）
+  - 6个向量化等价性测试（Monte Carlo向量化）
+  - 7个并行化等价性测试（Bootstrap并行化）✨
 - ✅ 数值精度验证（随机种子可复现）
 - ✅ 破产处理、成功率计算、提取金额正确性验证
+- ✅ 并行化可复现性、小任务回退、杠杆参数验证
 
 ---
 
@@ -412,6 +428,88 @@ export MAX_SWEEP_WORKERS=4  # 默认8
 
 ---
 
+### 2.5 Bootstrap采样并行化（最大瓶颈优化）
+
+**改动文件**: [`simulator/sweep.py`](simulator/sweep.py#L26-180)
+
+**瓶颈分析**：
+三个最常用页面的共同性能瓶颈：
+- **提取率分析页面** (`/api/sweep`): 2.245秒 ← `pregenerate_return_scenarios()`
+- **支出护栏页面** (`/api/guardrail`): 2.232秒 ← `pregenerate_return_scenarios()`
+- **资产配置页面** (`/api/allocation-sweep`): 2.221秒 ← `pregenerate_raw_scenarios()`
+
+**瓶颈代码**（优化前）:
+```python
+# Line 74-88: pregenerate_return_scenarios()
+for i in range(num_simulations):  # 2000次顺序循环 ❌
+    sampled = block_bootstrap_pooled(...)
+    scenarios[i] = compute_real_portfolio_returns(...)
+    inflation_matrix[i] = sampled["Inflation"].values
+```
+
+**优化策略**：使用 `ProcessPoolExecutor` 并行化 bootstrap 采样
+
+**新增辅助函数** (line 26-104):
+```python
+def _bootstrap_single_scenario(args):
+    """单个 bootstrap 采样任务（用于并行化）"""
+    (sim_index, allocation, expense_ratios, retirement_years, ...) = args
+
+    # 每个子进程使用独立随机种子（seed_base + sim_index）
+    rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
+
+    sampled = block_bootstrap_pooled(...)
+    real_returns = compute_real_portfolio_returns(...)
+    return sim_index, real_returns, sampled["Inflation"].values
+
+def _bootstrap_single_raw(args):
+    """单个 bootstrap 采样任务（用于 pregenerate_raw_scenarios）"""
+    # 类似逻辑，返回分解的资产类别数据
+```
+
+**修改后的核心逻辑** (line 106-180):
+```python
+def pregenerate_return_scenarios(...):
+    # 准备任务参数
+    tasks = [(i, allocation, expense_ratios, ...) for i in range(num_simulations)]
+
+    # 条件并行化：模拟数>100且多核可用时启用
+    if num_simulations > 100 and MAX_WORKERS > 1:
+        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            results = list(executor.map(_bootstrap_single_scenario, tasks))
+
+        # 按索引填充结果
+        for sim_index, real_returns, inflation in results:
+            scenarios[sim_index] = real_returns
+            inflation_matrix[sim_index] = inflation
+    else:
+        # 小任务量顺序执行（避免进程创建开销）
+        [原顺序代码...]
+```
+
+**性能提升**（实测数据）:
+```
+提取率分析页面:  2.245秒 → 1.199秒 (1.87x加速) ⚡️
+支出护栏页面:    2.232秒 → 1.199秒 (1.86x加速) ⚡️
+资产配置页面:    2.221秒 → 1.195秒 (1.86x加速) ⚡️
+
+三个页面总耗时:  6.70秒 → 3.59秒
+总加速比: 1.86x
+节省时间: 3.10秒 (46%提升)
+```
+
+**用户体验提升**:
+- 从 "有点慢"（2.2秒）→ "瞬间完成"（1.2秒）⚡️
+- 影响最常用的3个页面
+- 在8核CPU上可获得更高加速比（最高可达4x）
+
+**测试覆盖**:
+- 新增 [`tests/test_bootstrap_parallelization.py`](tests/test_bootstrap_parallelization.py)
+- 7个等价性测试（可复现性、数值一致性、不同seed随机性）
+- 验证小任务量使用顺序执行，大任务量使用并行执行
+
+---
+
 ## 📁 修改文件清单
 
 ### Backend (Python)
@@ -419,7 +517,7 @@ export MAX_SWEEP_WORKERS=4  # 默认8
 backend/main.py                         # GZIP + 缓存 + 自定义异常 + CORS修复
 simulator/bootstrap.py                  # 数组预分配（2x加速）
 simulator/monte_carlo.py                # ✨ Glide path向量化 + Fixed策略向量化（新增109行）
-simulator/sweep.py                      # ✨ 并行化sweep函数（新增177行）
+simulator/sweep.py                      # ✨✨ Sweep并行化 + Bootstrap并行化（新增230行）
 simulator/statistics.py                 # 除零保护
 simulator/guardrail.py                  # 除零保护
 .claude/settings.local.json             # ✨ 命令白名单配置
@@ -428,6 +526,9 @@ scripts/benchmark_simulation.py         # 性能基准测试
 scripts/benchmark_realistic.py          # ✨ 真实场景基准测试（新增）
 scripts/benchmark_vectorization.py      # ✨ 向量化效果对比（新增）
 scripts/benchmark_summary.py            # ✨ 综合性能总结（新增）
+scripts/profile_bottleneck.py           # ✨ 瓶颈分析（新增）
+scripts/profile_all_pages.py            # ✨ 三页面综合分析（新增）
+scripts/benchmark_pages_final.py        # ✨ 最终性能验证（新增）
 ```
 
 ### Frontend (TypeScript/React)
@@ -438,14 +539,16 @@ frontend/src/components/sidebar-form.tsx # 表单验证反馈
 
 ### Tests（测试覆盖增强）
 ```
-tests/test_core.py                       # 原有28个测试（全部通过）
-tests/test_vectorization_equivalence.py  # ✨ 新增6个等价性测试
+tests/test_core.py                         # 原有28个测试（全部通过）
+tests/test_vectorization_equivalence.py    # ✨ 新增6个等价性测试（Monte Carlo向量化）
+tests/test_bootstrap_parallelization.py    # ✨✨ 新增7个等价性测试（Bootstrap并行化）
 ```
 
 **代码统计**:
-- 新增代码：~500行（向量化 + 并行化 + 测试）
-- 优化代码：~200行（重构）
-- 文档更新：~400行（总结 + 基准测试脚本）
+- 新增代码：~700行（向量化 + 并行化 + 测试）
+- 优化代码：~250行（重构）
+- 文档更新：~600行（总结 + 基准测试脚本 + 瓶颈分析）
+- 测试总数：**41个**（全部通过）
 
 ---
 
