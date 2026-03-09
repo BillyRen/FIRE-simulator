@@ -15,7 +15,10 @@ export async function exportToPdf(
 
   const img = new Image();
   img.src = dataUrl;
-  await new Promise<void>((resolve) => { img.onload = () => resolve(); });
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Failed to load image for PDF export"));
+  });
 
   const pdfWidth = 210;
   const pdfHeight = (img.height * pdfWidth) / img.width;

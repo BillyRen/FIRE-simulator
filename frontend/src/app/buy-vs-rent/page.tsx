@@ -213,7 +213,7 @@ export default function BuyVsRentPage() {
   // Countries
   const [countries, setCountries] = useState<HousingCountryInfo[]>([]);
   useEffect(() => {
-    fetchHousingCountries().then(setCountries).catch(() => {});
+    fetchHousingCountries().then(setCountries).catch(() => { /* non-critical init data */ });
   }, []);
 
   // MC breakeven target win pct

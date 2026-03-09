@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
+import { useApiCall } from "@/lib/use-api-call";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -22,7 +23,6 @@ import { runAllocationSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { useSharedParams } from "@/lib/params-context";
-import type { AllocationSweepResponse } from "@/lib/types";
 import { fmt, pct } from "@/lib/utils";
 
 export default function AllocationPage() {
@@ -36,9 +36,7 @@ export default function AllocationPage() {
   } = useSharedParams();
   const [portfolio, setPortfolio] = usePersistedState("fire:allocation:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:allocation:withdrawal", params.annual_withdrawal);
-  const [result, setResult] = useState<AllocationSweepResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { data: result, loading, error, run: handleRun } = useApiCall(runAllocationSweep);
 
   const [sortKey, setSortKey] = useState<string>("funded_ratio");
   const [sortAsc, setSortAsc] = useState(false);
@@ -48,24 +46,6 @@ export default function AllocationPage() {
     { value: "0.1", label: t("stepOption10") },
     { value: "0.2", label: t("stepOption20") },
   ];
-
-  const handleRun = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await runAllocationSweep({
-        ...params,
-        initial_portfolio: portfolio,
-        annual_withdrawal: withdrawal,
-        allocation_step: allocStep,
-      });
-      setResult(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : tc("unknownError"));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const sortedResults = result
     ? [...result.results].sort((a, b) => {
@@ -138,7 +118,12 @@ export default function AllocationPage() {
 
           </CardContent>
           <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
-            <Button onClick={handleRun} className="w-full" disabled={loading}>
+            <Button onClick={() => handleRun({
+              ...params,
+              initial_portfolio: portfolio,
+              annual_withdrawal: withdrawal,
+              allocation_step: allocStep,
+            })} className="w-full" disabled={loading}>
               {loading ? t("scanning") : t("startScan")}
             </Button>
           </div>

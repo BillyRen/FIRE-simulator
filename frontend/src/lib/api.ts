@@ -173,7 +173,18 @@ export async function fetchHistoricalEvents(country?: string) {
   const url = country
     ? `${API_BASE}/api/historical-events?country=${country}`
     : `${API_BASE}/api/historical-events`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    return res.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }

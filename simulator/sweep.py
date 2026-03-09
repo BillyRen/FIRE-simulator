@@ -677,6 +677,10 @@ def interpolate_targets(
     """
     results: list[float | None] = []
 
+    # success_rates 是递减序列，翻转后用 searchsorted 做 O(log n) 查找
+    sr_rev = success_rates[::-1]
+    rates_rev = rates[::-1]
+
     for t in targets:
         if t > success_rates[0]:
             results.append(None)
@@ -685,15 +689,20 @@ def interpolate_targets(
             results.append(float(rates[-1]))
             continue
 
-        found = False
-        for i in range(len(success_rates) - 1):
-            if success_rates[i] >= t and success_rates[i + 1] < t:
-                frac = (t - success_rates[i + 1]) / (success_rates[i] - success_rates[i + 1])
-                interp_rate = rates[i + 1] + frac * (rates[i] - rates[i + 1])
-                results.append(float(interp_rate))
-                found = True
-                break
-        if not found:
+        # 在翻转后的递增序列中找到插入位置
+        idx_rev = np.searchsorted(sr_rev, t)
+        if idx_rev <= 0 or idx_rev >= len(sr_rev):
             results.append(None)
+            continue
+
+        # 翻转索引对应原始序列中相邻的两个点
+        lo, hi = idx_rev - 1, idx_rev
+        denom = sr_rev[hi] - sr_rev[lo]
+        if abs(denom) < 1e-12:
+            results.append(float(rates_rev[lo]))
+        else:
+            frac = (t - sr_rev[lo]) / denom
+            interp_rate = rates_rev[lo] + frac * (rates_rev[hi] - rates_rev[lo])
+            results.append(float(interp_rate))
 
     return results

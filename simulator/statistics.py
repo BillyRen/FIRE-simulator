@@ -150,15 +150,17 @@ def compute_statistics(
     # Funded Ratio
     funded_ratio = compute_funded_ratio(trajectories, retirement_years)
 
-    # 逐年分位数轨迹
-    percentile_trajectories: dict[int, np.ndarray] = {}
-    for p in PERCENTILES:
-        percentile_trajectories[p] = np.percentile(trajectories, p, axis=0)
+    # 逐年分位数轨迹（一次计算所有分位数，避免多次遍历）
+    all_pct = np.percentile(trajectories, PERCENTILES, axis=0)
+    percentile_trajectories: dict[int, np.ndarray] = {
+        p: all_pct[i] for i, p in enumerate(PERCENTILES)
+    }
 
     # 最终资产分布统计
-    final_percentiles: dict[int, float] = {}
-    for p in PERCENTILES:
-        final_percentiles[p] = float(np.percentile(final_values, p))
+    all_final_pct = np.percentile(final_values, PERCENTILES)
+    final_percentiles: dict[int, float] = {
+        p: float(all_final_pct[i]) for i, p in enumerate(PERCENTILES)
+    }
 
     # 提取金额统计
     withdrawal_pct_traj: dict[int, np.ndarray] | None = None

@@ -76,6 +76,7 @@ export function NumberField({
   help?: string;
   tooltip?: string;
 }) {
+  const t = useTranslations("sidebar");
   const [display, setDisplay] = useState(String(value));
   const [validationMsg, setValidationMsg] = useState<string>("");
 
@@ -89,13 +90,13 @@ export function NumberField({
       const fallback = min ?? 0;
       onChange(fallback);
       setDisplay(String(fallback));
-      setValidationMsg(`已调整为 ${fallback}`);
+      setValidationMsg(t("adjustedTo", { value: fallback }));
       setTimeout(() => setValidationMsg(""), 3000);
     } else {
       const clamped =
         Math.min(max ?? Infinity, Math.max(min ?? -Infinity, parsed));
       if (clamped !== parsed) {
-        setValidationMsg(`已调整为 ${clamped}（范围：${min ?? "-∞"} - ${max ?? "∞"}）`);
+        setValidationMsg(t("adjustedToRange", { value: clamped, min: min ?? "-∞", max: max ?? "∞" }));
         setTimeout(() => setValidationMsg(""), 3000);
       } else {
         setValidationMsg("");
@@ -175,7 +176,7 @@ export function SidebarForm({
   const [showLifeExpectancy, setShowLifeExpectancy] = useState(false);
   const [countries, setCountries] = useState<CountryInfo[]>([]);
   useEffect(() => {
-    fetchCountries(p.data_source).then(setCountries).catch(() => {});
+    fetchCountries(p.data_source).then(setCountries).catch(() => { /* non-critical init data */ });
   }, [p.data_source]);
 
   const countryName = (c: CountryInfo) =>

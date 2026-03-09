@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
+import { useApiCall } from "@/lib/use-api-call";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -23,7 +23,6 @@ import { runSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { useSharedParams } from "@/lib/params-context";
-import type { SweepResponse } from "@/lib/types";
 
 export default function SensitivityPage() {
   const t = useTranslations("sensitivity");
@@ -38,28 +37,7 @@ export default function SensitivityPage() {
   } = useSharedParams();
   const [portfolio, setPortfolio] = usePersistedState("fire:sensitivity:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:sensitivity:withdrawal", params.annual_withdrawal);
-  const [result, setResult] = useState<SweepResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleRun = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await runSweep({
-        ...params,
-        initial_portfolio: portfolio,
-        annual_withdrawal: withdrawal,
-        rate_max: rateMax,
-        rate_step: rateStep,
-      });
-      setResult(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : tc("unknownError"));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: result, loading, error, run: handleRun } = useApiCall(runSweep);
 
   // 当前选中的指标数据
   const metricValues = result
@@ -138,7 +116,13 @@ export default function SensitivityPage() {
 
           </CardContent>
           <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
-            <Button onClick={handleRun} className="w-full" disabled={loading}>
+            <Button onClick={() => handleRun({
+              ...params,
+              initial_portfolio: portfolio,
+              annual_withdrawal: withdrawal,
+              rate_max: rateMax,
+              rate_step: rateStep,
+            })} className="w-full" disabled={loading}>
               {loading ? t("analyzing") : t("runAnalysis")}
             </Button>
           </div>

@@ -5,7 +5,12 @@ const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 // 根据环境动态构建 connect-src，确保开发和生产都能连接后端 API
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
-const connectSrcExtra = apiUrl && !apiUrl.startsWith("/") ? ` ${apiUrl}` : "";
+let connectSrcApi = "";
+try {
+  if (apiUrl) connectSrcApi = ` ${new URL(apiUrl).origin}`;
+} catch {
+  // relative URL or invalid — no extra CSP entry needed
+}
 
 const nextConfig: NextConfig = {
   devIndicators: false,
@@ -34,7 +39,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob:",
               "font-src 'self'",
-              `connect-src 'self' https://fire-simulator-api.onrender.com https://va.vercel-scripts.com https://vitals.vercel-insights.com${connectSrcExtra}`,
+              `connect-src 'self'${connectSrcApi} https://va.vercel-scripts.com https://vitals.vercel-insights.com`,
               "frame-ancestors 'none'",
             ].join("; "),
           },

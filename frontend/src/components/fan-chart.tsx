@@ -126,7 +126,7 @@ export function FanChart({
     }
   }
 
-  traces.push(...extraTraces.map(t => ('x' in t && t.x) ? t : { ...t, x: x as Plotly.Datum[] }));
+  traces.push(...extraTraces.map(t => ('x' in t && t.x) ? t : { ...t, x: x as Plotly.Datum[] }) as Plotly.Data[]);
 
   const chartHeight = isMobile ? 280 : (height ?? 450);
 

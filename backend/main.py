@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -50,7 +51,7 @@ from simulator.data_loader import (
     load_returns_by_source,
 )
 from simulator.guardrail import (
-    _apply_guardrail_adjustment,
+    apply_guardrail_adjustment,
     build_cf_aware_table,
     build_success_rate_table,
     find_rate_for_target,
@@ -168,7 +169,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS: 生产环境通过 ALLOWED_ORIGINS 环境变量限制，多域名用逗号分隔
-_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001").split(",")
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -220,8 +221,6 @@ def _get_country_dfs_cached(data_start_year: int, data_source: str = "jst") -> d
 
 def _get_combined_df(data_start_year: int, data_source: str = "jst"):
     """获取合并后的多国 DataFrame（ALL模式），带缓存。"""
-    import pandas as pd
-
     cache_key = (data_start_year, data_source)
     if cache_key not in _combined_df_cache:
         country_dfs = _get_country_dfs_cached(data_start_year, data_source)
@@ -261,6 +260,24 @@ def _expense_dict(e) -> dict[str, float]:
     return {"domestic_stock": e.domestic_stock, "global_stock": e.global_stock, "domestic_bond": e.domestic_bond}
 
 
+def _validate_data_sufficient(filtered, country_dfs) -> None:
+    """校验数据是否充足，不足则抛出 400。"""
+    _validate_data_sufficient(filtered, country_dfs)
+
+
+def _unpack_cf_table(cf_table_result) -> tuple:
+    """解包 build_cf_aware_table 返回的五元组，None 安全。"""
+    if cf_table_result is None:
+        return None, None, None, 0.0, -1
+    return (
+        cf_table_result[0],  # cf_rate_grid
+        cf_table_result[1],  # cf_scale_grid
+        cf_table_result[2],  # cf_table
+        cf_table_result[3],  # cf_ref
+        cf_table_result[4],  # last_cf_year
+    )
+
+
 def _resolve_data(req):
     """根据 country 字段解析 filtered_df 和 country_dfs。
 
@@ -271,8 +288,6 @@ def _resolve_data(req):
         - 单国模式: filtered_df 非空, country_dfs = None
         - ALL 模式: filtered_df 为空 placeholder, country_dfs 非空
     """
-    import pandas as pd
-
     ds = getattr(req, "data_source", "jst")
     country = req.country
     # FIRE Dataset 只有 USA，自动降级
@@ -364,8 +379,7 @@ def api_historical_events(country: str | None = None):
 @limiter.limit("10/minute")
 def api_simulate(request: Request, req: SimulationRequest):
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -517,8 +531,7 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
 def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
     """遍历所有有效 (国家, 起始年) 组合进行历史回测。"""
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     result = run_sim_batch_backtest(
         country_dfs=country_dfs,
@@ -565,8 +578,7 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
 def api_simulate_scenarios(request: Request, req: SimulationRequest):
     """枚举概率现金流的所有确定性组合，用用户选择的提取策略模拟。"""
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     cash_flows = _to_cash_flows(req.cash_flows)
     if not cash_flows:
@@ -658,8 +670,7 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
 def api_simulate_sensitivity(request: Request, req: SimulationRequest):
     """核心参数 ±delta 对成功率的影响（使用用户选择的提取策略）。"""
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
     cash_flows = _to_cash_flows(req.cash_flows)
@@ -771,8 +782,7 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
 @limiter.limit("10/minute")
 def api_sweep(request: Request, req: SweepRequest):
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -863,8 +873,7 @@ def api_sweep(request: Request, req: SweepRequest):
 @limiter.limit("10/minute")
 def api_guardrail(request: Request, req: GuardrailRequest):
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -899,11 +908,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
             GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
         )
 
-    _cf_tbl = cf_table_result[2] if cf_table_result else None
-    _cf_rg = cf_table_result[0] if cf_table_result else None
-    _cf_sg = cf_table_result[1] if cf_table_result else None
-    _cf_ref = cf_table_result[3] if cf_table_result else 0.0
-    _last_cf_y = cf_table_result[4] if cf_table_result else -1
+    _cf_rg, _cf_sg, _cf_tbl, _cf_ref, _last_cf_y = _unpack_cf_table(cf_table_result)
 
     sim_kwargs = dict(
         scenarios=scenarios,
@@ -1009,7 +1014,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         lower_trigger_port = _find_trigger_port_3d(req.lower_guardrail)
 
         _cs_upper = _cf_ref / upper_trigger_port if upper_trigger_port > 0 else 0.0
-        upper_trigger_wd = _apply_guardrail_adjustment(
+        upper_trigger_wd = apply_guardrail_adjustment(
             wd=annual_wd, value=upper_trigger_port,
             current_success=req.upper_guardrail, target_success=req.target_success,
             adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
@@ -1019,7 +1024,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         ) if upper_trigger_port > 0 else 0.0
 
         _cs_lower = _cf_ref / lower_trigger_port if lower_trigger_port > 0 else 0.0
-        lower_trigger_wd = _apply_guardrail_adjustment(
+        lower_trigger_wd = apply_guardrail_adjustment(
             wd=annual_wd, value=lower_trigger_port,
             current_success=req.lower_guardrail, target_success=req.target_success,
             adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
@@ -1033,13 +1038,13 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         upper_trigger_port = annual_wd / upper_rate if upper_rate > 0 else 0.0
         lower_trigger_port = annual_wd / lower_rate if lower_rate > 0 else 0.0
 
-        upper_trigger_wd = _apply_guardrail_adjustment(
+        upper_trigger_wd = apply_guardrail_adjustment(
             wd=annual_wd, value=upper_trigger_port,
             current_success=req.upper_guardrail, target_success=req.target_success,
             adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
             remaining=remaining_y0, table=table, rate_grid=rate_grid,
         ) if upper_trigger_port > 0 else 0.0
-        lower_trigger_wd = _apply_guardrail_adjustment(
+        lower_trigger_wd = apply_guardrail_adjustment(
             wd=annual_wd, value=lower_trigger_port,
             current_success=req.lower_guardrail, target_success=req.target_success,
             adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
@@ -1077,8 +1082,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
     """枚举概率现金流的所有确定性组合，对比各场景对退休结果的影响。"""
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     cash_flows = _to_cash_flows(req.cash_flows)
     if not cash_flows:
@@ -1130,11 +1134,7 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
                 max_start_years=SCENARIO_MAX_START_YEARS,
             )
 
-        _cf_t = cf_table_r[2] if cf_table_r else None
-        _cf_r = cf_table_r[0] if cf_table_r else None
-        _cf_s = cf_table_r[1] if cf_table_r else None
-        _cf_ref = cf_table_r[3] if cf_table_r else 0.0
-        _last_y = cf_table_r[4] if cf_table_r else -1
+        _cf_r, _cf_s, _cf_t, _cf_ref, _last_y = _unpack_cf_table(cf_table_r)
 
         sim_kwargs = dict(
             scenarios=scenarios,
@@ -1205,8 +1205,7 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
 def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
     """固定目标成功率，变动参数后用护栏策略计算最优提取额/初始资产。"""
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
     cash_flows = _to_cash_flows(req.cash_flows)
@@ -1244,6 +1243,7 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
                 max_sims=SCENARIO_CF_MAX_SIMS,
                 max_start_years=SCENARIO_MAX_START_YEARS,
             )
+        _rg, _sg, _tbl, _ref, _ly = _unpack_cf_table(cf_tbl_r)
 
         sim_kw = dict(
             scenarios=scen,
@@ -1256,11 +1256,11 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
             table=tbl, rate_grid=rg,
             adjustment_mode=req.adjustment_mode,
             cash_flows=cash_flows, inflation_matrix=infl,
-            cf_table=cf_tbl_r[2] if cf_tbl_r else None,
-            cf_rate_grid=cf_tbl_r[0] if cf_tbl_r else None,
-            cf_scale_grid=cf_tbl_r[1] if cf_tbl_r else None,
-            cf_ref=cf_tbl_r[3] if cf_tbl_r else 0.0,
-            last_cf_year=cf_tbl_r[4] if cf_tbl_r else -1,
+            cf_table=_tbl,
+            cf_rate_grid=_rg,
+            cf_scale_grid=_sg,
+            cf_ref=_ref,
+            last_cf_year=_ly,
         )
         if ip_override is not None:
             sim_kw["initial_portfolio"] = ip_override
@@ -1369,8 +1369,7 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
 @limiter.limit("10/minute")
 def api_backtest(request: Request, req: BacktestRequest):
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -1416,11 +1415,7 @@ def api_backtest(request: Request, req: BacktestRequest):
     cash_flows = _to_cash_flows(req.cash_flows)
 
     # 3D 现金流感知查找表
-    _bt_cf_tbl = None
-    _bt_cf_rg = None
-    _bt_cf_sg = None
-    _bt_cf_ref = 0.0
-    _bt_last_cf_y = -1
+    bt_cf_result = None
     if cash_flows:
         rep_schedule = build_representative_cf_schedule(
             cash_flows, req.retirement_years,
@@ -1429,12 +1424,7 @@ def api_backtest(request: Request, req: BacktestRequest):
             scenarios, rep_schedule,
             GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
         )
-        if bt_cf_result is not None:
-            _bt_cf_tbl = bt_cf_result[2]
-            _bt_cf_rg = bt_cf_result[0]
-            _bt_cf_sg = bt_cf_result[1]
-            _bt_cf_ref = bt_cf_result[3]
-            _bt_last_cf_y = bt_cf_result[4]
+    _bt_cf_rg, _bt_cf_sg, _bt_cf_tbl, _bt_cf_ref, _bt_last_cf_y = _unpack_cf_table(bt_cf_result)
 
     result = run_historical_backtest(
         real_returns=hist_returns,
@@ -1491,8 +1481,7 @@ def api_backtest(request: Request, req: BacktestRequest):
 def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRequest):
     """遍历所有有效 (国家, 起始年) 进行 guardrail 历史回测。"""
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -1517,11 +1506,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
     batch_cash_flows = _to_cash_flows(req.cash_flows)
 
     # 3D 现金流感知查找表
-    _batch_cf_tbl = None
-    _batch_cf_rg = None
-    _batch_cf_sg = None
-    _batch_cf_ref = 0.0
-    _batch_last_cf_y = -1
+    batch_cf_result = None
     if batch_cash_flows:
         rep_schedule = build_representative_cf_schedule(
             batch_cash_flows, req.retirement_years,
@@ -1530,12 +1515,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
             scenarios, rep_schedule,
             GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
         )
-        if batch_cf_result is not None:
-            _batch_cf_tbl = batch_cf_result[2]
-            _batch_cf_rg = batch_cf_result[0]
-            _batch_cf_sg = batch_cf_result[1]
-            _batch_cf_ref = batch_cf_result[3]
-            _batch_last_cf_y = batch_cf_result[4]
+    _batch_cf_rg, _batch_cf_sg, _batch_cf_tbl, _batch_cf_ref, _batch_last_cf_y = _unpack_cf_table(batch_cf_result)
 
     # 确定回测用的国家数据
     if country_dfs is not None:
@@ -1621,8 +1601,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
 @limiter.limit("10/minute")
 def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
 
@@ -1877,8 +1856,7 @@ def api_breakeven_mc(request: Request, req: BreakevenMCRequest):
 @limiter.limit("5/minute")
 def api_accumulation(request: Request, req: AccumulationRequest):
     filtered, country_dfs = _resolve_data(req)
-    if len(filtered) < 2 and country_dfs is None:
-        raise HTTPException(400, "可用数据不足")
+    _validate_data_sufficient(filtered, country_dfs)
 
     country_weights = _resolve_country_weights(req, country_dfs)
     cf = _to_cash_flows(req.cash_flows)

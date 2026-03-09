@@ -100,11 +100,11 @@ export default function SimulatorPage() {
   }, [params.cash_flows]);
 
   useEffect(() => {
-    fetchCountries(params.data_source).then(setCountries).catch(() => {});
+    fetchCountries(params.data_source).then(setCountries).catch(() => { /* non-critical init data */ });
   }, [params.data_source]);
 
   useEffect(() => {
-    fetchHistoricalEvents().then(setHistoricalEvents).catch(() => {});
+    fetchHistoricalEvents().then(setHistoricalEvents).catch(() => { /* non-critical init data */ });
   }, []);
 
   const handleRun = async () => {

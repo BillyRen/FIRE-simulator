@@ -93,7 +93,7 @@ def lookup_success_rate(
 
     # 防止除零：如果相邻 rate_grid 值相等，直接返回下限值
     denominator = rate_grid[idx + 1] - rate_grid[idx]
-    if denominator == 0:
+    if abs(denominator) < 1e-12:
         return float(table[idx, remaining_years])
 
     frac = (rate - rate_grid[idx]) / denominator
@@ -383,7 +383,7 @@ def find_rate_for_target_cf_aware(
 # 4. 护栏调整辅助函数
 # ---------------------------------------------------------------------------
 
-def _apply_guardrail_adjustment(
+def apply_guardrail_adjustment(
     wd: float,
     value: float,
     current_success: float,
@@ -763,7 +763,7 @@ def run_guardrail_simulation(
 
                 if current_success < lower_guardrail or current_success > upper_guardrail:
                     if use_3d:
-                        wd = _apply_guardrail_adjustment(
+                        wd = apply_guardrail_adjustment(
                             wd, value, current_success, target_success,
                             adjustment_pct, adjustment_mode, remaining,
                             table, cf_rate_grid,
@@ -774,7 +774,7 @@ def run_guardrail_simulation(
                         )
                     else:
                         _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
-                        wd = _apply_guardrail_adjustment(
+                        wd = apply_guardrail_adjustment(
                             wd, value, current_success, target_success,
                             adjustment_pct, adjustment_mode, remaining,
                             table, rate_grid,
@@ -1027,7 +1027,7 @@ def run_historical_backtest(
             if current_success < lower_guardrail or current_success > upper_guardrail:
                 old_wd = wd
                 if use_3d:
-                    wd = _apply_guardrail_adjustment(
+                    wd = apply_guardrail_adjustment(
                         wd, value, current_success, target_success,
                         adjustment_pct, adjustment_mode, remaining,
                         table, cf_rate_grid,
@@ -1042,7 +1042,7 @@ def run_historical_backtest(
                     )
                 else:
                     _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
-                    wd = _apply_guardrail_adjustment(
+                    wd = apply_guardrail_adjustment(
                         wd, value, current_success, target_success,
                         adjustment_pct, adjustment_mode, remaining,
                         table, rate_grid,

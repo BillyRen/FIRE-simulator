@@ -104,7 +104,9 @@
     "noLeverage": "1.0 = 无杠杆",
     "borrowingSpread": "借贷利差 %",
     "borrowingCostHelp": "杠杆借贷成本 = 短期实际利率 ≈ 通胀率 + 利差",
-    "cashFlowTitle": "自定义现金流"
+    "cashFlowTitle": "自定义现金流",
+    "adjustedTo": "已调整为 {value}",
+    "adjustedToRange": "已调整为 {value}（范围：{min} - {max}）"
   },
   "cashFlow": {
     "title": "自定义现金流",

@@ -105,11 +105,11 @@ export default function GuardrailPage() {
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
 
   useEffect(() => {
-    fetchCountries(params.data_source).then(setCountries).catch(() => {});
+    fetchCountries(params.data_source).then(setCountries).catch(() => { /* non-critical init data */ });
   }, [params.data_source]);
 
   useEffect(() => {
-    fetchHistoricalEvents().then(setHistoricalEvents).catch(() => {});
+    fetchHistoricalEvents().then(setHistoricalEvents).catch(() => { /* non-critical init data */ });
   }, []);
 
   const guardrailReqBase = () => ({

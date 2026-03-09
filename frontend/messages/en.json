@@ -104,7 +104,9 @@
     "noLeverage": "1.0 = No leverage",
     "borrowingSpread": "Borrowing Spread %",
     "borrowingCostHelp": "Leverage borrowing cost = short-term rate ≈ inflation + spread",
-    "cashFlowTitle": "Custom Cash Flows"
+    "cashFlowTitle": "Custom Cash Flows",
+    "adjustedTo": "Adjusted to {value}",
+    "adjustedToRange": "Adjusted to {value} (range: {min} - {max})"
   },
   "cashFlow": {
     "title": "Custom Cash Flows",
