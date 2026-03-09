@@ -2,9 +2,15 @@
 
 核心优化：预生成 bootstrap 回报序列后复用于所有扫描点，
 避免为每个提取率重复进行昂贵的 bootstrap 采样。
+
+Phase 2.3优化：使用multiprocessing并行化sweep循环，充分利用多核CPU。
 """
 
 from __future__ import annotations
+
+import os
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import cpu_count
 
 import numpy as np
 import pandas as pd
@@ -12,6 +18,9 @@ import pandas as pd
 from .bootstrap import block_bootstrap, block_bootstrap_pooled
 from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from .portfolio import compute_real_portfolio_returns
+
+# 并行化配置：使用CPU核心数，但限制最大值避免资源耗尽
+MAX_WORKERS = min(cpu_count(), int(os.getenv("MAX_SWEEP_WORKERS", "8")))
 
 
 def pregenerate_return_scenarios(
@@ -206,6 +215,188 @@ def _simulate_success_and_funded(
     return success_rate, funded_ratio
 
 
+# ============================================================================
+# 并行化辅助函数（必须在模块级别以支持pickle）
+# ============================================================================
+
+def _sweep_single_rate(args):
+    """单个提取率的模拟任务（用于并行化）。
+
+    Parameters
+    ----------
+    args : tuple
+        (rate, initial_portfolio, real_returns_matrix, withdrawal_strategy,
+         dynamic_ceiling, dynamic_floor, retirement_age, cash_flows, inflation_matrix)
+
+    Returns
+    -------
+    tuple[float, float]
+        (success_rate, funded_ratio)
+    """
+    (rate, initial_portfolio, real_returns_matrix, withdrawal_strategy,
+     dynamic_ceiling, dynamic_floor, retirement_age, cash_flows, inflation_matrix) = args
+
+    annual_wd = initial_portfolio * rate
+    sr, fr = _simulate_success_and_funded(
+        real_returns_matrix,
+        initial_portfolio,
+        annual_wd,
+        withdrawal_strategy,
+        dynamic_ceiling,
+        dynamic_floor,
+        retirement_age=retirement_age,
+        cash_flows=cash_flows,
+        inflation_matrix=inflation_matrix,
+    )
+    return sr, fr
+
+
+def _sweep_single_allocation(args):
+    """单个资产配置的模拟任务（用于并行化）。
+
+    Parameters
+    ----------
+    args : tuple
+        (w_us, w_intl, w_bond, us_stock, intl_stock, us_bond, inflation,
+         initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
+         withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
+         cash_flows)
+
+    Returns
+    -------
+    dict
+        包含 domestic_stock, global_stock, domestic_bond, success_rate,
+        median_final, mean_final, p10_depletion_year, funded_ratio, cvar_10, p90_final
+    """
+    (w_us, w_intl, w_bond, us_stock, intl_stock, us_bond, inflation,
+     initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
+     withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
+     cash_flows) = args
+
+    num_sims, retirement_years = us_stock.shape
+
+    # 预计算现金流 schedule
+    has_cf = cash_flows is not None and len(cash_flows) > 0
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+    if has_cf and not has_groups:
+        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
+        adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
+        fixed_schedule = build_cf_schedule(adj_only, retirement_years)
+        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
+    else:
+        fixed_schedule = None
+        nominal_cfs = []
+        has_nominal = False
+
+    rng = np.random.default_rng() if has_groups else None
+    initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
+
+    # 1. 加权计算名义回报
+    nominal = w_us * us_stock + w_intl * intl_stock + w_bond * us_bond
+
+    # 2. 杠杆
+    if leverage != 1.0:
+        borrowing_cost = inflation + borrowing_spread
+        nominal = leverage * nominal - (leverage - 1.0) * borrowing_cost
+
+    # 3. 转换为实际回报
+    real_returns = (1.0 + nominal) / (1.0 + inflation) - 1.0
+
+    # 4. 逐年模拟
+    final_values = np.zeros(num_sims)
+    depletion_years = np.full(num_sims, retirement_years, dtype=float)
+
+    for i in range(num_sims):
+        value = initial_portfolio
+        prev_wd = annual_withdrawal
+        failed = False
+
+        # 现金流 schedule
+        if has_groups:
+            active_cfs = sample_cash_flows(cash_flows, rng)
+            if active_cfs:
+                _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                if _nom:
+                    _nom_sched = build_cf_schedule(_nom, retirement_years, inflation[i])
+                    cf_schedule = _adj_sched + _nom_sched
+                else:
+                    cf_schedule = _adj_sched
+            else:
+                cf_schedule = None
+        elif has_cf:
+            if has_nominal:
+                nominal_schedule = build_cf_schedule(
+                    nominal_cfs, retirement_years, inflation[i]
+                )
+                cf_schedule = fixed_schedule + nominal_schedule
+            else:
+                cf_schedule = fixed_schedule
+        else:
+            cf_schedule = None
+
+        for year in range(retirement_years):
+            if withdrawal_strategy == "dynamic" and year > 0 and value > 0:
+                target = value * initial_rate
+                upper = prev_wd * (1.0 + dynamic_ceiling)
+                lower = prev_wd * (1.0 - dynamic_floor)
+                wd = max(lower, min(target, upper))
+            elif withdrawal_strategy == "declining" and year > 0 and value > 0:
+                if retirement_age + year >= 65:
+                    wd = prev_wd * 0.98
+                else:
+                    wd = annual_withdrawal
+            else:
+                wd = annual_withdrawal
+
+            prev_wd = wd
+            value = value * (1.0 + real_returns[i, year]) - wd
+
+            if cf_schedule is not None:
+                value += cf_schedule[year]
+
+            if value <= 0:
+                depletion_years[i] = year + 1
+                value = 0.0
+                failed = True
+                break
+
+        final_values[i] = value
+
+    success_rate = float(np.mean(final_values > 0))
+    median_final = float(np.median(final_values))
+    mean_final = float(np.mean(final_values))
+
+    # P10 耗尽年：第 10 百分位的耗尽年份
+    p10_dep = float(np.percentile(depletion_years, 10))
+    p10_depletion_year = int(p10_dep) if p10_dep < retirement_years else None
+
+    # Funded Ratio（资金覆盖率）：平均能覆盖多少退休年限
+    funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
+
+    # CVaR₁₀：最差 10% 场景的平均终值
+    sorted_finals = np.sort(final_values)
+    n10 = max(1, int(0.1 * num_sims))
+    cvar_10 = float(np.mean(sorted_finals[:n10]))
+
+    # P90 终值：最好 10% 场景的门槛
+    p90_final = float(np.percentile(final_values, 90))
+
+    return {
+        "domestic_stock": round(w_us, 4),
+        "global_stock": round(w_intl, 4),
+        "domestic_bond": round(w_bond, 4),
+        "success_rate": success_rate,
+        "median_final": median_final,
+        "mean_final": mean_final,
+        "p10_depletion_year": p10_depletion_year,
+        "funded_ratio": funded_ratio,
+        "cvar_10": cvar_10,
+        "p90_final": p90_final,
+    }
+
+
 def sweep_withdrawal_rates(
     real_returns_matrix: np.ndarray,
     initial_portfolio: float,
@@ -248,24 +439,26 @@ def sweep_withdrawal_rates(
         (rates, success_rates, funded_ratios) — 三个等长的一维数组。
     """
     rates = np.arange(rate_min, rate_max + rate_step / 2, rate_step)
-    success_rates = np.empty(len(rates))
-    funded_ratios = np.empty(len(rates))
 
-    for idx, rate in enumerate(rates):
-        annual_wd = initial_portfolio * rate
-        sr, fr = _simulate_success_and_funded(
-            real_returns_matrix,
-            initial_portfolio,
-            annual_wd,
-            withdrawal_strategy,
-            dynamic_ceiling,
-            dynamic_floor,
-            retirement_age=retirement_age,
-            cash_flows=cash_flows,
-            inflation_matrix=inflation_matrix,
-        )
-        success_rates[idx] = sr
-        funded_ratios[idx] = fr
+    # 准备并行化任务参数
+    tasks = [
+        (rate, initial_portfolio, real_returns_matrix, withdrawal_strategy,
+         dynamic_ceiling, dynamic_floor, retirement_age, cash_flows, inflation_matrix)
+        for rate in rates
+    ]
+
+    # 使用ProcessPoolExecutor并行化sweep
+    # 只有当任务数量足够多时才使用并行化（避免进程创建开销）
+    if len(tasks) > 10 and MAX_WORKERS > 1:
+        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            results = list(executor.map(_sweep_single_rate, tasks))
+    else:
+        # 任务数少时，顺序执行更快
+        results = [_sweep_single_rate(task) for task in tasks]
+
+    # 解包结果
+    success_rates = np.array([sr for sr, _ in results])
+    funded_ratios = np.array([fr for _, fr in results])
 
     return rates, success_rates, funded_ratios
 
@@ -380,129 +573,23 @@ def sweep_allocations(
             c = steps - a - b
             allocations.append((a * allocation_step, b * allocation_step, c * allocation_step))
 
-    # 预计算现金流 schedule
-    has_cf = cash_flows is not None and len(cash_flows) > 0
-    has_groups = has_cf and has_probabilistic_cf(cash_flows)
-    if has_cf and not has_groups:
-        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
-        adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
-        fixed_schedule = build_cf_schedule(adj_only, retirement_years)
-        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
+    # 准备并行化任务参数
+    tasks = [
+        (w_us, w_intl, w_bond, us_stock, intl_stock, us_bond, inflation,
+         initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
+         withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
+         cash_flows)
+        for w_us, w_intl, w_bond in allocations
+    ]
+
+    # 使用ProcessPoolExecutor并行化allocation sweep
+    # 只有当配置组合足够多时才使用并行化（避免进程创建开销）
+    if len(tasks) > 20 and MAX_WORKERS > 1:
+        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            results = list(executor.map(_sweep_single_allocation, tasks))
     else:
-        fixed_schedule = None
-        nominal_cfs = []
-        has_nominal = False
-
-    rng = np.random.default_rng() if has_groups else None
-
-    initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
-    results = []
-
-    for w_us, w_intl, w_bond in allocations:
-        # 1. 加权计算名义回报
-        nominal = w_us * us_stock + w_intl * intl_stock + w_bond * us_bond
-
-        # 2. 杠杆
-        if leverage != 1.0:
-            borrowing_cost = inflation + borrowing_spread
-            nominal = leverage * nominal - (leverage - 1.0) * borrowing_cost
-
-        # 3. 转换为实际回报
-        real_returns = (1.0 + nominal) / (1.0 + inflation) - 1.0
-
-        # 4. 逐年模拟
-        final_values = np.zeros(num_sims)
-        depletion_years = np.full(num_sims, retirement_years, dtype=float)
-
-        for i in range(num_sims):
-            value = initial_portfolio
-            prev_wd = annual_withdrawal
-            failed = False
-
-            # 现金流 schedule
-            if has_groups:
-                active_cfs = sample_cash_flows(cash_flows, rng)
-                if active_cfs:
-                    _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
-                    _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
-                    _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
-                    if _nom:
-                        _nom_sched = build_cf_schedule(_nom, retirement_years, inflation[i])
-                        cf_schedule = _adj_sched + _nom_sched
-                    else:
-                        cf_schedule = _adj_sched
-                else:
-                    cf_schedule = None
-            elif has_cf:
-                if has_nominal:
-                    nominal_schedule = build_cf_schedule(
-                        nominal_cfs, retirement_years, inflation[i]
-                    )
-                    cf_schedule = fixed_schedule + nominal_schedule
-                else:
-                    cf_schedule = fixed_schedule
-            else:
-                cf_schedule = None
-
-            for year in range(retirement_years):
-                if withdrawal_strategy == "dynamic" and year > 0 and value > 0:
-                    target = value * initial_rate
-                    upper = prev_wd * (1.0 + dynamic_ceiling)
-                    lower = prev_wd * (1.0 - dynamic_floor)
-                    wd = max(lower, min(target, upper))
-                elif withdrawal_strategy == "declining" and year > 0 and value > 0:
-                    if retirement_age + year >= 65:
-                        wd = prev_wd * 0.98
-                    else:
-                        wd = annual_withdrawal
-                else:
-                    wd = annual_withdrawal
-
-                prev_wd = wd
-                value = value * (1.0 + real_returns[i, year]) - wd
-
-                if cf_schedule is not None:
-                    value += cf_schedule[year]
-
-                if value <= 0:
-                    depletion_years[i] = year + 1
-                    value = 0.0
-                    failed = True
-                    break
-
-            final_values[i] = value
-
-        success_rate = float(np.mean(final_values > 0))
-        median_final = float(np.median(final_values))
-        mean_final = float(np.mean(final_values))
-
-        # P10 耗尽年：第 10 百分位的耗尽年份
-        p10_dep = float(np.percentile(depletion_years, 10))
-        p10_depletion_year = int(p10_dep) if p10_dep < retirement_years else None
-
-        # Funded Ratio（资金覆盖率）：平均能覆盖多少退休年限
-        funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
-
-        # CVaR₁₀：最差 10% 场景的平均终值
-        sorted_finals = np.sort(final_values)
-        n10 = max(1, int(0.1 * num_sims))
-        cvar_10 = float(np.mean(sorted_finals[:n10]))
-
-        # P90 终值：最好 10% 场景的门槛
-        p90_final = float(np.percentile(final_values, 90))
-
-        results.append({
-            "domestic_stock": round(w_us, 4),
-            "global_stock": round(w_intl, 4),
-            "domestic_bond": round(w_bond, 4),
-            "success_rate": success_rate,
-            "median_final": median_final,
-            "mean_final": mean_final,
-            "p10_depletion_year": p10_depletion_year,
-            "funded_ratio": funded_ratio,
-            "cvar_10": cvar_10,
-            "p90_final": p90_final,
-        })
+        # 任务数少时，顺序执行更快
+        results = [_sweep_single_allocation(task) for task in tasks]
 
     return results
 
