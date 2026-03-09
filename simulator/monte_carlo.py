@@ -10,6 +10,45 @@ from .cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedul
 from .portfolio import compute_real_portfolio_returns
 
 
+def compute_withdrawal(
+    strategy: str,
+    year: int,
+    value: float,
+    annual_withdrawal: float,
+    prev_withdrawal: float,
+    initial_rate: float,
+    retirement_age: int = 45,
+    dynamic_ceiling: float = 0.05,
+    dynamic_floor: float = 0.025,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
+    smile_increase_rate: float = 0.01,
+) -> float:
+    """根据策略计算当年提取金额。所有模拟路径共用此逻辑。"""
+    if strategy == "dynamic" and year > 0 and value > 0:
+        target = value * initial_rate
+        upper = prev_withdrawal * (1.0 + dynamic_ceiling)
+        lower = prev_withdrawal * (1.0 - dynamic_floor)
+        return max(lower, min(target, upper))
+    elif strategy == "declining" and year > 0 and value > 0:
+        if retirement_age + year >= declining_start_age:
+            return prev_withdrawal * (1.0 - declining_rate)
+        return annual_withdrawal
+    elif strategy == "smile" and value > 0:
+        age = retirement_age + year
+        if age < smile_decline_start_age:
+            return annual_withdrawal
+        elif age < smile_min_age:
+            return annual_withdrawal * (1.0 - smile_decline_rate) ** (age - smile_decline_start_age)
+        else:
+            min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - smile_decline_start_age)
+            return min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
+    return annual_withdrawal
+
+
 def run_simulation_vectorized_fixed(
     initial_portfolio: float,
     annual_withdrawal: float,
@@ -81,7 +120,7 @@ def run_simulation_vectorized_fixed(
     trajectories[:, 0] = initial_portfolio
 
     # 提取金额：fixed策略，所有年份都是相同的金额
-    withdrawals = np.full((num_simulations, retirement_years), annual_withdrawal)
+    withdrawals = np.full((num_simulations, retirement_years), float(annual_withdrawal))
 
     # 当前存活的资产值（向量）
     values = np.full(num_simulations, initial_portfolio, dtype=float)
@@ -89,8 +128,12 @@ def run_simulation_vectorized_fixed(
 
     # Step 3: 外层循环year，内层向量化所有simulations
     for year in range(retirement_years):
-        # 只对存活的simulation进行更新
-        values[alive] = values[alive] * (1.0 + real_returns_matrix[alive, year]) - annual_withdrawal
+        # 计算增长后的值
+        grown = values[alive] * (1.0 + real_returns_matrix[alive, year])
+        # Cap withdrawal at available portfolio value
+        actual_wd = np.minimum(annual_withdrawal, np.maximum(grown, 0.0))
+        values[alive] = grown - actual_wd
+        withdrawals[alive, year] = actual_wd
 
         # 检查破产
         newly_failed = alive & (values <= 0)
@@ -98,7 +141,7 @@ def run_simulation_vectorized_fixed(
         alive[newly_failed] = False
 
         # 破产的simulation后续提取为0
-        withdrawals[newly_failed, year:] = 0.0
+        withdrawals[newly_failed, year + 1:] = 0.0
 
         # 记录轨迹
         trajectories[:, year + 1] = values
@@ -304,33 +347,21 @@ def run_simulation(
         prev_withdrawal = annual_withdrawal
 
         for year in range(retirement_years):
-            # 确定本年提取金额
-            if withdrawal_strategy == "dynamic" and year > 0 and value > 0:
-                target = value * initial_rate
-                upper = prev_withdrawal * (1.0 + dynamic_ceiling)
-                lower = prev_withdrawal * (1.0 - dynamic_floor)
-                withdrawal = max(lower, min(target, upper))
-            elif withdrawal_strategy == "declining" and year > 0 and value > 0:
-                if retirement_age + year >= declining_start_age:
-                    withdrawal = prev_withdrawal * (1.0 - declining_rate)
-                else:
-                    withdrawal = annual_withdrawal
-            elif withdrawal_strategy == "smile" and value > 0:
-                age = retirement_age + year
-                if age < smile_decline_start_age:
-                    withdrawal = annual_withdrawal
-                elif age < smile_min_age:
-                    withdrawal = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - smile_decline_start_age)
-                else:
-                    min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - smile_decline_start_age)
-                    withdrawal = min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
-            else:
-                withdrawal = annual_withdrawal
+            withdrawal = compute_withdrawal(
+                withdrawal_strategy, year, value, annual_withdrawal, prev_withdrawal,
+                initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+                declining_rate, declining_start_age,
+                smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+            )
 
-            withdrawals[i, year] = withdrawal
             prev_withdrawal = withdrawal
 
-            value = value * (1.0 + real_returns[year]) - withdrawal
+            value_after_growth = value * (1.0 + real_returns[year])
+            # Cap withdrawal at available portfolio value
+            actual_wd = min(withdrawal, max(value_after_growth, 0.0))
+            value = value_after_growth - actual_wd
+
+            withdrawals[i, year] = actual_wd
 
             if cf_schedule is not None:
                 value += cf_schedule[year]
@@ -475,33 +506,19 @@ def run_simple_historical_backtest(
     survived = True
 
     for year in range(n_years):
-        # 确定提取金额
-        if withdrawal_strategy == "dynamic" and year > 0 and value > 0:
-            target = value * initial_rate
-            upper = prev_wd * (1.0 + dynamic_ceiling)
-            lower = prev_wd * (1.0 - dynamic_floor)
-            wd = max(lower, min(target, upper))
-        elif withdrawal_strategy == "declining" and year > 0 and value > 0:
-            if retirement_age + year >= declining_start_age:
-                wd = prev_wd * (1.0 - declining_rate)
-            else:
-                wd = annual_withdrawal
-        elif withdrawal_strategy == "smile" and value > 0:
-            age = retirement_age + year
-            if age < smile_decline_start_age:
-                wd = annual_withdrawal
-            elif age < smile_min_age:
-                wd = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - smile_decline_start_age)
-            else:
-                min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - smile_decline_start_age)
-                wd = min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
-        else:
-            wd = annual_withdrawal
+        wd = compute_withdrawal(
+            withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
+            initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+            declining_rate, declining_start_age,
+            smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+        )
 
         withdrawals_out.append(wd)
         prev_wd = wd
 
-        value = value * (1.0 + real_returns[year]) - wd
+        value_after_growth = value * (1.0 + real_returns[year])
+        actual_wd = min(wd, max(value_after_growth, 0.0))
+        value = value_after_growth - actual_wd
 
         if cf_schedule is not None:
             value += cf_schedule[year]

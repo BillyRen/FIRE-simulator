@@ -17,92 +17,81 @@ import pandas as pd
 
 from .bootstrap import block_bootstrap, block_bootstrap_pooled
 from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
+from .monte_carlo import compute_withdrawal
 from .portfolio import compute_real_portfolio_returns
 
 # 并行化配置：使用CPU核心数，但限制最大值避免资源耗尽
 MAX_WORKERS = min(cpu_count(), int(os.getenv("MAX_SWEEP_WORKERS", "8")))
+
+# ============================================================================
+# 进程池 initializer：共享只读大数据，避免每个 task 重复 pickle 序列化
+# ============================================================================
+_worker_shared: dict = {}
+
+
+def _init_worker(shared_data: dict):
+    """进程池 worker 初始化：存储共享只读数据，避免每个 task 重复 pickle。"""
+    _worker_shared.update(shared_data)
 
 
 # ============================================================================
 # Bootstrap 并行化辅助函数（必须在模块级别以支持pickle）
 # ============================================================================
 
-def _bootstrap_single_scenario(args):
-    """单个 bootstrap 采样任务（用于并行化 pregenerate_return_scenarios）。
-
-    Parameters
-    ----------
-    args : tuple
-        (sim_index, allocation, expense_ratios, retirement_years, min_block, max_block,
-         returns_df, leverage, borrowing_spread, country_dfs, country_weights, seed_base)
-
-    Returns
-    -------
-    tuple[int, np.ndarray, np.ndarray]
-        (sim_index, real_returns, inflation) - 索引和该次模拟的回报/通胀数据
-    """
-    (sim_index, allocation, expense_ratios, retirement_years, min_block, max_block,
-     returns_df, leverage, borrowing_spread, country_dfs, country_weights, seed_base) = args
-
-    # 每个子进程使用独立的随机种子（基于 seed_base + sim_index）
-    rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
-
+def _do_bootstrap(retirement_years, min_block, max_block, rng,
+                   returns_df=None, country_dfs=None, country_weights=None):
+    """执行单次 bootstrap 采样（共用逻辑）。"""
     if country_dfs is not None:
-        sampled = block_bootstrap_pooled(
+        return block_bootstrap_pooled(
             country_dfs, retirement_years, min_block, max_block, rng=rng,
             country_weights=country_weights,
         )
-    else:
-        sampled = block_bootstrap(
-            returns_df, retirement_years, min_block, max_block, rng=rng
-        )
+    return block_bootstrap(
+        returns_df, retirement_years, min_block, max_block, rng=rng
+    )
+
+
+def _bootstrap_single_scenario(args):
+    """单个 bootstrap 采样任务（从 _worker_shared 读取共享数据）。"""
+    (sim_index, allocation, expense_ratios, retirement_years,
+     min_block, max_block, leverage, borrowing_spread, seed_base) = args
+
+    rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
+
+    sampled = _do_bootstrap(
+        retirement_years, min_block, max_block, rng,
+        returns_df=_worker_shared["returns_df"],
+        country_dfs=_worker_shared["country_dfs"],
+        country_weights=_worker_shared["country_weights"],
+    )
 
     real_returns = compute_real_portfolio_returns(
         sampled, allocation, expense_ratios,
         leverage=leverage, borrowing_spread=borrowing_spread,
     )
-    inflation = sampled["Inflation"].values
-
-    return sim_index, real_returns, inflation
+    return sim_index, real_returns, sampled["Inflation"].values
 
 
 def _bootstrap_single_raw(args):
-    """单个 bootstrap 采样任务（用于并行化 pregenerate_raw_scenarios）。
-
-    Parameters
-    ----------
-    args : tuple
-        (sim_index, expense_ratios, retirement_years, min_block, max_block,
-         returns_df, country_dfs, country_weights, seed_base)
-
-    Returns
-    -------
-    tuple[int, dict]
-        (sim_index, {"domestic_stock": array, "global_stock": array, ...})
-    """
-    (sim_index, expense_ratios, retirement_years, min_block, max_block,
-     returns_df, country_dfs, country_weights, seed_base) = args
+    """单个 bootstrap 采样任务（raw scenarios，从 _worker_shared 读取共享数据）。"""
+    (sim_index, expense_ratios, retirement_years,
+     min_block, max_block, seed_base) = args
 
     rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
 
-    if country_dfs is not None:
-        sampled = block_bootstrap_pooled(
-            country_dfs, retirement_years, min_block, max_block, rng=rng,
-            country_weights=country_weights,
-        )
-    else:
-        sampled = block_bootstrap(
-            returns_df, retirement_years, min_block, max_block, rng=rng
-        )
+    sampled = _do_bootstrap(
+        retirement_years, min_block, max_block, rng,
+        returns_df=_worker_shared["returns_df"],
+        country_dfs=_worker_shared["country_dfs"],
+        country_weights=_worker_shared["country_weights"],
+    )
 
-    result = {
+    return sim_index, {
         "domestic_stock": sampled["Domestic_Stock"].values - expense_ratios.get("domestic_stock", 0.0),
         "global_stock": sampled["Global_Stock"].values - expense_ratios.get("global_stock", 0.0),
         "domestic_bond": sampled["Domestic_Bond"].values - expense_ratios.get("domestic_bond", 0.0),
         "inflation": sampled["Inflation"].values,
     }
-
-    return sim_index, result
 
 
 def pregenerate_return_scenarios(
@@ -154,40 +143,31 @@ def pregenerate_return_scenarios(
     scenarios = np.zeros((num_simulations, retirement_years))
     inflation_matrix = np.zeros((num_simulations, retirement_years))
 
-    # 准备并行化任务参数
+    # 统一使用 per-index seed 保证并行/顺序路径结果一致
     tasks = [
-        (i, allocation, expense_ratios, retirement_years, min_block, max_block,
-         returns_df, leverage, borrowing_spread, country_dfs, country_weights, seed)
+        (i, allocation, expense_ratios, retirement_years,
+         min_block, max_block, leverage, borrowing_spread, seed)
         for i in range(num_simulations)
     ]
 
-    # 条件并行化：模拟数>100且多核可用时启用
     if num_simulations > 100 and MAX_WORKERS > 1:
-        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            results = list(executor.map(_bootstrap_single_scenario, tasks))
-
-        # 按索引填充结果
-        for sim_index, real_returns, inflation in results:
-            scenarios[sim_index] = real_returns
-            inflation_matrix[sim_index] = inflation
+        chunksize = max(1, num_simulations // (MAX_WORKERS * 4))
+        with ProcessPoolExecutor(
+            max_workers=MAX_WORKERS,
+            initializer=_init_worker,
+            initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
+        ) as executor:
+            results = list(executor.map(_bootstrap_single_scenario, tasks, chunksize=chunksize))
     else:
-        # 小任务量顺序执行（避免进程创建开销）
-        rng = np.random.default_rng(seed)
-        for i in range(num_simulations):
-            if country_dfs is not None:
-                sampled = block_bootstrap_pooled(
-                    country_dfs, retirement_years, min_block, max_block, rng=rng,
-                    country_weights=country_weights,
-                )
-            else:
-                sampled = block_bootstrap(
-                    returns_df, retirement_years, min_block, max_block, rng=rng
-                )
-            scenarios[i] = compute_real_portfolio_returns(
-                sampled, allocation, expense_ratios,
-                leverage=leverage, borrowing_spread=borrowing_spread,
-            )
-            inflation_matrix[i] = sampled["Inflation"].values
+        # 顺序执行：设置 _worker_shared 使 worker 函数可复用
+        _worker_shared["returns_df"] = returns_df
+        _worker_shared["country_dfs"] = country_dfs
+        _worker_shared["country_weights"] = country_weights
+        results = [_bootstrap_single_scenario(task) for task in tasks]
+
+    for sim_index, real_returns, inflation in results:
+        scenarios[sim_index] = real_returns
+        inflation_matrix[sim_index] = inflation
 
     return scenarios, inflation_matrix
 
@@ -283,24 +263,16 @@ def _simulate_success_and_funded(
             cf_schedule = None
 
         for year in range(retirement_years):
-            # 确定提取金额
-            if withdrawal_strategy == "dynamic" and year > 0 and value > 0:
-                target = value * initial_rate
-                upper = prev_wd * (1.0 + dynamic_ceiling)
-                lower = prev_wd * (1.0 - dynamic_floor)
-                wd = max(lower, min(target, upper))
-            elif withdrawal_strategy == "declining" and year > 0 and value > 0:
-                if retirement_age + year >= 65:
-                    wd = prev_wd * 0.98
-                else:
-                    wd = annual_withdrawal
-            else:
-                wd = annual_withdrawal
+            wd = compute_withdrawal(
+                withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
+                initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+            )
 
             prev_wd = wd
-            value = value * (1.0 + real_returns_matrix[i, year]) - wd
+            value_after_growth = value * (1.0 + real_returns_matrix[i, year])
+            actual_wd = min(wd, max(value_after_growth, 0.0))
+            value = value_after_growth - actual_wd
 
-            # 加入自定义现金流
             if cf_schedule is not None:
                 value += cf_schedule[year]
 
@@ -322,25 +294,13 @@ def _simulate_success_and_funded(
 # ============================================================================
 
 def _sweep_single_rate(args):
-    """单个提取率的模拟任务（用于并行化）。
-
-    Parameters
-    ----------
-    args : tuple
-        (rate, initial_portfolio, real_returns_matrix, withdrawal_strategy,
-         dynamic_ceiling, dynamic_floor, retirement_age, cash_flows, inflation_matrix)
-
-    Returns
-    -------
-    tuple[float, float]
-        (success_rate, funded_ratio)
-    """
-    (rate, initial_portfolio, real_returns_matrix, withdrawal_strategy,
-     dynamic_ceiling, dynamic_floor, retirement_age, cash_flows, inflation_matrix) = args
+    """单个提取率的模拟任务（从 _worker_shared 读取共享矩阵数据）。"""
+    (rate, initial_portfolio, withdrawal_strategy,
+     dynamic_ceiling, dynamic_floor, retirement_age, cash_flows) = args
 
     annual_wd = initial_portfolio * rate
     sr, fr = _simulate_success_and_funded(
-        real_returns_matrix,
+        _worker_shared["real_returns_matrix"],
         initial_portfolio,
         annual_wd,
         withdrawal_strategy,
@@ -348,32 +308,22 @@ def _sweep_single_rate(args):
         dynamic_floor,
         retirement_age=retirement_age,
         cash_flows=cash_flows,
-        inflation_matrix=inflation_matrix,
+        inflation_matrix=_worker_shared.get("inflation_matrix"),
     )
     return sr, fr
 
 
 def _sweep_single_allocation(args):
-    """单个资产配置的模拟任务（用于并行化）。
-
-    Parameters
-    ----------
-    args : tuple
-        (w_us, w_intl, w_bond, us_stock, intl_stock, us_bond, inflation,
-         initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
-         withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
-         cash_flows)
-
-    Returns
-    -------
-    dict
-        包含 domestic_stock, global_stock, domestic_bond, success_rate,
-        median_final, mean_final, p10_depletion_year, funded_ratio, cvar_10, p90_final
-    """
-    (w_us, w_intl, w_bond, us_stock, intl_stock, us_bond, inflation,
+    """单个资产配置的模拟任务（从 _worker_shared 读取共享矩阵数据）。"""
+    (w_us, w_intl, w_bond,
      initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
      withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
      cash_flows) = args
+
+    us_stock = _worker_shared["us_stock"]
+    intl_stock = _worker_shared["intl_stock"]
+    us_bond = _worker_shared["us_bond"]
+    inflation = _worker_shared["inflation"]
 
     num_sims, retirement_years = us_stock.shape
 
@@ -420,7 +370,7 @@ def _sweep_single_allocation(args):
                 _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
                 _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
                 _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
-                if _nom:
+                if _nom and inflation is not None:
                     _nom_sched = build_cf_schedule(_nom, retirement_years, inflation[i])
                     cf_schedule = _adj_sched + _nom_sched
                 else:
@@ -428,7 +378,7 @@ def _sweep_single_allocation(args):
             else:
                 cf_schedule = None
         elif has_cf:
-            if has_nominal:
+            if has_nominal and inflation is not None:
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation[i]
                 )
@@ -439,21 +389,15 @@ def _sweep_single_allocation(args):
             cf_schedule = None
 
         for year in range(retirement_years):
-            if withdrawal_strategy == "dynamic" and year > 0 and value > 0:
-                target = value * initial_rate
-                upper = prev_wd * (1.0 + dynamic_ceiling)
-                lower = prev_wd * (1.0 - dynamic_floor)
-                wd = max(lower, min(target, upper))
-            elif withdrawal_strategy == "declining" and year > 0 and value > 0:
-                if retirement_age + year >= 65:
-                    wd = prev_wd * 0.98
-                else:
-                    wd = annual_withdrawal
-            else:
-                wd = annual_withdrawal
+            wd = compute_withdrawal(
+                withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
+                initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+            )
 
             prev_wd = wd
-            value = value * (1.0 + real_returns[i, year]) - wd
+            value_after_growth = value * (1.0 + real_returns[i, year])
+            actual_wd = min(wd, max(value_after_growth, 0.0))
+            value = value_after_growth - actual_wd
 
             if cf_schedule is not None:
                 value += cf_schedule[year]
@@ -542,25 +486,24 @@ def sweep_withdrawal_rates(
     """
     rates = np.arange(rate_min, rate_max + rate_step / 2, rate_step)
 
-    # 准备并行化任务参数
-    tasks = [
-        (rate, initial_portfolio, real_returns_matrix, withdrawal_strategy,
-         dynamic_ceiling, dynamic_floor, retirement_age, cash_flows, inflation_matrix)
-        for rate in rates
-    ]
+    # 每个 rate 的模拟任务太轻量（~12ms），进程池 overhead 反而拖慢
+    # 并行化收益在 bootstrap 层（pregenerate_return_scenarios），此处顺序执行更快
+    success_list = []
+    funded_list = []
+    for rate in rates:
+        annual_wd = initial_portfolio * rate
+        sr, fr = _simulate_success_and_funded(
+            real_returns_matrix, initial_portfolio, annual_wd,
+            withdrawal_strategy, dynamic_ceiling, dynamic_floor,
+            retirement_age=retirement_age,
+            cash_flows=cash_flows,
+            inflation_matrix=inflation_matrix,
+        )
+        success_list.append(sr)
+        funded_list.append(fr)
 
-    # 使用ProcessPoolExecutor并行化sweep
-    # 只有当任务数量足够多时才使用并行化（避免进程创建开销）
-    if len(tasks) > 10 and MAX_WORKERS > 1:
-        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            results = list(executor.map(_sweep_single_rate, tasks))
-    else:
-        # 任务数少时，顺序执行更快
-        results = [_sweep_single_rate(task) for task in tasks]
-
-    # 解包结果
-    success_rates = np.array([sr for sr, _ in results])
-    funded_ratios = np.array([fr for _, fr in results])
+    success_rates = np.array(success_list)
+    funded_ratios = np.array(funded_list)
 
     return rates, success_rates, funded_ratios
 
@@ -597,41 +540,32 @@ def pregenerate_raw_scenarios(
     domestic_bond = np.zeros((num_simulations, retirement_years))
     inflation = np.zeros((num_simulations, retirement_years))
 
-    # 准备并行化任务参数
+    # 统一使用 per-index seed 保证并行/顺序路径结果一致
     tasks = [
-        (i, expense_ratios, retirement_years, min_block, max_block,
-         returns_df, country_dfs, country_weights, seed)
+        (i, expense_ratios, retirement_years,
+         min_block, max_block, seed)
         for i in range(num_simulations)
     ]
 
-    # 条件并行化：模拟数>100且多核可用时启用
     if num_simulations > 100 and MAX_WORKERS > 1:
-        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            results = list(executor.map(_bootstrap_single_raw, tasks))
-
-        # 按索引填充结果
-        for sim_index, data in results:
-            domestic_stock[sim_index] = data["domestic_stock"]
-            global_stock[sim_index] = data["global_stock"]
-            domestic_bond[sim_index] = data["domestic_bond"]
-            inflation[sim_index] = data["inflation"]
+        chunksize = max(1, num_simulations // (MAX_WORKERS * 4))
+        with ProcessPoolExecutor(
+            max_workers=MAX_WORKERS,
+            initializer=_init_worker,
+            initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
+        ) as executor:
+            results = list(executor.map(_bootstrap_single_raw, tasks, chunksize=chunksize))
     else:
-        # 小任务量顺序执行
-        rng = np.random.default_rng(seed)
-        for i in range(num_simulations):
-            if country_dfs is not None:
-                sampled = block_bootstrap_pooled(
-                    country_dfs, retirement_years, min_block, max_block, rng=rng,
-                    country_weights=country_weights,
-                )
-            else:
-                sampled = block_bootstrap(
-                    returns_df, retirement_years, min_block, max_block, rng=rng
-                )
-            domestic_stock[i] = sampled["Domestic_Stock"].values - expense_ratios.get("domestic_stock", 0.0)
-            global_stock[i] = sampled["Global_Stock"].values - expense_ratios.get("global_stock", 0.0)
-            domestic_bond[i] = sampled["Domestic_Bond"].values - expense_ratios.get("domestic_bond", 0.0)
-            inflation[i] = sampled["Inflation"].values
+        _worker_shared["returns_df"] = returns_df
+        _worker_shared["country_dfs"] = country_dfs
+        _worker_shared["country_weights"] = country_weights
+        results = [_bootstrap_single_raw(task) for task in tasks]
+
+    for sim_index, data in results:
+        domestic_stock[sim_index] = data["domestic_stock"]
+        global_stock[sim_index] = data["global_stock"]
+        domestic_bond[sim_index] = data["domestic_bond"]
+        inflation[sim_index] = data["inflation"]
 
     return {
         "domestic_stock": domestic_stock,
@@ -697,23 +631,22 @@ def sweep_allocations(
             c = steps - a - b
             allocations.append((a * allocation_step, b * allocation_step, c * allocation_step))
 
-    # 准备并行化任务参数
-    tasks = [
-        (w_us, w_intl, w_bond, us_stock, intl_stock, us_bond, inflation,
-         initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
-         withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
-         cash_flows)
+    # 每个配置的模拟任务太轻量（~20ms），进程池 overhead 反而拖慢
+    # 并行化收益在 bootstrap 层（pregenerate_raw_scenarios），此处顺序执行更快
+    _worker_shared["us_stock"] = us_stock
+    _worker_shared["intl_stock"] = intl_stock
+    _worker_shared["us_bond"] = us_bond
+    _worker_shared["inflation"] = inflation
+
+    results = [
+        _sweep_single_allocation((
+            w_us, w_intl, w_bond,
+            initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
+            withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
+            cash_flows,
+        ))
         for w_us, w_intl, w_bond in allocations
     ]
-
-    # 使用ProcessPoolExecutor并行化allocation sweep
-    # 只有当配置组合足够多时才使用并行化（避免进程创建开销）
-    if len(tasks) > 20 and MAX_WORKERS > 1:
-        with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            results = list(executor.map(_sweep_single_allocation, tasks))
-    else:
-        # 任务数少时，顺序执行更快
-        results = [_sweep_single_allocation(task) for task in tasks]
 
     return results
 

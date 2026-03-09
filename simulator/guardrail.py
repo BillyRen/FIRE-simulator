@@ -710,7 +710,7 @@ def run_guardrail_simulation(
             if has_cf:
                 median_cf = float(np.median(np.mean(cf_matrix, axis=1)))
                 init_cf_avg = median_cf if median_cf != 0 else (
-                    float(np.mean(fixed_cf_schedule)) if len(fixed_cf_schedule) > 0 else 0.0
+                    float(np.mean(fixed_cf_schedule)) if fixed_cf_schedule is not None and len(fixed_cf_schedule) > 0 else 0.0
                 )
                 effective_wd = annual_withdrawal - init_cf_avg
                 initial_guess = max(effective_wd, annual_withdrawal * 0.1) / initial_rate

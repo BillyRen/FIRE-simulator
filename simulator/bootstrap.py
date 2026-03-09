@@ -48,6 +48,13 @@ def block_bootstrap(
     pd.DataFrame
         shape 为 (retirement_years, len(columns)) 的 DataFrame。
     """
+    if min_block < 1:
+        raise ValueError(f"min_block must be >= 1, got {min_block}")
+    if min_block > max_block:
+        raise ValueError(f"min_block ({min_block}) must be <= max_block ({max_block})")
+    if retirement_years <= 0:
+        raise ValueError(f"retirement_years must be > 0, got {retirement_years}")
+
     if rng is None:
         rng = np.random.default_rng()
 
@@ -55,8 +62,7 @@ def block_bootstrap(
     data = returns_df[cols].values
     n = len(data)
 
-    # 预分配输出数组，避免动态list增长和concatenate
-    output = np.empty((retirement_years, len(cols)), dtype=data.dtype)
+    output = np.empty((retirement_years, len(cols)), dtype=np.float64)
     pos = 0
 
     while pos < retirement_years:
@@ -107,6 +113,13 @@ def block_bootstrap_pooled(
     pd.DataFrame
         shape (retirement_years, len(columns)) 的 DataFrame。
     """
+    if min_block < 1:
+        raise ValueError(f"min_block must be >= 1, got {min_block}")
+    if min_block > max_block:
+        raise ValueError(f"min_block ({min_block}) must be <= max_block ({max_block})")
+    if retirement_years <= 0:
+        raise ValueError(f"retirement_years must be > 0, got {retirement_years}")
+
     if rng is None:
         rng = np.random.default_rng()
 
