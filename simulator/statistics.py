@@ -99,19 +99,21 @@ def compute_effective_funded_ratio(
     floor_val = initial_withdrawal * consumption_floor
     below_floor = withdrawals < floor_val  # (num_sims, n_years)
 
-    eff_depletion = np.full(num_sims, float(n_years))
-    for i in range(num_sims):
-        idx = np.where(below_floor[i])[0]
-        if len(idx) > 0:
-            eff_depletion[i] = float(idx[0])
+    any_below = below_floor.any(axis=1)
+    eff_depletion = np.where(
+        any_below,
+        np.argmax(below_floor, axis=1).astype(float),
+        float(n_years),
+    )
 
     if trajectories is not None:
         depleted = trajectories[:, 1:] <= 0
-        asset_depletion = np.full(num_sims, float(n_years))
-        for i in range(num_sims):
-            idx = np.where(depleted[i])[0]
-            if len(idx) > 0:
-                asset_depletion[i] = float(idx[0])
+        any_depleted = depleted.any(axis=1)
+        asset_depletion = np.where(
+            any_depleted,
+            np.argmax(depleted, axis=1).astype(float),
+            float(n_years),
+        )
         eff_depletion = np.minimum(eff_depletion, asset_depletion)
 
     funded = float(np.mean(np.minimum(eff_depletion / retirement_years, 1.0)))
