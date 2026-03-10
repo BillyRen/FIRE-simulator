@@ -443,7 +443,17 @@
     "colP10Depletion": "P10 耗尽年"
   },
   "loading": {
-    "default": "模拟运行中…"
+    "default": "模拟运行中…",
+    "stages": {
+      "bootstrap": "生成蒙特卡洛场景…",
+      "table_2d": "构建成功率速查表…",
+      "table_3d": "构建现金流速查表…",
+      "simulation": "运行护栏模拟…",
+      "baseline": "运行基准模拟…",
+      "statistics": "计算统计指标…",
+      "sensitivity_base": "运行基准分析…",
+      "sensitivity_param": "敏感性分析 {current}/{total}…"
+    }
   },
   "fanChart": {
     "yearAxis": "年",

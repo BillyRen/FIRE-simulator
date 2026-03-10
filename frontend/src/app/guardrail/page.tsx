@@ -19,7 +19,7 @@ import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { FanChart, useIsMobile, MobileChartTitle } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { ProgressOverlay, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { Pin, PinOff } from "lucide-react";
@@ -74,6 +74,7 @@ export default function GuardrailPage() {
   const [mcResult, setMcResult] = useState<GuardrailResponse | null>(null);
   const [pinnedResult, setPinnedResult] = useState<GuardrailResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<ProgressInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Batch backtest state
@@ -103,6 +104,7 @@ export default function GuardrailPage() {
   // Sensitivity analysis state
   const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
+  const [sensitivityProgress, setSensitivityProgress] = useState<ProgressInfo | null>(null);
 
   useEffect(() => {
     fetchCountries(params.data_source).then(setCountries).catch(() => { /* non-critical init data */ });
@@ -141,9 +143,10 @@ export default function GuardrailPage() {
 
   const handleRunMC = async () => {
     setLoading(true);
+    setProgress(null);
     setError(null);
     try {
-      const res = await runGuardrail(guardrailReqBase());
+      const res = await runGuardrail(guardrailReqBase(), setProgress);
       setMcResult(res);
       setBatchResult(null);
       setSelectedPath(null);
@@ -151,6 +154,7 @@ export default function GuardrailPage() {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -241,18 +245,20 @@ export default function GuardrailPage() {
   const handleRunSensitivity = async () => {
     if (!mcResult) return;
     setSensitivityLoading(true);
+    setSensitivityProgress(null);
     setError(null);
     try {
       const res = await runGuardrailSensitivity({
         ...guardrailReqBase(),
         initial_portfolio: mcResult.initial_portfolio,
         annual_withdrawal: mcResult.annual_withdrawal,
-      });
+      }, setSensitivityProgress);
       setSensitivityResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setSensitivityLoading(false);
+      setSensitivityProgress(null);
     }
   };
 
@@ -473,7 +479,7 @@ export default function GuardrailPage() {
           </div>
         )}
 
-        {loading && <LoadingOverlay message={t("guardrailLoading")} />}
+        {loading && <ProgressOverlay message={t("guardrailLoading")} progress={progress} />}
 
         {mcResult && !loading && (
           <Tabs defaultValue="mc">
@@ -766,7 +772,7 @@ export default function GuardrailPage() {
                 </CardContent>
               </Card>
 
-              {(batchLoading || singleBtLoading) && <LoadingOverlay message={singleBtLoading ? t("backtesting") : t("batchBacktesting")} />}
+              {(batchLoading || singleBtLoading) && <ProgressOverlay message={singleBtLoading ? t("backtesting") : t("batchBacktesting")} />}
 
               {batchResult && !batchLoading && !selectedPath && (
                 <>
@@ -1226,7 +1232,7 @@ export default function GuardrailPage() {
                 </CardContent>
               </Card>
 
-              {scenarioLoading && <LoadingOverlay message={t("scenarioLoading")} />}
+              {scenarioLoading && <ProgressOverlay message={t("scenarioLoading")} />}
 
               {scenarioResult && !scenarioLoading && (
                 <>
@@ -1391,7 +1397,7 @@ export default function GuardrailPage() {
                 </CardContent>
               </Card>
 
-              {sensitivityLoading && <LoadingOverlay message={t("sensitivityLoading")} />}
+              {sensitivityLoading && <ProgressOverlay message={t("sensitivityLoading")} progress={sensitivityProgress} />}
 
               {sensitivityResult && !sensitivityLoading && (
                 <>

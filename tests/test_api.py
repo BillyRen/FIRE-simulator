@@ -1,5 +1,7 @@
 """API endpoint integration tests using FastAPI TestClient."""
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,6 +14,17 @@ sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from main import app
+
+
+def parse_ndjson(response):
+    """Parse NDJSON streaming response and return the result data."""
+    for line in response.text.strip().split("\n"):
+        if not line.strip():
+            continue
+        msg = json.loads(line)
+        if msg.get("type") == "result":
+            return msg["data"]
+    raise ValueError("No result in streaming response")
 
 
 @pytest.fixture(scope="module")
@@ -82,7 +95,7 @@ class TestSimulation:
     def test_simulate(self, client):
         r = client.post("/api/simulate", json=self.BASE_PARAMS)
         assert r.status_code == 200
-        data = r.json()
+        data = parse_ndjson(r)
         assert "success_rate" in data
         assert "funded_ratio" in data
         assert "percentile_trajectories" in data
@@ -93,6 +106,7 @@ class TestSimulation:
                   "dynamic_ceiling": 0.1, "dynamic_floor": 0.05}
         r = client.post("/api/simulate", json=params)
         assert r.status_code == 200
+        parse_ndjson(r)  # should not raise
 
     def test_simulate_invalid_allocation(self, client):
         params = {**self.BASE_PARAMS}
@@ -104,6 +118,7 @@ class TestSimulation:
         params = {**self.BASE_PARAMS, "country": "ALL", "pooling_method": "gdp_sqrt"}
         r = client.post("/api/simulate", json=params)
         assert r.status_code == 200
+        parse_ndjson(r)  # should not raise
 
 
 class TestSweep:

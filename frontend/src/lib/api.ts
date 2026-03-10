@@ -63,21 +63,72 @@ async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   return res.json();
 }
 
+export type ProgressEvent = { type: "progress"; stage: string; pct: number; current?: number; total?: number };
+
+async function postStreaming<TReq, TRes>(
+  path: string,
+  body: TReq,
+  onProgress?: (evt: ProgressEvent) => void,
+): Promise<TRes> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new Error(`API error ${res.status}: ${detail}`);
+    }
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: TRes | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const msg = JSON.parse(line);
+        if (msg.type === "progress" && onProgress) onProgress(msg);
+        if (msg.type === "result") result = msg.data;
+        if (msg.type === "error") throw new Error(msg.message);
+      }
+    }
+    if (!result) throw new Error("No result received from server");
+    return result;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out. Try reducing simulation count or parameters.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function get<TRes>(path: string): Promise<TRes> {
   const res = await fetchWithTimeout(`${API_BASE}${path}`);
   return res.json();
 }
 
-export async function runSimulation(req: SimulationRequest): Promise<SimulationResponse> {
-  return post<SimulationRequest, SimulationResponse>("/api/simulate", req);
+export async function runSimulation(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SimulationResponse> {
+  return postStreaming<SimulationRequest, SimulationResponse>("/api/simulate", req, onProgress);
 }
 
 export async function runSweep(req: SweepRequest): Promise<SweepResponse> {
   return post<SweepRequest, SweepResponse>("/api/sweep", req);
 }
 
-export async function runGuardrail(req: GuardrailRequest): Promise<GuardrailResponse> {
-  return post<GuardrailRequest, GuardrailResponse>("/api/guardrail", req);
+export async function runGuardrail(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<GuardrailResponse> {
+  return postStreaming<GuardrailRequest, GuardrailResponse>("/api/guardrail", req, onProgress);
 }
 
 export async function runBacktest(req: BacktestRequest): Promise<BacktestResponse> {
@@ -108,8 +159,8 @@ export async function runGuardrailScenarios(req: GuardrailRequest): Promise<Scen
 }
 
 // 参数敏感性分析（护栏页 — 龙卷风图）
-export async function runGuardrailSensitivity(req: GuardrailRequest): Promise<SensitivityAnalysisResponse> {
-  return post<GuardrailRequest, SensitivityAnalysisResponse>("/api/guardrail/sensitivity", req);
+export async function runGuardrailSensitivity(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SensitivityAnalysisResponse> {
+  return postStreaming<GuardrailRequest, SensitivityAnalysisResponse>("/api/guardrail/sensitivity", req, onProgress);
 }
 
 // 情景分析：现金流情景分解（退休模拟页）
@@ -118,8 +169,8 @@ export async function runSimScenarios(req: SimulationRequest): Promise<ScenarioA
 }
 
 // 参数敏感性分析（退休模拟页 — 龙卷风图）
-export async function runSimSensitivity(req: SimulationRequest): Promise<SensitivityAnalysisResponse> {
-  return post<SimulationRequest, SensitivityAnalysisResponse>("/api/simulate/sensitivity", req);
+export async function runSimSensitivity(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SensitivityAnalysisResponse> {
+  return postStreaming<SimulationRequest, SensitivityAnalysisResponse>("/api/simulate/sensitivity", req, onProgress);
 }
 
 // 买房 vs 租房

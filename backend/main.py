@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import sys
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +14,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.responses import StreamingResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -176,6 +180,49 @@ app.add_middleware(
 
 # GZIP 响应压缩：减少大型 JSON 响应的网络传输量（60-80% 压缩率）
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# NDJSON 流式响应（进度条）
+# ---------------------------------------------------------------------------
+
+def _json_default(obj):
+    """JSON 序列化回调：处理 numpy 类型。"""
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def _streaming(gen):
+    """将生成器包装为 NDJSON StreamingResponse。
+
+    生成器 yield 进度事件 {"type":"progress","stage":"...","pct":N}
+    和最终结果 {"type":"result","data":{...}}。
+    """
+    def _iter():
+        try:
+            for item in gen:
+                yield json.dumps(item, default=_json_default) + "\n"
+        except HTTPException as exc:
+            yield json.dumps({"type": "error", "message": exc.detail if isinstance(exc.detail, str) else str(exc.detail)}) + "\n"
+        except Exception as exc:
+            logger.exception("Streaming endpoint error")
+            yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
+
+    return StreamingResponse(
+        _iter(),
+        media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
 
 # 全局缓存（按 data_source 键分别缓存）
 _returns_cache: dict[str, object] = {}
@@ -372,77 +419,83 @@ def api_historical_events(country: str | None = None):
 # 1. POST /api/simulate
 # ---------------------------------------------------------------------------
 
-@app.post("/api/simulate", response_model=SimulationResponse)
+@app.post("/api/simulate")
 @limiter.limit("10/minute")
 def api_simulate(request: Request, req: SimulationRequest):
     filtered, country_dfs = _resolve_data(req)
     _validate_data_sufficient(filtered, country_dfs)
 
-    country_weights = _resolve_country_weights(req, country_dfs)
+    def _generate():
+        yield {"type": "progress", "stage": "bootstrap", "pct": 10}
 
-    trajectories, withdrawals, real_ret_mat, infl_mat = run_simulation(
-        initial_portfolio=req.initial_portfolio,
-        annual_withdrawal=req.annual_withdrawal,
-        allocation=_alloc_dict(req.allocation),
-        expense_ratios=_expense_dict(req.expense_ratios),
-        retirement_years=req.retirement_years,
-        min_block=req.min_block,
-        max_block=req.max_block,
-        num_simulations=req.num_simulations,
-        returns_df=filtered,
-        withdrawal_strategy=req.withdrawal_strategy,
-        dynamic_ceiling=req.dynamic_ceiling,
-        dynamic_floor=req.dynamic_floor,
-        retirement_age=req.retirement_age,
-        cash_flows=_to_cash_flows(req.cash_flows),
-        leverage=req.leverage,
-        borrowing_spread=req.borrowing_spread,
-        country_dfs=country_dfs,
-        country_weights=country_weights,
-        declining_rate=req.declining_rate,
-        declining_start_age=req.declining_start_age,
-        smile_decline_rate=req.smile_decline_rate,
-        smile_decline_start_age=req.smile_decline_start_age,
-        smile_min_age=req.smile_min_age,
-        smile_increase_rate=req.smile_increase_rate,
-        glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
-        glide_path_years=req.glide_path_years,
-    )
+        country_weights = _resolve_country_weights(req, country_dfs)
 
-    results = compute_statistics(trajectories, req.retirement_years, withdrawals)
-    summary_df = final_values_summary_table(results)
-    port_metrics = compute_portfolio_metrics(real_ret_mat, infl_mat)
+        trajectories, withdrawals, real_ret_mat, infl_mat = run_simulation(
+            initial_portfolio=req.initial_portfolio,
+            annual_withdrawal=req.annual_withdrawal,
+            allocation=_alloc_dict(req.allocation),
+            expense_ratios=_expense_dict(req.expense_ratios),
+            retirement_years=req.retirement_years,
+            min_block=req.min_block,
+            max_block=req.max_block,
+            num_simulations=req.num_simulations,
+            returns_df=filtered,
+            withdrawal_strategy=req.withdrawal_strategy,
+            dynamic_ceiling=req.dynamic_ceiling,
+            dynamic_floor=req.dynamic_floor,
+            retirement_age=req.retirement_age,
+            cash_flows=_to_cash_flows(req.cash_flows),
+            leverage=req.leverage,
+            borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs,
+            country_weights=country_weights,
+            declining_rate=req.declining_rate,
+            declining_start_age=req.declining_start_age,
+            smile_decline_rate=req.smile_decline_rate,
+            smile_decline_start_age=req.smile_decline_start_age,
+            smile_min_age=req.smile_min_age,
+            smile_increase_rate=req.smile_increase_rate,
+            glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
+            glide_path_years=req.glide_path_years,
+        )
 
-    # 序列化
-    pct_traj = {str(k): v.tolist() for k, v in results.percentile_trajectories.items()}
-    final_pcts = {str(k): v for k, v in results.final_percentiles.items()}
+        yield {"type": "progress", "stage": "statistics", "pct": 80}
 
-    wd_pct_traj = None
-    wd_mean_traj = None
-    if results.withdrawal_percentile_trajectories is not None:
-        wd_pct_traj = {
-            str(k): v.tolist() for k, v in results.withdrawal_percentile_trajectories.items()
-        }
-    if results.withdrawal_mean_trajectory is not None:
-        wd_mean_traj = results.withdrawal_mean_trajectory.tolist()
+        results = compute_statistics(trajectories, req.retirement_years, withdrawals)
+        summary_df = final_values_summary_table(results)
+        port_metrics = compute_portfolio_metrics(real_ret_mat, infl_mat)
 
-    return SimulationResponse(
-        success_rate=results.success_rate,
-        funded_ratio=results.funded_ratio,
-        final_median=results.final_median,
-        final_mean=results.final_mean,
-        final_min=results.final_min,
-        final_max=results.final_max,
-        final_percentiles=final_pcts,
-        percentile_trajectories=pct_traj,
-        withdrawal_percentile_trajectories=wd_pct_traj,
-        withdrawal_mean_trajectory=wd_mean_traj,
-        final_values_summary=summary_df.to_dict("records"),
-        initial_withdrawal_rate=(
-            req.annual_withdrawal / req.initial_portfolio if req.initial_portfolio > 0 else 0
-        ),
-        portfolio_metrics=port_metrics,
-    )
+        pct_traj = {str(k): v.tolist() for k, v in results.percentile_trajectories.items()}
+        final_pcts = {str(k): v for k, v in results.final_percentiles.items()}
+
+        wd_pct_traj = None
+        wd_mean_traj = None
+        if results.withdrawal_percentile_trajectories is not None:
+            wd_pct_traj = {
+                str(k): v.tolist() for k, v in results.withdrawal_percentile_trajectories.items()
+            }
+        if results.withdrawal_mean_trajectory is not None:
+            wd_mean_traj = results.withdrawal_mean_trajectory.tolist()
+
+        yield {"type": "result", "data": {
+            "success_rate": results.success_rate,
+            "funded_ratio": results.funded_ratio,
+            "final_median": results.final_median,
+            "final_mean": results.final_mean,
+            "final_min": results.final_min,
+            "final_max": results.final_max,
+            "final_percentiles": final_pcts,
+            "percentile_trajectories": pct_traj,
+            "withdrawal_percentile_trajectories": wd_pct_traj,
+            "withdrawal_mean_trajectory": wd_mean_traj,
+            "final_values_summary": summary_df.to_dict("records"),
+            "initial_withdrawal_rate": (
+                req.annual_withdrawal / req.initial_portfolio if req.initial_portfolio > 0 else 0
+            ),
+            "portfolio_metrics": port_metrics,
+        }}
+
+    return _streaming(_generate())
 
 
 # ---------------------------------------------------------------------------
@@ -662,113 +715,125 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
 # 1e. POST /api/simulate/sensitivity — 参数敏感性分析（通用策略）
 # ---------------------------------------------------------------------------
 
-@app.post("/api/simulate/sensitivity", response_model=SensitivityAnalysisResponse)
+@app.post("/api/simulate/sensitivity")
 @limiter.limit("5/minute")
 def api_simulate_sensitivity(request: Request, req: SimulationRequest):
     """核心参数 ±delta 对成功率的影响（使用用户选择的提取策略）。"""
     filtered, country_dfs = _resolve_data(req)
     _validate_data_sufficient(filtered, country_dfs)
 
-    country_weights = _resolve_country_weights(req, country_dfs)
-    cash_flows = _to_cash_flows(req.cash_flows)
+    def _generate():
+        yield {"type": "progress", "stage": "sensitivity_base", "pct": 5}
 
-    def _run_sim(ip, aw, yrs, alloc=None, er=None, cfs=None):
-        kw = dict(
-            initial_portfolio=ip,
-            annual_withdrawal=aw,
-            allocation=alloc or _alloc_dict(req.allocation),
-            expense_ratios=er or _expense_dict(req.expense_ratios),
-            retirement_years=yrs,
-            min_block=req.min_block,
-            max_block=req.max_block,
-            num_simulations=req.num_simulations,
-            returns_df=filtered,
-            withdrawal_strategy=req.withdrawal_strategy,
-            dynamic_ceiling=req.dynamic_ceiling,
-            dynamic_floor=req.dynamic_floor,
-            retirement_age=req.retirement_age,
-            cash_flows=cfs if cfs is not None else cash_flows,
-            leverage=req.leverage,
-            borrowing_spread=req.borrowing_spread,
-            country_dfs=country_dfs,
-            country_weights=country_weights,
-            declining_rate=req.declining_rate,
-            declining_start_age=req.declining_start_age,
-            smile_decline_rate=req.smile_decline_rate,
-            smile_decline_start_age=req.smile_decline_start_age,
-            smile_min_age=req.smile_min_age,
-            smile_increase_rate=req.smile_increase_rate,
-            glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
-            glide_path_years=req.glide_path_years,
-        )
-        traj, _, _, _ = run_simulation(**kw)
-        sr = float(np.mean(traj[:, -1] > 0))
-        fr = compute_funded_ratio(traj, yrs)
-        return sr, fr
+        country_weights = _resolve_country_weights(req, country_dfs)
+        cash_flows = _to_cash_flows(req.cash_flows)
 
-    base_ip = req.initial_portfolio
-    base_aw = req.annual_withdrawal
-    base_years = req.retirement_years
-    stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
+        def _run_sim(ip, aw, yrs, alloc=None, er=None, cfs=None):
+            kw = dict(
+                initial_portfolio=ip,
+                annual_withdrawal=aw,
+                allocation=alloc or _alloc_dict(req.allocation),
+                expense_ratios=er or _expense_dict(req.expense_ratios),
+                retirement_years=yrs,
+                min_block=req.min_block,
+                max_block=req.max_block,
+                num_simulations=req.num_simulations,
+                returns_df=filtered,
+                withdrawal_strategy=req.withdrawal_strategy,
+                dynamic_ceiling=req.dynamic_ceiling,
+                dynamic_floor=req.dynamic_floor,
+                retirement_age=req.retirement_age,
+                cash_flows=cfs if cfs is not None else cash_flows,
+                leverage=req.leverage,
+                borrowing_spread=req.borrowing_spread,
+                country_dfs=country_dfs,
+                country_weights=country_weights,
+                declining_rate=req.declining_rate,
+                declining_start_age=req.declining_start_age,
+                smile_decline_rate=req.smile_decline_rate,
+                smile_decline_start_age=req.smile_decline_start_age,
+                smile_min_age=req.smile_min_age,
+                smile_increase_rate=req.smile_increase_rate,
+                glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
+                glide_path_years=req.glide_path_years,
+            )
+            traj, _, _, _ = run_simulation(**kw)
+            sr = float(np.mean(traj[:, -1] > 0))
+            fr = compute_funded_ratio(traj, yrs)
+            return sr, fr
 
-    base_sr, base_fr = _run_sim(base_ip, base_aw, base_years)
+        base_ip = req.initial_portfolio
+        base_aw = req.annual_withdrawal
+        base_years = req.retirement_years
+        stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
 
-    param_specs = [
-        ("initial_portfolio", "初始资产", base_ip, base_ip * 0.8, base_ip * 1.2),
-        ("annual_withdrawal", "年提取额", base_aw, base_aw * 0.8, base_aw * 1.2),
-        ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
-        ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
-    ]
+        base_sr, base_fr = _run_sim(base_ip, base_aw, base_years)
 
-    deltas = []
-    for key, label, base_val, lo_val, hi_val in param_specs:
-        lo_sr, lo_fr, hi_sr, hi_fr = base_sr, base_fr, base_sr, base_fr
+        param_specs = [
+            ("initial_portfolio", "初始资产", base_ip, base_ip * 0.8, base_ip * 1.2),
+            ("annual_withdrawal", "年提取额", base_aw, base_aw * 0.8, base_aw * 1.2),
+            ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
+            ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
+        ]
 
-        for side, side_val in [("low", lo_val), ("high", hi_val)]:
-            sr, fr = base_sr, base_fr
+        total_runs = len(param_specs) * 2
+        run_idx = 0
 
-            if key == "initial_portfolio":
-                sr, fr = _run_sim(side_val, base_aw, base_years)
-            elif key == "annual_withdrawal":
-                sr, fr = _run_sim(base_ip, side_val, base_years)
-            elif key == "retirement_years":
-                sr, fr = _run_sim(base_ip, base_aw, int(side_val))
-            elif key == "stock_allocation":
-                new_stock = side_val
-                old_stock = stock_pct
-                if old_stock > 0:
-                    ratio = new_stock / old_stock
-                    dom_new = req.allocation.domestic_stock * ratio
-                    glb_new = req.allocation.global_stock * ratio
+        deltas = []
+        for key, label, base_val, lo_val, hi_val in param_specs:
+            lo_sr, lo_fr, hi_sr, hi_fr = base_sr, base_fr, base_sr, base_fr
+
+            for side, side_val in [("low", lo_val), ("high", hi_val)]:
+                run_idx += 1
+                pct = 10 + int(85 * run_idx / total_runs)
+                yield {"type": "progress", "stage": "sensitivity_param", "pct": pct, "current": run_idx, "total": total_runs}
+
+                sr, fr = base_sr, base_fr
+
+                if key == "initial_portfolio":
+                    sr, fr = _run_sim(side_val, base_aw, base_years)
+                elif key == "annual_withdrawal":
+                    sr, fr = _run_sim(base_ip, side_val, base_years)
+                elif key == "retirement_years":
+                    sr, fr = _run_sim(base_ip, base_aw, int(side_val))
+                elif key == "stock_allocation":
+                    new_stock = side_val
+                    old_stock = stock_pct
+                    if old_stock > 0:
+                        ratio = new_stock / old_stock
+                        dom_new = req.allocation.domestic_stock * ratio
+                        glb_new = req.allocation.global_stock * ratio
+                    else:
+                        dom_new = new_stock / 2.0
+                        glb_new = new_stock / 2.0
+                    bond_new = max(0.0, 1.0 - dom_new - glb_new)
+                    new_alloc = {"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new}
+                    sr, fr = _run_sim(base_ip, base_aw, base_years, alloc=new_alloc)
+
+                if side == "low":
+                    lo_sr, lo_fr = sr, fr
                 else:
-                    dom_new = new_stock / 2.0
-                    glb_new = new_stock / 2.0
-                bond_new = max(0.0, 1.0 - dom_new - glb_new)
-                new_alloc = {"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new}
-                sr, fr = _run_sim(base_ip, base_aw, base_years, alloc=new_alloc)
+                    hi_sr, hi_fr = sr, fr
 
-            if side == "low":
-                lo_sr, lo_fr = sr, fr
-            else:
-                hi_sr, hi_fr = sr, fr
+            deltas.append({
+                "param_label": label,
+                "param_key": key,
+                "low_value": lo_val,
+                "high_value": hi_val,
+                "base_value": base_val,
+                "low_success_rate": lo_sr,
+                "high_success_rate": hi_sr,
+                "low_funded_ratio": lo_fr,
+                "high_funded_ratio": hi_fr,
+            })
 
-        deltas.append(SensitivityDelta(
-            param_label=label,
-            param_key=key,
-            low_value=lo_val,
-            high_value=hi_val,
-            base_value=base_val,
-            low_success_rate=lo_sr,
-            high_success_rate=hi_sr,
-            low_funded_ratio=lo_fr,
-            high_funded_ratio=hi_fr,
-        ))
+        yield {"type": "result", "data": {
+            "base_success_rate": base_sr,
+            "base_funded_ratio": base_fr,
+            "deltas": deltas,
+        }}
 
-    return SensitivityAnalysisResponse(
-        base_success_rate=base_sr,
-        base_funded_ratio=base_fr,
-        deltas=deltas,
-    )
+    return _streaming(_generate())
 
 
 # ---------------------------------------------------------------------------
@@ -866,203 +931,211 @@ def api_sweep(request: Request, req: SweepRequest):
 # 3. POST /api/guardrail
 # ---------------------------------------------------------------------------
 
-@app.post("/api/guardrail", response_model=GuardrailResponse)
+@app.post("/api/guardrail")
 @limiter.limit("10/minute")
 def api_guardrail(request: Request, req: GuardrailRequest):
     filtered, country_dfs = _resolve_data(req)
     _validate_data_sufficient(filtered, country_dfs)
 
-    country_weights = _resolve_country_weights(req, country_dfs)
+    def _generate():
+        yield {"type": "progress", "stage": "bootstrap", "pct": 5}
 
-    scenarios, inflation_matrix = pregenerate_return_scenarios(
-        allocation=_alloc_dict(req.allocation),
-        expense_ratios=_expense_dict(req.expense_ratios),
-        retirement_years=req.retirement_years,
-        min_block=req.min_block,
-        max_block=req.max_block,
-        num_simulations=req.num_simulations,
-        returns_df=filtered,
-        leverage=req.leverage,
-        borrowing_spread=req.borrowing_spread,
-        country_dfs=country_dfs,
-        country_weights=country_weights,
-    )
+        country_weights = _resolve_country_weights(req, country_dfs)
 
-    rate_grid, table = build_success_rate_table(scenarios)
-
-    cash_flows = _to_cash_flows(req.cash_flows)
-
-    # 3D 现金流感知查找表
-    cf_table_result = None
-    if cash_flows:
-        rep_schedule = build_representative_cf_schedule(
-            cash_flows, req.retirement_years, inflation_matrix,
+        scenarios, inflation_matrix = pregenerate_return_scenarios(
+            allocation=_alloc_dict(req.allocation),
+            expense_ratios=_expense_dict(req.expense_ratios),
+            retirement_years=req.retirement_years,
+            min_block=req.min_block,
+            max_block=req.max_block,
+            num_simulations=req.num_simulations,
+            returns_df=filtered,
+            leverage=req.leverage,
+            borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs,
+            country_weights=country_weights,
         )
-        cf_table_result = build_cf_aware_table(scenarios, rep_schedule)
 
-    _cf_rg, _cf_sg, _cf_tbl, _cf_ref, _last_cf_y = _unpack_cf_table(cf_table_result)
+        yield {"type": "progress", "stage": "table_2d", "pct": 30}
+        rate_grid, table = build_success_rate_table(scenarios)
 
-    sim_kwargs = dict(
-        scenarios=scenarios,
-        target_success=req.target_success,
-        upper_guardrail=req.upper_guardrail,
-        lower_guardrail=req.lower_guardrail,
-        adjustment_pct=req.adjustment_pct,
-        retirement_years=req.retirement_years,
-        min_remaining_years=req.min_remaining_years,
-        table=table,
-        rate_grid=rate_grid,
-        adjustment_mode=req.adjustment_mode,
-        cash_flows=cash_flows,
-        inflation_matrix=inflation_matrix,
-        cf_table=_cf_tbl,
-        cf_rate_grid=_cf_rg,
-        cf_scale_grid=_cf_sg,
-        cf_ref=_cf_ref,
-        last_cf_year=_last_cf_y,
-    )
-    if req.input_mode == "withdrawal":
-        sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
-    else:
-        sim_kwargs["initial_portfolio"] = req.initial_portfolio
+        cash_flows = _to_cash_flows(req.cash_flows)
 
-    init_portfolio, annual_wd, traj_g, wd_g = run_guardrail_simulation(**sim_kwargs)
+        # 3D 现金流感知查找表
+        cf_table_result = None
+        if cash_flows:
+            yield {"type": "progress", "stage": "table_3d", "pct": 40}
+            rep_schedule = build_representative_cf_schedule(
+                cash_flows, req.retirement_years, inflation_matrix,
+            )
+            cf_table_result = build_cf_aware_table(scenarios, rep_schedule)
 
-    traj_b, wd_b = run_fixed_baseline(
-        scenarios, init_portfolio, req.baseline_rate, req.retirement_years,
-        cash_flows=cash_flows, inflation_matrix=inflation_matrix,
-    )
+        _cf_rg, _cf_sg, _cf_tbl, _cf_ref, _last_cf_y = _unpack_cf_table(cf_table_result)
 
-    g_fr, g_success = compute_effective_funded_ratio(
-        wd_g, annual_wd, req.retirement_years,
-        consumption_floor=req.consumption_floor,
-        trajectories=traj_g,
-    )
-    b_success = float(np.mean(traj_b[:, -1] > 0))
-    b_fr = compute_funded_ratio(traj_b, req.retirement_years)
-    initial_rate = annual_wd / init_portfolio if init_portfolio > 0 else 0
-    baseline_wd = init_portfolio * req.baseline_rate
+        yield {"type": "progress", "stage": "simulation", "pct": 55}
 
-    # 分位数轨迹
-    band_pcts = [10, 25, 50, 75, 90]
-    g_pct_traj = {str(p): np.percentile(traj_g, p, axis=0).tolist() for p in band_pcts}
-    b_pct_traj = {str(p): np.percentile(traj_b, p, axis=0).tolist() for p in band_pcts}
-    g_wd_pcts = {str(p): np.percentile(wd_g, p, axis=0).tolist() for p in band_pcts}
-    b_wd_pcts = {str(p): np.percentile(wd_b, p, axis=0).tolist() for p in band_pcts}
+        sim_kwargs = dict(
+            scenarios=scenarios,
+            target_success=req.target_success,
+            upper_guardrail=req.upper_guardrail,
+            lower_guardrail=req.lower_guardrail,
+            adjustment_pct=req.adjustment_pct,
+            retirement_years=req.retirement_years,
+            min_remaining_years=req.min_remaining_years,
+            table=table,
+            rate_grid=rate_grid,
+            adjustment_mode=req.adjustment_mode,
+            cash_flows=cash_flows,
+            inflation_matrix=inflation_matrix,
+            cf_table=_cf_tbl,
+            cf_rate_grid=_cf_rg,
+            cf_scale_grid=_cf_sg,
+            cf_ref=_cf_ref,
+            last_cf_year=_last_cf_y,
+        )
+        if req.input_mode == "withdrawal":
+            sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
+        else:
+            sim_kwargs["initial_portfolio"] = req.initial_portfolio
 
-    # 最低消费
-    def min_nonzero_per_row(arr):
-        mask = arr > 0
-        filled = np.where(mask, arr, np.inf)
-        return np.where(mask.any(axis=1), np.min(filled, axis=1), 0.0)
+        init_portfolio, annual_wd, traj_g, wd_g = run_guardrail_simulation(**sim_kwargs)
 
-    g_min_wd = min_nonzero_per_row(wd_g)
-    b_min_wd = min_nonzero_per_row(wd_b)
-    g_p10_min = float(np.percentile(g_min_wd, 10))
-    b_p10_min = float(np.percentile(b_min_wd, 10))
+        yield {"type": "progress", "stage": "baseline", "pct": 75}
 
-    g_total = np.sum(wd_g, axis=1)
-    b_total = np.sum(wd_b, axis=1)
+        traj_b, wd_b = run_fixed_baseline(
+            scenarios, init_portfolio, req.baseline_rate, req.retirement_years,
+            cash_flows=cash_flows, inflation_matrix=inflation_matrix,
+        )
 
-    metrics = [
-        {"指标": "成功率", "Guardrail": f"{g_success:.1%}", "基准固定": f"{b_success:.1%}"},
-        {"指标": "初始年提取额", "Guardrail": f"${annual_wd:,.0f}", "基准固定": f"${baseline_wd:,.0f}"},
-        {"指标": "中位数总消费额", "Guardrail": f"${np.median(g_total):,.0f}", "基准固定": f"${np.median(b_total):,.0f}"},
-        {"指标": "中位数最终资产", "Guardrail": f"${np.median(traj_g[:, -1]):,.0f}", "基准固定": f"${np.median(traj_b[:, -1]):,.0f}"},
-        {"指标": "P10 最低年度消费", "Guardrail": f"${g_p10_min:,.0f}", "基准固定": f"${b_p10_min:,.0f}"},
-        {"指标": "P10 最低消费 vs 初始提取额",
-         "Guardrail": f"{(g_p10_min / annual_wd - 1) * 100:+.1f}%" if annual_wd > 0 else "N/A",
-         "基准固定": f"{(b_p10_min / baseline_wd - 1) * 100:+.1f}%" if baseline_wd > 0 else "N/A"},
-        {"指标": "中位数最终年提取额",
-         "Guardrail": f"${np.median(wd_g[:, -1]):,.0f}",
-         "基准固定": f"${baseline_wd:,.0f}"},
-    ]
+        yield {"type": "progress", "stage": "statistics", "pct": 90}
 
-    # 投资组合绩效指标（底层回报序列相同，guardrail/baseline 共用）
-    port_metrics = compute_portfolio_metrics(scenarios, inflation_matrix)
+        g_fr, g_success = compute_effective_funded_ratio(
+            wd_g, annual_wd, req.retirement_years,
+            consumption_floor=req.consumption_floor,
+            trajectories=traj_g,
+        )
+        b_success = float(np.mean(traj_b[:, -1] > 0))
+        b_fr = compute_funded_ratio(traj_b, req.retirement_years)
+        initial_rate = annual_wd / init_portfolio if init_portfolio > 0 else 0
+        baseline_wd = init_portfolio * req.baseline_rate
 
-    # 初始护栏触发阈值：反算触发上/下护栏时的资产值和调整后提取额
-    remaining_y0 = min(req.retirement_years, table.shape[1] - 1)
+        band_pcts = [10, 25, 50, 75, 90]
+        g_pct_traj = {str(p): np.percentile(traj_g, p, axis=0).tolist() for p in band_pcts}
+        b_pct_traj = {str(p): np.percentile(traj_b, p, axis=0).tolist() for p in band_pcts}
+        g_wd_pcts = {str(p): np.percentile(wd_g, p, axis=0).tolist() for p in band_pcts}
+        b_wd_pcts = {str(p): np.percentile(wd_b, p, axis=0).tolist() for p in band_pcts}
 
-    if cf_table_result is not None:
-        # 3D 表模式：用二分法找到 V 使 success_rate(wd/V, cf_ref/V, 0) = target
-        def _find_trigger_port_3d(target_sr: float) -> float:
-            r0 = find_rate_for_target(table, rate_grid, target_sr, remaining_y0)
-            v_guess = annual_wd / r0 if r0 > 0 else init_portfolio * 5
-            lo, hi = v_guess * 0.1, v_guess * 10
-            for _ in range(40):
-                v_mid = (lo + hi) / 2
-                sr = lookup_cf_aware_success_rate(
-                    _cf_tbl, _cf_rg, _cf_sg,
-                    annual_wd / v_mid, _cf_ref / v_mid, 0,
-                )
-                if sr < target_sr:
-                    lo = v_mid
-                else:
-                    hi = v_mid
-            return (lo + hi) / 2
+        def min_nonzero_per_row(arr):
+            mask = arr > 0
+            filled = np.where(mask, arr, np.inf)
+            return np.where(mask.any(axis=1), np.min(filled, axis=1), 0.0)
 
-        upper_trigger_port = _find_trigger_port_3d(req.upper_guardrail)
-        lower_trigger_port = _find_trigger_port_3d(req.lower_guardrail)
+        g_min_wd = min_nonzero_per_row(wd_g)
+        b_min_wd = min_nonzero_per_row(wd_b)
+        g_p10_min = float(np.percentile(g_min_wd, 10))
+        b_p10_min = float(np.percentile(b_min_wd, 10))
 
-        _cs_upper = _cf_ref / upper_trigger_port if upper_trigger_port > 0 else 0.0
-        upper_trigger_wd = apply_guardrail_adjustment(
-            wd=annual_wd, value=upper_trigger_port,
-            current_success=req.upper_guardrail, target_success=req.target_success,
-            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
-            remaining=remaining_y0, table=table, rate_grid=_cf_rg,
-            cf_table=_cf_tbl, cf_scale_grid=_cf_sg,
-            cf_scale=_cs_upper, start_year=0,
-        ) if upper_trigger_port > 0 else 0.0
+        g_total = np.sum(wd_g, axis=1)
+        b_total = np.sum(wd_b, axis=1)
 
-        _cs_lower = _cf_ref / lower_trigger_port if lower_trigger_port > 0 else 0.0
-        lower_trigger_wd = apply_guardrail_adjustment(
-            wd=annual_wd, value=lower_trigger_port,
-            current_success=req.lower_guardrail, target_success=req.target_success,
-            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
-            remaining=remaining_y0, table=table, rate_grid=_cf_rg,
-            cf_table=_cf_tbl, cf_scale_grid=_cf_sg,
-            cf_scale=_cs_lower, start_year=0,
-        ) if lower_trigger_port > 0 else 0.0
-    else:
-        upper_rate = find_rate_for_target(table, rate_grid, req.upper_guardrail, remaining_y0)
-        lower_rate = find_rate_for_target(table, rate_grid, req.lower_guardrail, remaining_y0)
-        upper_trigger_port = annual_wd / upper_rate if upper_rate > 0 else 0.0
-        lower_trigger_port = annual_wd / lower_rate if lower_rate > 0 else 0.0
+        metrics = [
+            {"指标": "成功率", "Guardrail": f"{g_success:.1%}", "基准固定": f"{b_success:.1%}"},
+            {"指标": "初始年提取额", "Guardrail": f"${annual_wd:,.0f}", "基准固定": f"${baseline_wd:,.0f}"},
+            {"指标": "中位数总消费额", "Guardrail": f"${np.median(g_total):,.0f}", "基准固定": f"${np.median(b_total):,.0f}"},
+            {"指标": "中位数最终资产", "Guardrail": f"${np.median(traj_g[:, -1]):,.0f}", "基准固定": f"${np.median(traj_b[:, -1]):,.0f}"},
+            {"指标": "P10 最低年度消费", "Guardrail": f"${g_p10_min:,.0f}", "基准固定": f"${b_p10_min:,.0f}"},
+            {"指标": "P10 最低消费 vs 初始提取额",
+             "Guardrail": f"{(g_p10_min / annual_wd - 1) * 100:+.1f}%" if annual_wd > 0 else "N/A",
+             "基准固定": f"{(b_p10_min / baseline_wd - 1) * 100:+.1f}%" if baseline_wd > 0 else "N/A"},
+            {"指标": "中位数最终年提取额",
+             "Guardrail": f"${np.median(wd_g[:, -1]):,.0f}",
+             "基准固定": f"${baseline_wd:,.0f}"},
+        ]
 
-        upper_trigger_wd = apply_guardrail_adjustment(
-            wd=annual_wd, value=upper_trigger_port,
-            current_success=req.upper_guardrail, target_success=req.target_success,
-            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
-            remaining=remaining_y0, table=table, rate_grid=rate_grid,
-        ) if upper_trigger_port > 0 else 0.0
-        lower_trigger_wd = apply_guardrail_adjustment(
-            wd=annual_wd, value=lower_trigger_port,
-            current_success=req.lower_guardrail, target_success=req.target_success,
-            adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
-            remaining=remaining_y0, table=table, rate_grid=rate_grid,
-        ) if lower_trigger_port > 0 else 0.0
+        port_metrics = compute_portfolio_metrics(scenarios, inflation_matrix)
 
-    return GuardrailResponse(
-        initial_portfolio=init_portfolio,
-        annual_withdrawal=annual_wd,
-        initial_rate=initial_rate,
-        g_success_rate=g_success,
-        g_funded_ratio=g_fr,
-        g_percentile_trajectories=g_pct_traj,
-        g_withdrawal_percentiles=g_wd_pcts,
-        b_success_rate=b_success,
-        b_funded_ratio=b_fr,
-        b_percentile_trajectories=b_pct_traj,
-        b_withdrawal_percentiles=b_wd_pcts,
-        baseline_annual_wd=baseline_wd,
-        upper_trigger_portfolio=upper_trigger_port,
-        upper_trigger_withdrawal=upper_trigger_wd,
-        lower_trigger_portfolio=lower_trigger_port,
-        lower_trigger_withdrawal=lower_trigger_wd,
-        metrics=metrics,
-        portfolio_metrics=port_metrics,
-    )
+        remaining_y0 = min(req.retirement_years, table.shape[1] - 1)
+
+        if cf_table_result is not None:
+            def _find_trigger_port_3d(target_sr: float) -> float:
+                r0 = find_rate_for_target(table, rate_grid, target_sr, remaining_y0)
+                v_guess = annual_wd / r0 if r0 > 0 else init_portfolio * 5
+                lo, hi = v_guess * 0.1, v_guess * 10
+                for _ in range(40):
+                    v_mid = (lo + hi) / 2
+                    sr = lookup_cf_aware_success_rate(
+                        _cf_tbl, _cf_rg, _cf_sg,
+                        annual_wd / v_mid, _cf_ref / v_mid, 0,
+                    )
+                    if sr < target_sr:
+                        lo = v_mid
+                    else:
+                        hi = v_mid
+                return (lo + hi) / 2
+
+            upper_trigger_port = _find_trigger_port_3d(req.upper_guardrail)
+            lower_trigger_port = _find_trigger_port_3d(req.lower_guardrail)
+
+            _cs_upper = _cf_ref / upper_trigger_port if upper_trigger_port > 0 else 0.0
+            upper_trigger_wd = apply_guardrail_adjustment(
+                wd=annual_wd, value=upper_trigger_port,
+                current_success=req.upper_guardrail, target_success=req.target_success,
+                adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+                remaining=remaining_y0, table=table, rate_grid=_cf_rg,
+                cf_table=_cf_tbl, cf_scale_grid=_cf_sg,
+                cf_scale=_cs_upper, start_year=0,
+            ) if upper_trigger_port > 0 else 0.0
+
+            _cs_lower = _cf_ref / lower_trigger_port if lower_trigger_port > 0 else 0.0
+            lower_trigger_wd = apply_guardrail_adjustment(
+                wd=annual_wd, value=lower_trigger_port,
+                current_success=req.lower_guardrail, target_success=req.target_success,
+                adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+                remaining=remaining_y0, table=table, rate_grid=_cf_rg,
+                cf_table=_cf_tbl, cf_scale_grid=_cf_sg,
+                cf_scale=_cs_lower, start_year=0,
+            ) if lower_trigger_port > 0 else 0.0
+        else:
+            upper_rate = find_rate_for_target(table, rate_grid, req.upper_guardrail, remaining_y0)
+            lower_rate = find_rate_for_target(table, rate_grid, req.lower_guardrail, remaining_y0)
+            upper_trigger_port = annual_wd / upper_rate if upper_rate > 0 else 0.0
+            lower_trigger_port = annual_wd / lower_rate if lower_rate > 0 else 0.0
+
+            upper_trigger_wd = apply_guardrail_adjustment(
+                wd=annual_wd, value=upper_trigger_port,
+                current_success=req.upper_guardrail, target_success=req.target_success,
+                adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+                remaining=remaining_y0, table=table, rate_grid=rate_grid,
+            ) if upper_trigger_port > 0 else 0.0
+            lower_trigger_wd = apply_guardrail_adjustment(
+                wd=annual_wd, value=lower_trigger_port,
+                current_success=req.lower_guardrail, target_success=req.target_success,
+                adjustment_pct=req.adjustment_pct, adjustment_mode=req.adjustment_mode,
+                remaining=remaining_y0, table=table, rate_grid=rate_grid,
+            ) if lower_trigger_port > 0 else 0.0
+
+        yield {"type": "result", "data": {
+            "initial_portfolio": init_portfolio,
+            "annual_withdrawal": annual_wd,
+            "initial_rate": initial_rate,
+            "g_success_rate": g_success,
+            "g_funded_ratio": g_fr,
+            "g_percentile_trajectories": g_pct_traj,
+            "g_withdrawal_percentiles": g_wd_pcts,
+            "b_success_rate": b_success,
+            "b_funded_ratio": b_fr,
+            "b_percentile_trajectories": b_pct_traj,
+            "b_withdrawal_percentiles": b_wd_pcts,
+            "baseline_annual_wd": baseline_wd,
+            "upper_trigger_portfolio": upper_trigger_port,
+            "upper_trigger_withdrawal": upper_trigger_wd,
+            "lower_trigger_portfolio": lower_trigger_port,
+            "lower_trigger_withdrawal": lower_trigger_wd,
+            "metrics": metrics,
+            "portfolio_metrics": port_metrics,
+        }}
+
+    return _streaming(_generate())
 
 
 # ---------------------------------------------------------------------------
@@ -1189,201 +1262,213 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
 # 3c. POST /api/guardrail/sensitivity — 参数敏感性分析（龙卷风图）
 # ---------------------------------------------------------------------------
 
-@app.post("/api/guardrail/sensitivity", response_model=SensitivityAnalysisResponse)
+@app.post("/api/guardrail/sensitivity")
 @limiter.limit("5/minute")
 def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
     """固定目标成功率，变动参数后用护栏策略计算最优提取额/初始资产。"""
     filtered, country_dfs = _resolve_data(req)
     _validate_data_sufficient(filtered, country_dfs)
 
-    country_weights = _resolve_country_weights(req, country_dfs)
-    cash_flows = _to_cash_flows(req.cash_flows)
+    def _generate():
+        yield {"type": "progress", "stage": "bootstrap", "pct": 5}
 
-    base_years = req.retirement_years
-    stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
+        country_weights = _resolve_country_weights(req, country_dfs)
+        cash_flows = _to_cash_flows(req.cash_flows)
 
-    # Pre-generate base scenarios and tables once — reused for ip/aw/target variations
-    base_alloc = _alloc_dict(req.allocation)
-    base_er = _expense_dict(req.expense_ratios)
-    base_scen, base_infl = pregenerate_return_scenarios(
-        allocation=base_alloc, expense_ratios=base_er,
-        retirement_years=base_years,
-        min_block=req.min_block, max_block=req.max_block,
-        num_simulations=req.num_simulations, returns_df=filtered,
-        leverage=req.leverage, borrowing_spread=req.borrowing_spread,
-        country_dfs=country_dfs, country_weights=country_weights,
-    )
-    base_rg, base_tbl = build_success_rate_table(base_scen)
-    base_cf_tbl_r = None
-    if cash_flows:
-        base_rep = build_representative_cf_schedule(cash_flows, base_years, base_infl)
-        base_cf_tbl_r = build_cf_aware_table(
-            base_scen, base_rep,
-            rate_segments=SCENARIO_CF_RATE_SEGMENTS,
-            cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
-            max_sims=SCENARIO_CF_MAX_SIMS,
-            max_start_years=SCENARIO_MAX_START_YEARS,
-        )
-    _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly = _unpack_cf_table(base_cf_tbl_r)
+        base_years = req.retirement_years
+        stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
 
-    def _run_with_tables(
-        scen, infl, rg, tbl, cf_rg, cf_sg, cf_tbl, cf_ref, cf_ly,
-        years, ip_override=None, aw_override=None, target_override=None,
-    ):
-        """Run guardrail simulation with pre-built scenarios and tables."""
-        sim_kw = dict(
-            scenarios=scen,
-            target_success=target_override or req.target_success,
-            upper_guardrail=req.upper_guardrail,
-            lower_guardrail=req.lower_guardrail,
-            adjustment_pct=req.adjustment_pct,
-            retirement_years=years,
-            min_remaining_years=req.min_remaining_years,
-            table=tbl, rate_grid=rg,
-            adjustment_mode=req.adjustment_mode,
-            cash_flows=cash_flows, inflation_matrix=infl,
-            cf_table=cf_tbl,
-            cf_rate_grid=cf_rg,
-            cf_scale_grid=cf_sg,
-            cf_ref=cf_ref,
-            last_cf_year=cf_ly,
-        )
-        if ip_override is not None:
-            sim_kw["initial_portfolio"] = ip_override
-        elif aw_override is not None:
-            sim_kw["annual_withdrawal"] = aw_override
-        elif req.input_mode == "withdrawal":
-            sim_kw["annual_withdrawal"] = req.annual_withdrawal
-        else:
-            sim_kw["initial_portfolio"] = req.initial_portfolio
-
-        r_ip, r_aw, r_traj, r_wd = run_guardrail_simulation(**sim_kw)
-
-        _, r_sr = compute_effective_funded_ratio(
-            r_wd, r_aw, years,
-            consumption_floor=req.consumption_floor,
-            trajectories=r_traj,
-        )
-        r_fr = compute_funded_ratio(r_traj, years)
-        return r_ip, r_aw, r_sr, r_fr
-
-    def _build_fresh_and_run(scen_alloc=None, scen_er=None, yrs=None):
-        """Rebuild scenarios/tables from scratch (for allocation/years changes)."""
-        alloc = scen_alloc or base_alloc
-        er = scen_er or base_er
-        years = yrs or base_years
-        scen, infl = pregenerate_return_scenarios(
-            allocation=alloc, expense_ratios=er,
-            retirement_years=years,
+        base_alloc = _alloc_dict(req.allocation)
+        base_er = _expense_dict(req.expense_ratios)
+        base_scen, base_infl = pregenerate_return_scenarios(
+            allocation=base_alloc, expense_ratios=base_er,
+            retirement_years=base_years,
             min_block=req.min_block, max_block=req.max_block,
             num_simulations=req.num_simulations, returns_df=filtered,
             leverage=req.leverage, borrowing_spread=req.borrowing_spread,
             country_dfs=country_dfs, country_weights=country_weights,
         )
-        rg, tbl = build_success_rate_table(scen)
-        cf_tbl_r = None
+
+        yield {"type": "progress", "stage": "table_2d", "pct": 15}
+        base_rg, base_tbl = build_success_rate_table(base_scen)
+        base_cf_tbl_r = None
         if cash_flows:
-            rep = build_representative_cf_schedule(cash_flows, years, infl)
-            cf_tbl_r = build_cf_aware_table(
-                scen, rep,
+            base_rep = build_representative_cf_schedule(cash_flows, base_years, base_infl)
+            base_cf_tbl_r = build_cf_aware_table(
+                base_scen, base_rep,
                 rate_segments=SCENARIO_CF_RATE_SEGMENTS,
                 cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
                 max_sims=SCENARIO_CF_MAX_SIMS,
                 max_start_years=SCENARIO_MAX_START_YEARS,
             )
-        _rg, _sg, _tbl, _ref, _ly = _unpack_cf_table(cf_tbl_r)
-        return _run_with_tables(scen, infl, rg, tbl, _rg, _sg, _tbl, _ref, _ly, years)
+        _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly = _unpack_cf_table(base_cf_tbl_r)
 
-    base_ip, base_aw, base_sr, base_fr = _run_with_tables(
-        base_scen, base_infl, base_rg, base_tbl,
-        _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly, base_years,
-    )
-
-    is_portfolio_mode = req.input_mode != "withdrawal"
-    if is_portfolio_mode:
-        param_specs = [
-            ("initial_portfolio", "初始资产", base_ip, base_ip * 0.8, base_ip * 1.2),
-            ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
-            ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
-            ("target_success", "目标成功率", req.target_success, max(0.5, req.target_success - 0.05), min(0.99, req.target_success + 0.05)),
-        ]
-    else:
-        param_specs = [
-            ("annual_withdrawal", "年提取额", base_aw, base_aw * 0.8, base_aw * 1.2),
-            ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
-            ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
-            ("target_success", "目标成功率", req.target_success, max(0.5, req.target_success - 0.05), min(0.99, req.target_success + 0.05)),
-        ]
-
-    deltas = []
-    for key, label, base_val, lo_val, hi_val in param_specs:
-        lo_sr = hi_sr = base_sr
-        lo_fr = hi_fr = base_fr
-        lo_wd = hi_wd = base_aw
-
-        for side, side_val in [("low", lo_val), ("high", hi_val)]:
-            r_ip, r_aw, sr, fr = base_ip, base_aw, base_sr, base_fr
-
-            if key in ("initial_portfolio", "annual_withdrawal", "target_success"):
-                # Reuse base scenarios and tables — only the sim parameter changes
-                kw = {}
-                if key == "initial_portfolio":
-                    kw["ip_override"] = side_val
-                elif key == "annual_withdrawal":
-                    kw["aw_override"] = side_val
-                else:
-                    kw["target_override"] = side_val
-                r_ip, r_aw, sr, fr = _run_with_tables(
-                    base_scen, base_infl, base_rg, base_tbl,
-                    _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly,
-                    base_years, **kw,
-                )
-            elif key == "retirement_years":
-                r_ip, r_aw, sr, fr = _build_fresh_and_run(yrs=int(side_val))
-            elif key == "stock_allocation":
-                new_stock = side_val
-                if stock_pct > 0:
-                    ratio = new_stock / stock_pct
-                    dom_new = req.allocation.domestic_stock * ratio
-                    glb_new = req.allocation.global_stock * ratio
-                else:
-                    dom_new = new_stock / 2.0
-                    glb_new = new_stock / 2.0
-                bond_new = max(0.0, 1.0 - dom_new - glb_new)
-                if bond_new < 0:
-                    total_s = dom_new + glb_new
-                    dom_new /= total_s
-                    glb_new /= total_s
-                    bond_new = 0.0
-                r_ip, r_aw, sr, fr = _build_fresh_and_run(
-                    scen_alloc={"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new},
-                )
-
-            if side == "low":
-                lo_sr, lo_fr, lo_wd = sr, fr, r_aw
+        def _run_with_tables(
+            scen, infl, rg, tbl, cf_rg, cf_sg, cf_tbl, cf_ref, cf_ly,
+            years, ip_override=None, aw_override=None, target_override=None,
+        ):
+            sim_kw = dict(
+                scenarios=scen,
+                target_success=target_override or req.target_success,
+                upper_guardrail=req.upper_guardrail,
+                lower_guardrail=req.lower_guardrail,
+                adjustment_pct=req.adjustment_pct,
+                retirement_years=years,
+                min_remaining_years=req.min_remaining_years,
+                table=tbl, rate_grid=rg,
+                adjustment_mode=req.adjustment_mode,
+                cash_flows=cash_flows, inflation_matrix=infl,
+                cf_table=cf_tbl,
+                cf_rate_grid=cf_rg,
+                cf_scale_grid=cf_sg,
+                cf_ref=cf_ref,
+                last_cf_year=cf_ly,
+            )
+            if ip_override is not None:
+                sim_kw["initial_portfolio"] = ip_override
+            elif aw_override is not None:
+                sim_kw["annual_withdrawal"] = aw_override
+            elif req.input_mode == "withdrawal":
+                sim_kw["annual_withdrawal"] = req.annual_withdrawal
             else:
-                hi_sr, hi_fr, hi_wd = sr, fr, r_aw
+                sim_kw["initial_portfolio"] = req.initial_portfolio
 
-        deltas.append(SensitivityDelta(
-            param_label=label,
-            param_key=key,
-            low_value=lo_val,
-            high_value=hi_val,
-            base_value=base_val,
-            low_success_rate=lo_sr,
-            high_success_rate=hi_sr,
-            low_funded_ratio=lo_fr,
-            high_funded_ratio=hi_fr,
-            low_withdrawal=lo_wd,
-            high_withdrawal=hi_wd,
-        ))
+            r_ip, r_aw, r_traj, r_wd = run_guardrail_simulation(**sim_kw)
+            _, r_sr = compute_effective_funded_ratio(
+                r_wd, r_aw, years,
+                consumption_floor=req.consumption_floor,
+                trajectories=r_traj,
+            )
+            r_fr = compute_funded_ratio(r_traj, years)
+            return r_ip, r_aw, r_sr, r_fr
 
-    return SensitivityAnalysisResponse(
-        base_success_rate=base_sr,
-        base_funded_ratio=base_fr,
-        base_withdrawal=base_aw,
-        deltas=deltas,
-    )
+        def _build_fresh_and_run(scen_alloc=None, scen_er=None, yrs=None):
+            alloc = scen_alloc or base_alloc
+            er = scen_er or base_er
+            years = yrs or base_years
+            scen, infl = pregenerate_return_scenarios(
+                allocation=alloc, expense_ratios=er,
+                retirement_years=years,
+                min_block=req.min_block, max_block=req.max_block,
+                num_simulations=req.num_simulations, returns_df=filtered,
+                leverage=req.leverage, borrowing_spread=req.borrowing_spread,
+                country_dfs=country_dfs, country_weights=country_weights,
+            )
+            rg, tbl = build_success_rate_table(scen)
+            cf_tbl_r = None
+            if cash_flows:
+                rep = build_representative_cf_schedule(cash_flows, years, infl)
+                cf_tbl_r = build_cf_aware_table(
+                    scen, rep,
+                    rate_segments=SCENARIO_CF_RATE_SEGMENTS,
+                    cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
+                    max_sims=SCENARIO_CF_MAX_SIMS,
+                    max_start_years=SCENARIO_MAX_START_YEARS,
+                )
+            _rg, _sg, _tbl, _ref, _ly = _unpack_cf_table(cf_tbl_r)
+            return _run_with_tables(scen, infl, rg, tbl, _rg, _sg, _tbl, _ref, _ly, years)
+
+        yield {"type": "progress", "stage": "sensitivity_base", "pct": 25}
+
+        base_ip, base_aw, base_sr, base_fr = _run_with_tables(
+            base_scen, base_infl, base_rg, base_tbl,
+            _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly, base_years,
+        )
+
+        is_portfolio_mode = req.input_mode != "withdrawal"
+        if is_portfolio_mode:
+            param_specs = [
+                ("initial_portfolio", "初始资产", base_ip, base_ip * 0.8, base_ip * 1.2),
+                ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
+                ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
+                ("target_success", "目标成功率", req.target_success, max(0.5, req.target_success - 0.05), min(0.99, req.target_success + 0.05)),
+            ]
+        else:
+            param_specs = [
+                ("annual_withdrawal", "年提取额", base_aw, base_aw * 0.8, base_aw * 1.2),
+                ("retirement_years", "退休年限", float(base_years), float(max(10, base_years - 10)), float(base_years + 10)),
+                ("stock_allocation", "股票配置比例", stock_pct, max(0.0, stock_pct - 0.2), min(1.0, stock_pct + 0.2)),
+                ("target_success", "目标成功率", req.target_success, max(0.5, req.target_success - 0.05), min(0.99, req.target_success + 0.05)),
+            ]
+
+        # 4 params × 2 sides = 8 runs; distribute pct from 30% to 95%
+        total_runs = len(param_specs) * 2
+        run_idx = 0
+
+        deltas = []
+        for key, label, base_val, lo_val, hi_val in param_specs:
+            lo_sr = hi_sr = base_sr
+            lo_fr = hi_fr = base_fr
+            lo_wd = hi_wd = base_aw
+
+            for side, side_val in [("low", lo_val), ("high", hi_val)]:
+                run_idx += 1
+                pct = 30 + int(65 * run_idx / total_runs)
+                yield {"type": "progress", "stage": "sensitivity_param", "pct": pct, "current": run_idx, "total": total_runs}
+
+                r_ip, r_aw, sr, fr = base_ip, base_aw, base_sr, base_fr
+
+                if key in ("initial_portfolio", "annual_withdrawal", "target_success"):
+                    kw = {}
+                    if key == "initial_portfolio":
+                        kw["ip_override"] = side_val
+                    elif key == "annual_withdrawal":
+                        kw["aw_override"] = side_val
+                    else:
+                        kw["target_override"] = side_val
+                    r_ip, r_aw, sr, fr = _run_with_tables(
+                        base_scen, base_infl, base_rg, base_tbl,
+                        _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly,
+                        base_years, **kw,
+                    )
+                elif key == "retirement_years":
+                    r_ip, r_aw, sr, fr = _build_fresh_and_run(yrs=int(side_val))
+                elif key == "stock_allocation":
+                    new_stock = side_val
+                    if stock_pct > 0:
+                        ratio = new_stock / stock_pct
+                        dom_new = req.allocation.domestic_stock * ratio
+                        glb_new = req.allocation.global_stock * ratio
+                    else:
+                        dom_new = new_stock / 2.0
+                        glb_new = new_stock / 2.0
+                    bond_new = max(0.0, 1.0 - dom_new - glb_new)
+                    if bond_new < 0:
+                        total_s = dom_new + glb_new
+                        dom_new /= total_s
+                        glb_new /= total_s
+                        bond_new = 0.0
+                    r_ip, r_aw, sr, fr = _build_fresh_and_run(
+                        scen_alloc={"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new},
+                    )
+
+                if side == "low":
+                    lo_sr, lo_fr, lo_wd = sr, fr, r_aw
+                else:
+                    hi_sr, hi_fr, hi_wd = sr, fr, r_aw
+
+            deltas.append({
+                "param_label": label,
+                "param_key": key,
+                "low_value": lo_val,
+                "high_value": hi_val,
+                "base_value": base_val,
+                "low_success_rate": lo_sr,
+                "high_success_rate": hi_sr,
+                "low_funded_ratio": lo_fr,
+                "high_funded_ratio": hi_fr,
+                "low_withdrawal": lo_wd,
+                "high_withdrawal": hi_wd,
+            })
+
+        yield {"type": "result", "data": {
+            "base_success_rate": base_sr,
+            "base_funded_ratio": base_fr,
+            "base_withdrawal": base_aw,
+            "deltas": deltas,
+        }}
+
+    return _streaming(_generate())
 
 
 # ---------------------------------------------------------------------------

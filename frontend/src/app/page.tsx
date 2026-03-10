@@ -18,7 +18,7 @@ import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { FanChart, useIsMobile, MobileChartTitle } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { ProgressOverlay, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { Pin, PinOff } from "lucide-react";
@@ -64,6 +64,7 @@ export default function SimulatorPage() {
   const [result, setResult] = useState<SimulationResponse | null>(null);
   const [pinnedResult, setPinnedResult] = useState<SimulationResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<ProgressInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Batch backtest state
@@ -91,6 +92,7 @@ export default function SimulatorPage() {
   const [scenarioLoading, setScenarioLoading] = useState(false);
   const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
+  const [sensitivityProgress, setSensitivityProgress] = useState<ProgressInfo | null>(null);
 
   // Historical events
   const [historicalEvents, setHistoricalEvents] = useState<HistoricalEvent[]>([]);
@@ -109,18 +111,20 @@ export default function SimulatorPage() {
 
   const handleRun = async () => {
     setLoading(true);
+    setProgress(null);
     setError(null);
     try {
       const res = await runSimulation({
         ...params,
         initial_portfolio: portfolio,
         annual_withdrawal: withdrawal,
-      });
+      }, setProgress);
       setResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -212,14 +216,16 @@ export default function SimulatorPage() {
 
   const handleRunSensitivity = async () => {
     setSensitivityLoading(true);
+    setSensitivityProgress(null);
     setError(null);
     try {
-      const res = await runSimSensitivity(simReqBase());
+      const res = await runSimSensitivity(simReqBase(), setSensitivityProgress);
       setSensitivityResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setSensitivityLoading(false);
+      setSensitivityProgress(null);
     }
   };
 
@@ -352,7 +358,7 @@ export default function SimulatorPage() {
 
           {/* ── MC Tab ── */}
           <TabsContent value="mc" className="space-y-6">
-            {loading && <LoadingOverlay />}
+            {loading && <ProgressOverlay progress={progress} />}
 
             {result && !loading && (
               <div id="sim-results" className="space-y-4">
@@ -522,7 +528,7 @@ export default function SimulatorPage() {
               </CardContent>
             </Card>
 
-            {(batchLoading || singleBtLoading) && <LoadingOverlay message={singleBtLoading ? t("backtesting") : t("batchBacktesting")} />}
+            {(batchLoading || singleBtLoading) && <ProgressOverlay message={singleBtLoading ? t("backtesting") : t("batchBacktesting")} />}
 
             {batchResult && !batchLoading && !selectedPath && (
               <>
@@ -891,7 +897,7 @@ export default function SimulatorPage() {
                       <p className="text-sm text-muted-foreground">{t("scenarioNoProbCF")}</p>
                     )}
 
-                    {scenarioLoading && <LoadingOverlay />}
+                    {scenarioLoading && <ProgressOverlay />}
 
                     {scenarioResult && (
                       <>
@@ -1026,7 +1032,7 @@ export default function SimulatorPage() {
                       {sensitivityLoading ? t("sensitivityRunning") : t("runSensitivity")}
                     </Button>
 
-                    {sensitivityLoading && <LoadingOverlay />}
+                    {sensitivityLoading && <ProgressOverlay progress={sensitivityProgress} />}
 
                     {sensitivityResult && (
                       <>

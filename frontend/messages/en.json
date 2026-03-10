@@ -443,7 +443,17 @@
     "colP10Depletion": "P10 Depletion Year"
   },
   "loading": {
-    "default": "Running simulation…"
+    "default": "Running simulation…",
+    "stages": {
+      "bootstrap": "Generating Monte Carlo scenarios…",
+      "table_2d": "Building success rate table…",
+      "table_3d": "Building cash flow table…",
+      "simulation": "Running guardrail simulation…",
+      "baseline": "Running baseline simulation…",
+      "statistics": "Computing statistics…",
+      "sensitivity_base": "Running base analysis…",
+      "sensitivity_param": "Sensitivity analysis {current}/{total}…"
+    }
   },
   "fanChart": {
     "yearAxis": "Year",
