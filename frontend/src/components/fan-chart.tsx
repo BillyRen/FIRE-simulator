@@ -28,7 +28,7 @@ export function useIsMobile(breakpoint = 640) {
 export function MobileChartTitle({ title, isMobile }: { title: string; isMobile: boolean }) {
   if (!isMobile) return null;
   return (
-    <p className="text-xs font-semibold text-center mb-1">{title}</p>
+    <h3 className="text-xs font-semibold text-center mb-1">{title}</h3>
   );
 }
 
@@ -140,6 +140,7 @@ export function FanChart({
             size="sm"
             className="h-6 px-2 text-xs mb-1"
             onClick={() => setLogScale((v) => !v)}
+            aria-label={logScale ? t("common.linearScale") : t("common.logScale")}
           >
             {logScale ? t("common.linearScale") : t("common.logScale")}
           </Button>

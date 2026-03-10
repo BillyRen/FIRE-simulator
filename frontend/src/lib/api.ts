@@ -33,21 +33,16 @@ import type {
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
 
-async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    const res = await fetch(url, { ...init, signal: controller.signal });
     if (!res.ok) {
       const detail = await res.text();
       throw new Error(`API error ${res.status}: ${detail}`);
     }
-    return res.json();
+    return res;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
       throw new Error("Request timed out. Try reducing simulation count or parameters.");
@@ -56,6 +51,20 @@ async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+async function get<TRes>(path: string): Promise<TRes> {
+  const res = await fetchWithTimeout(`${API_BASE}${path}`);
+  return res.json();
 }
 
 export async function runSimulation(req: SimulationRequest): Promise<SimulationResponse> {
@@ -130,21 +139,8 @@ export async function runBreakevenMC(req: BreakevenMCRequest): Promise<Breakeven
 }
 
 export async function fetchHousingCountries(): Promise<HousingCountryInfo[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${API_BASE}/api/buy-vs-rent/countries`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    const data = await res.json();
-    return data.countries;
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error("Request timed out.");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
+  const data = await get<{ countries: HousingCountryInfo[] }>("/api/buy-vs-rent/countries");
+  return data.countries;
 }
 
 export async function runAccumulation(req: AccumulationRequest): Promise<AccumulationResponse> {
@@ -152,39 +148,13 @@ export async function runAccumulation(req: AccumulationRequest): Promise<Accumul
 }
 
 export async function fetchCountries(dataSource: string = "jst"): Promise<CountryInfo[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${API_BASE}/api/countries?data_source=${dataSource}`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    const data = await res.json();
-    return data.countries;
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error("Request timed out.");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
+  const data = await get<{ countries: CountryInfo[] }>(`/api/countries?data_source=${dataSource}`);
+  return data.countries;
 }
 
 export async function fetchHistoricalEvents(country?: string) {
-  const url = country
-    ? `${API_BASE}/api/historical-events?country=${country}`
-    : `${API_BASE}/api/historical-events`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    return res.json();
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error("Request timed out.");
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
+  const path = country
+    ? `/api/historical-events?country=${country}`
+    : `/api/historical-events`;
+  return get(path);
 }
