@@ -101,6 +101,7 @@ export default function GuardrailPage() {
   // Scenario analysis state
   const [scenarioResult, setScenarioResult] = useState<ScenarioAnalysisResponse | null>(null);
   const [scenarioLoading, setScenarioLoading] = useState(false);
+  const [scenarioProgress, setScenarioProgress] = useState<ProgressInfo | null>(null);
   // Sensitivity analysis state
   const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
@@ -227,18 +228,20 @@ export default function GuardrailPage() {
   const handleRunScenarios = async () => {
     if (!mcResult) return;
     setScenarioLoading(true);
+    setScenarioProgress(null);
     setError(null);
     try {
       const res = await runGuardrailScenarios({
         ...guardrailReqBase(),
         initial_portfolio: mcResult.initial_portfolio,
         annual_withdrawal: mcResult.annual_withdrawal,
-      });
+      }, setScenarioProgress);
       setScenarioResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setScenarioLoading(false);
+      setScenarioProgress(null);
     }
   };
 
@@ -1232,7 +1235,7 @@ export default function GuardrailPage() {
                 </CardContent>
               </Card>
 
-              {scenarioLoading && <ProgressOverlay message={t("scenarioLoading")} />}
+              {scenarioLoading && <ProgressOverlay message={t("scenarioLoading")} progress={scenarioProgress} />}
 
               {scenarioResult && !scenarioLoading && (
                 <>

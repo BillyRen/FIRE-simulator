@@ -90,6 +90,7 @@ export default function SimulatorPage() {
   // Analysis state
   const [scenarioResult, setScenarioResult] = useState<ScenarioAnalysisResponse | null>(null);
   const [scenarioLoading, setScenarioLoading] = useState(false);
+  const [scenarioProgress, setScenarioProgress] = useState<ProgressInfo | null>(null);
   const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
   const [sensitivityProgress, setSensitivityProgress] = useState<ProgressInfo | null>(null);
@@ -203,14 +204,16 @@ export default function SimulatorPage() {
 
   const handleRunScenarios = async () => {
     setScenarioLoading(true);
+    setScenarioProgress(null);
     setError(null);
     try {
-      const res = await runSimScenarios(simReqBase());
+      const res = await runSimScenarios(simReqBase(), setScenarioProgress);
       setScenarioResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
       setScenarioLoading(false);
+      setScenarioProgress(null);
     }
   };
 
@@ -897,7 +900,7 @@ export default function SimulatorPage() {
                       <p className="text-sm text-muted-foreground">{t("scenarioNoProbCF")}</p>
                     )}
 
-                    {scenarioLoading && <ProgressOverlay />}
+                    {scenarioLoading && <ProgressOverlay message={t("scenarioLoading")} progress={scenarioProgress} />}
 
                     {scenarioResult && (
                       <>

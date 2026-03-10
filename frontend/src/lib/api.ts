@@ -154,8 +154,8 @@ export async function runGuardrailBatchBacktest(req: Record<string, unknown>): P
 }
 
 // 情景分析：现金流情景分解（护栏页）
-export async function runGuardrailScenarios(req: GuardrailRequest): Promise<ScenarioAnalysisResponse> {
-  return post<GuardrailRequest, ScenarioAnalysisResponse>("/api/guardrail/scenarios", req);
+export async function runGuardrailScenarios(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<ScenarioAnalysisResponse> {
+  return postStreaming<GuardrailRequest, ScenarioAnalysisResponse>("/api/guardrail/scenarios", req, onProgress);
 }
 
 // 参数敏感性分析（护栏页 — 龙卷风图）
@@ -164,8 +164,8 @@ export async function runGuardrailSensitivity(req: GuardrailRequest, onProgress?
 }
 
 // 情景分析：现金流情景分解（退休模拟页）
-export async function runSimScenarios(req: SimulationRequest): Promise<ScenarioAnalysisResponse> {
-  return post<SimulationRequest, ScenarioAnalysisResponse>("/api/simulate/scenarios", req);
+export async function runSimScenarios(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<ScenarioAnalysisResponse> {
+  return postStreaming<SimulationRequest, ScenarioAnalysisResponse>("/api/simulate/scenarios", req, onProgress);
 }
 
 // 参数敏感性分析（退休模拟页 — 龙卷风图）

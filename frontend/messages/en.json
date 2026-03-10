@@ -452,7 +452,8 @@
       "baseline": "Running baseline simulation…",
       "statistics": "Computing statistics…",
       "sensitivity_base": "Running base analysis…",
-      "sensitivity_param": "Sensitivity analysis {current}/{total}…"
+      "sensitivity_param": "Sensitivity analysis {current}/{total}…",
+      "scenario_run": "Running scenario {current}/{total}…"
     }
   },
   "fanChart": {

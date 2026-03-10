@@ -25,7 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from simulator.cashflow import CashFlowItem, build_cf_schedule, build_representative_cf_schedule, enumerate_cf_scenarios, enumerate_cf_per_group, has_probabilistic_cf
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from simulator.config import (
     SCENARIO_CF_MAX_SIMS,
@@ -220,7 +220,11 @@ def _streaming(gen):
     return StreamingResponse(
         _iter(),
         media_type="application/x-ndjson",
-        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+        headers={
+            "Content-Encoding": "identity",  # bypass GZipMiddleware buffering
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+        },
     )
 
 
@@ -623,7 +627,7 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
 # 1d. POST /api/simulate/scenarios — 现金流情景分解（通用策略）
 # ---------------------------------------------------------------------------
 
-@app.post("/api/simulate/scenarios", response_model=ScenarioAnalysisResponse)
+@app.post("/api/simulate/scenarios")
 @limiter.limit("5/minute")
 def api_simulate_scenarios(request: Request, req: SimulationRequest):
     """枚举概率现金流的所有确定性组合，用用户选择的提取策略模拟。"""
@@ -642,73 +646,93 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
         if not cf_scenarios:
             raise HTTPException(400, "没有概率分组现金流。请检查现金流设置。")
 
-    country_weights = _resolve_country_weights(req, country_dfs)
+    def _generate():
+        yield {"type": "progress", "stage": "bootstrap", "pct": 10}
 
-    def _sim_kwargs_base():
-        return dict(
-            initial_portfolio=req.initial_portfolio,
-            annual_withdrawal=req.annual_withdrawal,
-            allocation=_alloc_dict(req.allocation),
-            expense_ratios=_expense_dict(req.expense_ratios),
-            retirement_years=req.retirement_years,
-            min_block=req.min_block,
-            max_block=req.max_block,
-            num_simulations=req.num_simulations,
-            returns_df=filtered,
-            withdrawal_strategy=req.withdrawal_strategy,
-            dynamic_ceiling=req.dynamic_ceiling,
-            dynamic_floor=req.dynamic_floor,
-            retirement_age=req.retirement_age,
-            leverage=req.leverage,
-            borrowing_spread=req.borrowing_spread,
-            country_dfs=country_dfs,
-            country_weights=country_weights,
-            declining_rate=req.declining_rate,
-            declining_start_age=req.declining_start_age,
-            smile_decline_rate=req.smile_decline_rate,
-            smile_decline_start_age=req.smile_decline_start_age,
-            smile_min_age=req.smile_min_age,
-            smile_increase_rate=req.smile_increase_rate,
-            glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
-            glide_path_years=req.glide_path_years,
-        )
+        country_weights = _resolve_country_weights(req, country_dfs)
 
-    def _run_scenario(
-        scenario_cfs: list[CashFlowItem] | None,
-        label: str,
-    ) -> ScenarioResult:
-        kw = _sim_kwargs_base()
-        kw["cash_flows"] = scenario_cfs
-        traj, wd, _, _ = run_simulation(**kw)
-        sr = float(np.mean(traj[:, -1] > 0))
-        fr = compute_funded_ratio(traj, req.retirement_years)
-        total = np.sum(wd, axis=1)
-        return ScenarioResult(
-            label=label,
-            probability=0.0,
-            success_rate=sr,
-            funded_ratio=fr,
-            median_final_portfolio=float(np.median(traj[:, -1])),
-            median_total_consumption=float(np.median(total)),
-            annual_withdrawal=req.annual_withdrawal,
-            initial_portfolio=req.initial_portfolio,
-        )
+        def _sim_kwargs_base():
+            return dict(
+                initial_portfolio=req.initial_portfolio,
+                annual_withdrawal=req.annual_withdrawal,
+                allocation=_alloc_dict(req.allocation),
+                expense_ratios=_expense_dict(req.expense_ratios),
+                retirement_years=req.retirement_years,
+                min_block=req.min_block,
+                max_block=req.max_block,
+                num_simulations=req.num_simulations,
+                returns_df=filtered,
+                withdrawal_strategy=req.withdrawal_strategy,
+                dynamic_ceiling=req.dynamic_ceiling,
+                dynamic_floor=req.dynamic_floor,
+                retirement_age=req.retirement_age,
+                leverage=req.leverage,
+                borrowing_spread=req.borrowing_spread,
+                country_dfs=country_dfs,
+                country_weights=country_weights,
+                declining_rate=req.declining_rate,
+                declining_start_age=req.declining_start_age,
+                smile_decline_rate=req.smile_decline_rate,
+                smile_decline_start_age=req.smile_decline_start_age,
+                smile_min_age=req.smile_min_age,
+                smile_increase_rate=req.smile_increase_rate,
+                glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
+                glide_path_years=req.glide_path_years,
+            )
 
-    max_workers = max(1, os.cpu_count() or 1)
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_base = pool.submit(_run_scenario, cash_flows, "base_case")
-        futures = {
-            pool.submit(_run_scenario, cfs, label): (label, prob)
-            for label, cfs, prob in cf_scenarios
-        }
-        base = future_base.result()
-        results = []
-        for fut, (label, prob) in futures.items():
-            r = fut.result()
-            r.probability = prob
-            results.append(r)
+        def _run_scenario(
+            scenario_cfs: list[CashFlowItem] | None,
+            label: str,
+        ) -> ScenarioResult:
+            kw = _sim_kwargs_base()
+            kw["cash_flows"] = scenario_cfs
+            traj, wd, _, _ = run_simulation(**kw)
+            sr = float(np.mean(traj[:, -1] > 0))
+            fr = compute_funded_ratio(traj, req.retirement_years)
+            total = np.sum(wd, axis=1)
+            return ScenarioResult(
+                label=label,
+                probability=0.0,
+                success_rate=sr,
+                funded_ratio=fr,
+                median_final_portfolio=float(np.median(traj[:, -1])),
+                median_total_consumption=float(np.median(total)),
+                annual_withdrawal=req.annual_withdrawal,
+                initial_portfolio=req.initial_portfolio,
+            )
 
-    return ScenarioAnalysisResponse(base_case=base, scenarios=results, mode=mode)
+        total = 1 + len(cf_scenarios)
+        completed = 0
+        max_workers = max(1, os.cpu_count() or 1)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            future_base = pool.submit(_run_scenario, cash_flows, "base_case")
+            futures = {
+                pool.submit(_run_scenario, cfs, label): (label, prob)
+                for label, cfs, prob in cf_scenarios
+            }
+            all_futures = {future_base: None, **futures}
+
+            base = None
+            results = []
+            for fut in as_completed(all_futures):
+                completed += 1
+                pct = 15 + int(80 * completed / total)
+                yield {"type": "progress", "stage": "scenario_run", "pct": pct, "current": completed, "total": total}
+                if fut is future_base:
+                    base = fut.result()
+                else:
+                    label, prob = futures[fut]
+                    r = fut.result()
+                    r.probability = prob
+                    results.append(r)
+
+        yield {"type": "result", "data": {
+            "base_case": base.model_dump() if hasattr(base, "model_dump") else base.__dict__,
+            "scenarios": [s.model_dump() if hasattr(s, "model_dump") else s.__dict__ for s in results],
+            "mode": mode,
+        }}
+
+    return _streaming(_generate())
 
 
 # ---------------------------------------------------------------------------
@@ -1142,7 +1166,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 # 3b. POST /api/guardrail/scenarios — 现金流情景分解
 # ---------------------------------------------------------------------------
 
-@app.post("/api/guardrail/scenarios", response_model=ScenarioAnalysisResponse)
+@app.post("/api/guardrail/scenarios")
 @limiter.limit("5/minute")
 def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
     """枚举概率现金流的所有确定性组合，对比各场景对退休结果的影响。"""
@@ -1161,101 +1185,122 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
         if not cf_scenarios:
             raise HTTPException(400, "没有概率分组现金流。请检查现金流设置。")
 
-    country_weights = _resolve_country_weights(req, country_dfs)
+    def _generate():
+        yield {"type": "progress", "stage": "bootstrap", "pct": 5}
 
-    scenarios, inflation_matrix = pregenerate_return_scenarios(
-        allocation=_alloc_dict(req.allocation),
-        expense_ratios=_expense_dict(req.expense_ratios),
-        retirement_years=req.retirement_years,
-        min_block=req.min_block,
-        max_block=req.max_block,
-        num_simulations=req.num_simulations,
-        returns_df=filtered,
-        leverage=req.leverage,
-        borrowing_spread=req.borrowing_spread,
-        country_dfs=country_dfs,
-        country_weights=country_weights,
-    )
+        country_weights = _resolve_country_weights(req, country_dfs)
 
-    rate_grid, table = build_success_rate_table(scenarios)
-
-    def _run_scenario(
-        scenario_cfs: list[CashFlowItem] | None,
-        label: str,
-    ) -> ScenarioResult:
-        cf_table_r = None
-        if scenario_cfs:
-            rep_schedule = build_representative_cf_schedule(
-                scenario_cfs, req.retirement_years, inflation_matrix,
-            )
-            cf_table_r = build_cf_aware_table(
-                scenarios, rep_schedule,
-                rate_segments=SCENARIO_CF_RATE_SEGMENTS,
-                cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
-                max_sims=SCENARIO_CF_MAX_SIMS,
-                max_start_years=SCENARIO_MAX_START_YEARS,
-            )
-
-        _cf_r, _cf_s, _cf_t, _cf_ref, _last_y = _unpack_cf_table(cf_table_r)
-
-        sim_kwargs = dict(
-            scenarios=scenarios,
-            target_success=req.target_success,
-            upper_guardrail=req.upper_guardrail,
-            lower_guardrail=req.lower_guardrail,
-            adjustment_pct=req.adjustment_pct,
+        scenarios, inflation_matrix = pregenerate_return_scenarios(
+            allocation=_alloc_dict(req.allocation),
+            expense_ratios=_expense_dict(req.expense_ratios),
             retirement_years=req.retirement_years,
-            min_remaining_years=req.min_remaining_years,
-            table=table,
-            rate_grid=rate_grid,
-            adjustment_mode=req.adjustment_mode,
-            cash_flows=scenario_cfs,
-            inflation_matrix=inflation_matrix,
-            cf_table=_cf_t,
-            cf_rate_grid=_cf_r,
-            cf_scale_grid=_cf_s,
-            cf_ref=_cf_ref,
-            last_cf_year=_last_y,
-        )
-        if req.input_mode == "withdrawal":
-            sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
-        else:
-            sim_kwargs["initial_portfolio"] = req.initial_portfolio
-
-        ip, aw, traj, wd = run_guardrail_simulation(**sim_kwargs)
-
-        g_fr, g_sr = compute_effective_funded_ratio(
-            wd, aw, req.retirement_years,
-            consumption_floor=req.consumption_floor,
-            trajectories=traj,
-        )
-        g_total = np.sum(wd, axis=1)
-        return ScenarioResult(
-            label=label,
-            probability=0.0,
-            success_rate=g_sr,
-            funded_ratio=g_fr,
-            median_final_portfolio=float(np.median(traj[:, -1])),
-            median_total_consumption=float(np.median(g_total)),
-            annual_withdrawal=aw,
-            initial_portfolio=ip,
+            min_block=req.min_block,
+            max_block=req.max_block,
+            num_simulations=req.num_simulations,
+            returns_df=filtered,
+            leverage=req.leverage,
+            borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs,
+            country_weights=country_weights,
         )
 
-    max_workers = max(1, os.cpu_count() or 1)
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_base = pool.submit(_run_scenario, cash_flows, "base_case")
-        futures = {
-            pool.submit(_run_scenario, cfs, label): (label, prob)
-            for label, cfs, prob in cf_scenarios
-        }
-        base = future_base.result()
-        results = []
-        for fut, (label, prob) in futures.items():
-            r = fut.result()
-            r.probability = prob
-            results.append(r)
+        yield {"type": "progress", "stage": "table_2d", "pct": 20}
+        rate_grid, table = build_success_rate_table(scenarios)
 
-    return ScenarioAnalysisResponse(base_case=base, scenarios=results, mode=mode)
+        def _run_scenario(
+            scenario_cfs: list[CashFlowItem] | None,
+            label: str,
+        ) -> ScenarioResult:
+            cf_table_r = None
+            if scenario_cfs:
+                rep_schedule = build_representative_cf_schedule(
+                    scenario_cfs, req.retirement_years, inflation_matrix,
+                )
+                cf_table_r = build_cf_aware_table(
+                    scenarios, rep_schedule,
+                    rate_segments=SCENARIO_CF_RATE_SEGMENTS,
+                    cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
+                    max_sims=SCENARIO_CF_MAX_SIMS,
+                    max_start_years=SCENARIO_MAX_START_YEARS,
+                )
+
+            _cf_r, _cf_s, _cf_t, _cf_ref, _last_y = _unpack_cf_table(cf_table_r)
+
+            sim_kwargs = dict(
+                scenarios=scenarios,
+                target_success=req.target_success,
+                upper_guardrail=req.upper_guardrail,
+                lower_guardrail=req.lower_guardrail,
+                adjustment_pct=req.adjustment_pct,
+                retirement_years=req.retirement_years,
+                min_remaining_years=req.min_remaining_years,
+                table=table,
+                rate_grid=rate_grid,
+                adjustment_mode=req.adjustment_mode,
+                cash_flows=scenario_cfs,
+                inflation_matrix=inflation_matrix,
+                cf_table=_cf_t,
+                cf_rate_grid=_cf_r,
+                cf_scale_grid=_cf_s,
+                cf_ref=_cf_ref,
+                last_cf_year=_last_y,
+            )
+            if req.input_mode == "withdrawal":
+                sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
+            else:
+                sim_kwargs["initial_portfolio"] = req.initial_portfolio
+
+            ip, aw, traj, wd = run_guardrail_simulation(**sim_kwargs)
+
+            g_fr, g_sr = compute_effective_funded_ratio(
+                wd, aw, req.retirement_years,
+                consumption_floor=req.consumption_floor,
+                trajectories=traj,
+            )
+            g_total = np.sum(wd, axis=1)
+            return ScenarioResult(
+                label=label,
+                probability=0.0,
+                success_rate=g_sr,
+                funded_ratio=g_fr,
+                median_final_portfolio=float(np.median(traj[:, -1])),
+                median_total_consumption=float(np.median(g_total)),
+                annual_withdrawal=aw,
+                initial_portfolio=ip,
+            )
+
+        total = 1 + len(cf_scenarios)
+        completed = 0
+        max_workers = max(1, os.cpu_count() or 1)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            future_base = pool.submit(_run_scenario, cash_flows, "base_case")
+            futures = {
+                pool.submit(_run_scenario, cfs, label): (label, prob)
+                for label, cfs, prob in cf_scenarios
+            }
+            all_futures = {future_base: None, **futures}
+
+            base = None
+            results = []
+            for fut in as_completed(all_futures):
+                completed += 1
+                pct = 25 + int(70 * completed / total)
+                yield {"type": "progress", "stage": "scenario_run", "pct": pct, "current": completed, "total": total}
+                if fut is future_base:
+                    base = fut.result()
+                else:
+                    label, prob = futures[fut]
+                    r = fut.result()
+                    r.probability = prob
+                    results.append(r)
+
+        yield {"type": "result", "data": {
+            "base_case": base.model_dump() if hasattr(base, "model_dump") else base.__dict__,
+            "scenarios": [s.model_dump() if hasattr(s, "model_dump") else s.__dict__ for s in results],
+            "mode": mode,
+        }}
+
+    return _streaming(_generate())
 
 
 # ---------------------------------------------------------------------------
