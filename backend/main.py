@@ -262,7 +262,8 @@ def _expense_dict(e) -> dict[str, float]:
 
 def _validate_data_sufficient(filtered, country_dfs) -> None:
     """校验数据是否充足，不足则抛出 400。"""
-    _validate_data_sufficient(filtered, country_dfs)
+    if len(filtered) < 2 and country_dfs is None:
+        raise HTTPException(400, "可用数据不足")
 
 
 def _unpack_cf_table(cf_table_result) -> tuple:
