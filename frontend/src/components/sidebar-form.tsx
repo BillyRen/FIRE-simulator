@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, memo } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Info, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -159,7 +159,7 @@ function SectionTrigger({
   );
 }
 
-export function SidebarForm({
+export const SidebarForm = memo(function SidebarForm({
   params,
   onChange,
   showWithdrawalStrategy = true,
@@ -697,4 +697,4 @@ export function SidebarForm({
       <ScenarioManager currentParams={p} onLoad={onChange} />
     </div>
   );
-}
+});

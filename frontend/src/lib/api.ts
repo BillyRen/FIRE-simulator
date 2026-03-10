@@ -29,6 +29,7 @@ import type {
   AccumulationResponse,
   ScenarioAnalysisResponse,
   SensitivityAnalysisResponse,
+  HistoricalEvent,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
@@ -152,9 +153,9 @@ export async function fetchCountries(dataSource: string = "jst"): Promise<Countr
   return data.countries;
 }
 
-export async function fetchHistoricalEvents(country?: string) {
+export async function fetchHistoricalEvents(country?: string): Promise<HistoricalEvent[]> {
   const path = country
     ? `/api/historical-events?country=${country}`
     : `/api/historical-events`;
-  return get(path);
+  return get<HistoricalEvent[]>(path);
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Info } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -18,7 +19,7 @@ interface MetricCardProps {
   tooltip?: string;
 }
 
-export function MetricCard({ label, value, sub, className = "", delta, tooltip }: MetricCardProps) {
+export const MetricCard = memo(function MetricCard({ label, value, sub, className = "", delta, tooltip }: MetricCardProps) {
   return (
     <Card className={`${className} overflow-hidden`}>
       <CardContent className="pt-4 pb-3 px-4">
@@ -53,4 +54,4 @@ export function MetricCard({ label, value, sub, className = "", delta, tooltip }
       </CardContent>
     </Card>
   );
-}
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "./ui/button";
 import PlotlyChart from "./plotly-chart";
@@ -59,7 +59,7 @@ const BAND_PAIRS: [string, string][] = [
 ];
 const BAND_OPACITIES = [0.15, 0.3];
 
-export function FanChart({
+export const FanChart = memo(function FanChart({
   trajectories,
   title,
   yTitle,
@@ -175,4 +175,4 @@ export function FanChart({
       />
     </div>
   );
-}
+});
