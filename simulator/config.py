@@ -13,22 +13,56 @@ PERCENTILE_BANDS = [(5, 95), (10, 90), (25, 75)]
 BAND_OPACITIES = [0.15, 0.25, 0.35]
 
 # ---------------------------------------------------------------------------
-# Guardrail 查找表网格
+# Guardrail 查找表网格（非均匀：低 rate 密集、高 rate 稀疏）
 # ---------------------------------------------------------------------------
 GUARDRAIL_RATE_MIN = 0.0
-GUARDRAIL_RATE_MAX = 0.20
-GUARDRAIL_RATE_STEP = 0.001
+
+# 2D 表网格分段: [(上限, 步长), ...]
+# [0, 0.20] step 0.001 (201 pt) + (0.20, 0.50] step 0.005 (60 pt) + (0.50, 1.0] step 0.01 (50 pt) = 311 pt
+GUARDRAIL_RATE_SEGMENTS = [(0.20, 0.001), (0.50, 0.005), (1.00, 0.01)]
+
+# 3D 表网格分段（比 2D 粗一倍以控制构建时间，扩展到 3.0 覆盖极端提取率）
+# [0, 0.20] step 0.002 (101 pt) + (0.20, 0.50] step 0.01 (30 pt) + (0.50, 1.0] step 0.02 (25 pt)
+# + (1.0, 2.0] step 0.10 (10 pt) + (2.0, 3.0] step 0.25 (4 pt) = 170 pt
+GUARDRAIL_CF_RATE_SEGMENTS = [(0.20, 0.002), (0.50, 0.01), (1.00, 0.02), (2.00, 0.10), (3.00, 0.25)]
 
 # 3D 现金流感知查找表 — cf_scale = C_ref / portfolio
-GUARDRAIL_CF_RATE_STEP = 0.002
-GUARDRAIL_CF_SCALE_MAX = 0.50
-GUARDRAIL_CF_SCALE_STEP = 0.10
+# 非均匀: [0, 0.50] step 0.10 (6 pt) + (0.50, 2.0] step 0.25 (6 pt) + (2.0, 5.0] step 1.0 (3 pt) = 15 pt
+GUARDRAIL_CF_SCALE_SEGMENTS = [(0.50, 0.10), (2.00, 0.25), (5.00, 1.00)]
 
-# 场景分析专用：更粗的 3D 表网格以加速多场景对比
-SCENARIO_CF_RATE_STEP = 0.004
+# 场景分析专用：更粗的网格以加速多场景对比
+SCENARIO_CF_RATE_SEGMENTS = [(0.20, 0.004), (0.50, 0.02), (1.00, 0.04), (2.00, 0.20), (3.00, 0.50)]
 SCENARIO_CF_MAX_SIMS = 2000
-SCENARIO_CF_SCALE_STEP = 0.10
+SCENARIO_CF_SCALE_SEGMENTS = [(0.50, 0.10), (2.00, 0.50), (5.00, 1.00)]
 SCENARIO_MAX_START_YEARS = 10
+
+
+def build_nonuniform_grid(segments: list[tuple[float, float]], start: float = 0.0) -> "np.ndarray":
+    """根据分段定义构建非均匀网格。
+
+    Parameters
+    ----------
+    segments : list of (upper_bound, step)
+        每段的上限和步长。段按顺序拼接，前一段的上限是后一段的起点。
+    start : float
+        网格起始值。
+
+    Returns
+    -------
+    np.ndarray
+        非均匀网格数组（已去重、排序）。
+    """
+    import numpy as np
+    points = [start]
+    cursor = start
+    for upper, step in segments:
+        seg = np.arange(cursor + step, upper + step / 2, step)
+        points.extend(seg.tolist())
+        points.append(upper)  # ensure segment endpoint is included
+        cursor = upper
+    # deduplicate & sort; round to avoid floating-point near-duplicates
+    rounded = sorted(set(round(p, 10) for p in points))
+    return np.array(rounded)
 
 # ---------------------------------------------------------------------------
 # 敏感性分析

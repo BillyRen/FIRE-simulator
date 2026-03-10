@@ -10,8 +10,10 @@ import numpy as np
 
 from simulator.cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from simulator.config import (
-    GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-    GUARDRAIL_CF_RATE_STEP, GUARDRAIL_CF_SCALE_MAX, GUARDRAIL_CF_SCALE_STEP,
+    GUARDRAIL_RATE_MIN,
+    GUARDRAIL_RATE_SEGMENTS, GUARDRAIL_CF_RATE_SEGMENTS,
+    GUARDRAIL_CF_SCALE_SEGMENTS,
+    build_nonuniform_grid,
 )
 
 
@@ -21,9 +23,7 @@ from simulator.config import (
 
 def build_success_rate_table(
     scenarios: np.ndarray,
-    rate_min: float = GUARDRAIL_RATE_MIN,
-    rate_max: float = GUARDRAIL_RATE_MAX,
-    rate_step: float = GUARDRAIL_RATE_STEP,
+    rate_segments: list[tuple[float, float]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """构建 2D 成功率查找表。
 
@@ -34,8 +34,8 @@ def build_success_rate_table(
     ----------
     scenarios : np.ndarray
         shape (num_sims, max_years) 的实际组合回报率矩阵。
-    rate_min, rate_max, rate_step : float
-        提取率网格范围。
+    rate_segments : list of (upper_bound, step) or None
+        非均匀网格分段。None 时使用全局默认。
 
     Returns
     -------
@@ -47,7 +47,9 @@ def build_success_rate_table(
           table[:, 0] = 1.0（0 年提取，100% 成功）。
     """
     num_sims, max_years = scenarios.shape
-    rate_grid = np.arange(rate_min, rate_max + rate_step / 2, rate_step)
+    if rate_segments is None:
+        rate_segments = GUARDRAIL_RATE_SEGMENTS
+    rate_grid = build_nonuniform_grid(rate_segments, start=GUARDRAIL_RATE_MIN)
     num_rates = len(rate_grid)
 
     table = np.zeros((num_rates, max_years + 1))
@@ -125,12 +127,23 @@ def find_rate_for_target(
     if col[-1] >= target_success:
         return float(rate_grid[-1])
 
-    for i in range(len(col) - 1):
-        if col[i] >= target_success and col[i + 1] < target_success:
-            frac = (target_success - col[i + 1]) / (col[i] - col[i + 1])
-            return float(rate_grid[i + 1] + frac * (rate_grid[i] - rate_grid[i + 1]))
+    # col is monotonically decreasing; flip and use searchsorted for O(log n)
+    # col_rev is ascending. searchsorted('left') returns idx where col_rev[idx-1] < target <= col_rev[idx]
+    col_rev = col[::-1]
+    idx_rev = np.searchsorted(col_rev, target_success)
+    if idx_rev <= 0 or idx_rev >= len(col_rev):
+        return float(rate_grid[0])
 
-    return float(rate_grid[0])
+    # Map back to original: col_rev[idx_rev] = col[n-1-idx_rev], col_rev[idx_rev-1] = col[n-idx_rev]
+    # Original linear scan finds i where col[i] >= target > col[i+1]
+    # col_rev[idx_rev] >= target → original i = n-1-idx_rev
+    i = len(col) - 1 - idx_rev
+    i = max(0, min(i, len(col) - 2))
+    denom = col[i] - col[i + 1]
+    if abs(denom) < 1e-12:
+        return float(rate_grid[i])
+    frac = (target_success - col[i + 1]) / denom
+    return float(rate_grid[i + 1] + frac * (rate_grid[i] - rate_grid[i + 1]))
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +158,7 @@ def find_rate_for_target(
 # 归一化公式：v_{t+1} = v_t * (1+r_t) - rate + normalized_cf[t] * cf_scale
 # 与用户手动跑 MC 数学上等价。
 
-_CF_TABLE_RATE_BATCH = 10
+_CF_TABLE_RATE_BATCH = 20
 _CF_TABLE_MAX_START_YEARS = 15
 
 
@@ -185,11 +198,8 @@ def _select_cf_start_years(
 def build_cf_aware_table(
     scenarios: np.ndarray,
     cf_schedule: np.ndarray,
-    rate_min: float = GUARDRAIL_RATE_MIN,
-    rate_max: float = GUARDRAIL_RATE_MAX,
-    rate_step: float = GUARDRAIL_CF_RATE_STEP,
-    cf_scale_max: float = GUARDRAIL_CF_SCALE_MAX,
-    cf_scale_step: float = GUARDRAIL_CF_SCALE_STEP,
+    rate_segments: list[tuple[float, float]] | None = None,
+    cf_scale_segments: list[tuple[float, float]] | None = None,
     max_sims: int = 5000,
     max_start_years: int = _CF_TABLE_MAX_START_YEARS,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, int] | None:
@@ -201,10 +211,10 @@ def build_cf_aware_table(
         shape (num_sims, max_years) 的实际组合回报率矩阵。
     cf_schedule : np.ndarray
         shape (retirement_years,) 的代表性现金流时间表。
-    rate_min, rate_max, rate_step : float
-        提取率网格范围。默认 rate_step 比 2D 表粗一倍以控制构建时间。
-    cf_scale_max, cf_scale_step : float
-        cf_scale = C_ref / V 的网格范围。
+    rate_segments : list of (upper_bound, step) or None
+        非均匀提取率网格分段。None 时使用全局默认。
+    cf_scale_segments : list of (upper_bound, step) or None
+        非均匀 cf_scale 网格分段。None 时使用全局默认。
     max_sims : int
         构建 3D 表时使用的最大场景数。5000 条路径的存活率标准误 < 0.5%，
         足以满足插值精度要求。
@@ -237,8 +247,12 @@ def build_cf_aware_table(
             last_cf_year = y
             break
 
-    rate_grid = np.arange(rate_min, rate_max + rate_step / 2, rate_step)
-    cf_scale_grid = np.arange(0.0, cf_scale_max + cf_scale_step / 2, cf_scale_step)
+    if rate_segments is None:
+        rate_segments = GUARDRAIL_CF_RATE_SEGMENTS
+    rate_grid = build_nonuniform_grid(rate_segments, start=GUARDRAIL_RATE_MIN)
+    if cf_scale_segments is None:
+        cf_scale_segments = GUARDRAIL_CF_SCALE_SEGMENTS
+    cf_scale_grid = build_nonuniform_grid(cf_scale_segments, start=0.0)
     num_rates = len(rate_grid)
     num_cs = len(cf_scale_grid)
     num_start_years = last_cf_year + 1
@@ -374,12 +388,19 @@ def find_rate_for_target_cf_aware(
     if col[-1] >= target_success:
         return float(rate_grid[-1])
 
-    for i in range(len(col) - 1):
-        if col[i] >= target_success and col[i + 1] < target_success:
-            frac = (target_success - col[i + 1]) / (col[i] - col[i + 1])
-            return float(rate_grid[i + 1] + frac * (rate_grid[i] - rate_grid[i + 1]))
+    # col is monotonically decreasing; flip and use searchsorted for O(log n)
+    col_rev = col[::-1]
+    idx_rev = np.searchsorted(col_rev, target_success)
+    if idx_rev <= 0 or idx_rev >= len(col_rev):
+        return float(rate_grid[0])
 
-    return float(rate_grid[0])
+    i = len(col) - 1 - idx_rev
+    i = max(0, min(i, len(col) - 2))
+    denom = col[i] - col[i + 1]
+    if abs(denom) < 1e-12:
+        return float(rate_grid[i])
+    frac = (target_success - col[i + 1]) / denom
+    return float(rate_grid[i + 1] + frac * (rate_grid[i] - rate_grid[i + 1]))
 
 
 # ---------------------------------------------------------------------------
@@ -417,14 +438,14 @@ def apply_guardrail_adjustment(
                 cf_table, rate_grid, cf_scale_grid,
                 adjusted_success, cf_scale, start_year,
             )
-            return value * adjusted_rate
+            new_wd = value * adjusted_rate
         else:
             target_rate = find_rate_for_target_cf_aware(
                 cf_table, rate_grid, cf_scale_grid,
                 target_success, cf_scale, start_year,
             )
             target_wd = value * target_rate
-            return wd + adjustment_pct * (target_wd - wd)
+            new_wd = wd + adjustment_pct * (target_wd - wd)
     else:
         # 2D 表模式（向后兼容）
         if adjustment_mode == "success_rate":
@@ -434,13 +455,22 @@ def apply_guardrail_adjustment(
             adjusted_rate = find_rate_for_target(
                 table, rate_grid, adjusted_success, remaining
             )
-            return value * adjusted_rate + future_cf_avg
+            new_wd = value * adjusted_rate + future_cf_avg
         else:
             target_rate = find_rate_for_target(
                 table, rate_grid, target_success, remaining
             )
             target_wd = value * target_rate + future_cf_avg
-            return wd + adjustment_pct * (target_wd - wd)
+            new_wd = wd + adjustment_pct * (target_wd - wd)
+
+    # Boundary safety invariant: success_rate(rate) is monotonically decreasing,
+    # so guardrail adjustments always move wd in the correct direction — UNLESS
+    # rate/cf_scale is clamped at the grid boundary, breaking monotonicity.
+    # This guard is a no-op within grid bounds and only activates at boundaries.
+    if current_success > target_success:
+        return max(new_wd, wd)
+    else:
+        return min(new_wd, wd)
 
 
 # ---------------------------------------------------------------------------
@@ -497,13 +527,16 @@ def _find_portfolio_for_success(
         cf_2d = None
 
     def _success_rate(portfolio: float) -> float:
-        values = np.full(num_sims, portfolio)
+        values = np.full(num_sims, portfolio, dtype=np.float64)
+        alive = np.ones(num_sims, dtype=bool)
         for year in range(n_years):
-            values = values * (1.0 + scenarios[:, year]) - annual_withdrawal
+            values *= (1.0 + scenarios[:, year])
+            values -= annual_withdrawal
             if cf_2d is not None:
                 values += cf_2d[:, year]
-            values = np.maximum(values, 0.0)
-        return float(np.mean(values > 0))
+            values[~alive] = 0.0  # prevent zombie resurrection
+            alive &= (values > 0)
+        return float(np.mean(alive))
 
     # 设定搜索区间
     lo = initial_guess * 0.3
@@ -580,13 +613,16 @@ def _find_withdrawal_for_success(
         cf_2d = None
 
     def _success_rate(wd: float) -> float:
-        values = np.full(num_sims, initial_portfolio)
+        values = np.full(num_sims, initial_portfolio, dtype=np.float64)
+        alive = np.ones(num_sims, dtype=bool)
         for year in range(n_years):
-            values = values * (1.0 + scenarios[:, year]) - wd
+            values *= (1.0 + scenarios[:, year])
+            values -= wd
             if cf_2d is not None:
                 values += cf_2d[:, year]
-            values = np.maximum(values, 0.0)
-        return float(np.mean(values > 0))
+            values[~alive] = 0.0  # prevent zombie resurrection
+            alive &= (values > 0)
+        return float(np.mean(alive))
 
     lo = max(initial_guess * 0.1, 1.0)
     hi = initial_guess * 5.0
@@ -745,8 +781,15 @@ def run_guardrail_simulation(
             if value > 0:
                 rate = wd / value
 
-                if use_3d:
+                # Fall back to 2D when rate or cf_scale exceeds 3D grid —
+                # clamped lookups would overestimate success at high rates
+                use_3d_year = use_3d
+                if use_3d_year:
                     cf_scale_val = cf_ref / value
+                    if rate > cf_rate_grid[-1] or cf_scale_val > cf_scale_grid[-1]:
+                        use_3d_year = False
+
+                if use_3d_year:
                     current_success = lookup_cf_aware_success_rate(
                         cf_table, cf_rate_grid, cf_scale_grid,
                         rate, cf_scale_val, year,
@@ -765,7 +808,7 @@ def run_guardrail_simulation(
                     )
 
                 if current_success < lower_guardrail or current_success > upper_guardrail:
-                    if use_3d:
+                    if use_3d_year:
                         wd = apply_guardrail_adjustment(
                             wd, value, current_success, target_success,
                             adjustment_pct, adjustment_mode, remaining,
@@ -839,6 +882,32 @@ def run_fixed_baseline(
     # 预计算现金流
     has_cf = cash_flows is not None and len(cash_flows) > 0
     has_groups = has_cf and has_probabilistic_cf(cash_flows)
+
+    # ── Fast vectorized path: no cash flows ──
+    if not has_cf:
+        trajectories = np.zeros((num_sims, retirement_years + 1))
+        trajectories[:, 0] = initial_portfolio
+        withdrawals = np.full((num_sims, retirement_years), annual_wd)
+
+        values = np.full(num_sims, initial_portfolio, dtype=np.float64)
+        alive = np.ones(num_sims, dtype=bool)
+
+        for year in range(retirement_years):
+            grown = values[alive] * (1.0 + scenarios[alive, year])
+            values[alive] = grown - annual_wd
+
+            newly_failed = alive & (values <= 0)
+            if np.any(newly_failed):
+                values[newly_failed] = 0.0
+                trajectories[newly_failed, year + 1:] = 0.0
+                withdrawals[newly_failed, year + 1:] = 0.0
+                alive[newly_failed] = False
+
+            trajectories[alive, year + 1] = values[alive]
+
+        return trajectories, withdrawals
+
+    # ── General path with cash flows ──
     if has_cf and not has_groups:
         adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
@@ -1007,8 +1076,14 @@ def run_historical_backtest(
         if value > 0:
             rate = wd / value
 
-            if use_3d:
+            # Fall back to 2D when rate or cf_scale exceeds 3D grid
+            use_3d_year = use_3d
+            if use_3d_year:
                 cf_scale_val = cf_ref / value
+                if rate > cf_rate_grid[-1] or cf_scale_val > cf_scale_grid[-1]:
+                    use_3d_year = False
+
+            if use_3d_year:
                 current_success = lookup_cf_aware_success_rate(
                     cf_table, cf_rate_grid, cf_scale_grid,
                     rate, cf_scale_val, year,
@@ -1029,7 +1104,7 @@ def run_historical_backtest(
 
             if current_success < lower_guardrail or current_success > upper_guardrail:
                 old_wd = wd
-                if use_3d:
+                if use_3d_year:
                     wd = apply_guardrail_adjustment(
                         wd, value, current_success, target_success,
                         adjustment_pct, adjustment_mode, remaining,
@@ -1078,6 +1153,9 @@ def run_historical_backtest(
 
         if value <= 0:
             value = 0.0
+            g_portfolio[year + 1:] = 0.0
+            g_withdrawals[year + 1:] = 0.0
+            break
         g_portfolio[year + 1] = value
 
     # 基准固定策略

@@ -22,10 +22,7 @@ from simulator.guardrail import (
     run_guardrail_simulation,
 )
 from simulator.statistics import compute_effective_funded_ratio
-from simulator.config import (
-    GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-    get_gdp_weights,
-)
+from simulator.config import get_gdp_weights
 
 INITIAL_PORTFOLIO = 1_000_000
 RETIREMENT_YEARS = 65
@@ -96,9 +93,7 @@ def main():
     print(f"  生成 {NUM_SIMULATIONS} 条路径, 每条 {RETIREMENT_YEARS} 年")
 
     print("[2/3] 构建查找表 & 运行护栏模拟...")
-    rate_grid, table = build_success_rate_table(
-        scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-    )
+    rate_grid, table = build_success_rate_table(scenarios)
 
     init_portfolio, annual_wd, trajectories, withdrawals = run_guardrail_simulation(
         scenarios=scenarios,

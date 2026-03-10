@@ -24,13 +24,9 @@ from simulator.cashflow import CashFlowItem, build_cf_schedule, build_representa
 from concurrent.futures import ThreadPoolExecutor
 
 from simulator.config import (
-    GUARDRAIL_CF_RATE_STEP,
-    GUARDRAIL_RATE_MAX,
-    GUARDRAIL_RATE_MIN,
-    GUARDRAIL_RATE_STEP,
     SCENARIO_CF_MAX_SIMS,
-    SCENARIO_CF_RATE_STEP,
-    SCENARIO_CF_SCALE_STEP,
+    SCENARIO_CF_RATE_SEGMENTS,
+    SCENARIO_CF_SCALE_SEGMENTS,
     SCENARIO_MAX_START_YEARS,
     TARGET_SUCCESS_RATES,
     get_gdp_weights,
@@ -892,9 +888,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         country_weights=country_weights,
     )
 
-    rate_grid, table = build_success_rate_table(
-        scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-    )
+    rate_grid, table = build_success_rate_table(scenarios)
 
     cash_flows = _to_cash_flows(req.cash_flows)
 
@@ -904,10 +898,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
         rep_schedule = build_representative_cf_schedule(
             cash_flows, req.retirement_years, inflation_matrix,
         )
-        cf_table_result = build_cf_aware_table(
-            scenarios, rep_schedule,
-            GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
-        )
+        cf_table_result = build_cf_aware_table(scenarios, rep_schedule)
 
     _cf_rg, _cf_sg, _cf_tbl, _cf_ref, _last_cf_y = _unpack_cf_table(cf_table_result)
 
@@ -1113,9 +1104,7 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
         country_weights=country_weights,
     )
 
-    rate_grid, table = build_success_rate_table(
-        scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-    )
+    rate_grid, table = build_success_rate_table(scenarios)
 
     def _run_scenario(
         scenario_cfs: list[CashFlowItem] | None,
@@ -1128,9 +1117,8 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
             )
             cf_table_r = build_cf_aware_table(
                 scenarios, rep_schedule,
-                GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX,
-                rate_step=SCENARIO_CF_RATE_STEP,
-                cf_scale_step=SCENARIO_CF_SCALE_STEP,
+                rate_segments=SCENARIO_CF_RATE_SEGMENTS,
+                cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
                 max_sims=SCENARIO_CF_MAX_SIMS,
                 max_start_years=SCENARIO_MAX_START_YEARS,
             )
@@ -1214,38 +1202,35 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
     base_years = req.retirement_years
     stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
 
-    def _build_and_run(
-        scen_alloc=None, scen_er=None, yrs=None,
-        ip_override=None, aw_override=None, target_override=None,
+    # Pre-generate base scenarios and tables once — reused for ip/aw/target variations
+    base_alloc = _alloc_dict(req.allocation)
+    base_er = _expense_dict(req.expense_ratios)
+    base_scen, base_infl = pregenerate_return_scenarios(
+        allocation=base_alloc, expense_ratios=base_er,
+        retirement_years=base_years,
+        min_block=req.min_block, max_block=req.max_block,
+        num_simulations=req.num_simulations, returns_df=filtered,
+        leverage=req.leverage, borrowing_spread=req.borrowing_spread,
+        country_dfs=country_dfs, country_weights=country_weights,
+    )
+    base_rg, base_tbl = build_success_rate_table(base_scen)
+    base_cf_tbl_r = None
+    if cash_flows:
+        base_rep = build_representative_cf_schedule(cash_flows, base_years, base_infl)
+        base_cf_tbl_r = build_cf_aware_table(
+            base_scen, base_rep,
+            rate_segments=SCENARIO_CF_RATE_SEGMENTS,
+            cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
+            max_sims=SCENARIO_CF_MAX_SIMS,
+            max_start_years=SCENARIO_MAX_START_YEARS,
+        )
+    _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly = _unpack_cf_table(base_cf_tbl_r)
+
+    def _run_with_tables(
+        scen, infl, rg, tbl, cf_rg, cf_sg, cf_tbl, cf_ref, cf_ly,
+        years, ip_override=None, aw_override=None, target_override=None,
     ):
-        """Pre-generate scenarios/tables and run guardrail simulation."""
-        alloc = scen_alloc or _alloc_dict(req.allocation)
-        er = scen_er or _expense_dict(req.expense_ratios)
-        years = yrs or base_years
-
-        scen, infl = pregenerate_return_scenarios(
-            allocation=alloc, expense_ratios=er,
-            retirement_years=years,
-            min_block=req.min_block, max_block=req.max_block,
-            num_simulations=req.num_simulations, returns_df=filtered,
-            leverage=req.leverage, borrowing_spread=req.borrowing_spread,
-            country_dfs=country_dfs, country_weights=country_weights,
-        )
-        rg, tbl = build_success_rate_table(
-            scen, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-        )
-        cf_tbl_r = None
-        if cash_flows:
-            rep = build_representative_cf_schedule(cash_flows, years, infl)
-            cf_tbl_r = build_cf_aware_table(
-                scen, rep, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX,
-                rate_step=SCENARIO_CF_RATE_STEP,
-                cf_scale_step=SCENARIO_CF_SCALE_STEP,
-                max_sims=SCENARIO_CF_MAX_SIMS,
-                max_start_years=SCENARIO_MAX_START_YEARS,
-            )
-        _rg, _sg, _tbl, _ref, _ly = _unpack_cf_table(cf_tbl_r)
-
+        """Run guardrail simulation with pre-built scenarios and tables."""
         sim_kw = dict(
             scenarios=scen,
             target_success=target_override or req.target_success,
@@ -1257,11 +1242,11 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
             table=tbl, rate_grid=rg,
             adjustment_mode=req.adjustment_mode,
             cash_flows=cash_flows, inflation_matrix=infl,
-            cf_table=_tbl,
-            cf_rate_grid=_rg,
-            cf_scale_grid=_sg,
-            cf_ref=_ref,
-            last_cf_year=_ly,
+            cf_table=cf_tbl,
+            cf_rate_grid=cf_rg,
+            cf_scale_grid=cf_sg,
+            cf_ref=cf_ref,
+            last_cf_year=cf_ly,
         )
         if ip_override is not None:
             sim_kw["initial_portfolio"] = ip_override
@@ -1273,6 +1258,7 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
             sim_kw["initial_portfolio"] = req.initial_portfolio
 
         r_ip, r_aw, r_traj, r_wd = run_guardrail_simulation(**sim_kw)
+
         _, r_sr = compute_effective_funded_ratio(
             r_wd, r_aw, years,
             consumption_floor=req.consumption_floor,
@@ -1281,7 +1267,37 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
         r_fr = compute_funded_ratio(r_traj, years)
         return r_ip, r_aw, r_sr, r_fr
 
-    base_ip, base_aw, base_sr, base_fr = _build_and_run()
+    def _build_fresh_and_run(scen_alloc=None, scen_er=None, yrs=None):
+        """Rebuild scenarios/tables from scratch (for allocation/years changes)."""
+        alloc = scen_alloc or base_alloc
+        er = scen_er or base_er
+        years = yrs or base_years
+        scen, infl = pregenerate_return_scenarios(
+            allocation=alloc, expense_ratios=er,
+            retirement_years=years,
+            min_block=req.min_block, max_block=req.max_block,
+            num_simulations=req.num_simulations, returns_df=filtered,
+            leverage=req.leverage, borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs, country_weights=country_weights,
+        )
+        rg, tbl = build_success_rate_table(scen)
+        cf_tbl_r = None
+        if cash_flows:
+            rep = build_representative_cf_schedule(cash_flows, years, infl)
+            cf_tbl_r = build_cf_aware_table(
+                scen, rep,
+                rate_segments=SCENARIO_CF_RATE_SEGMENTS,
+                cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
+                max_sims=SCENARIO_CF_MAX_SIMS,
+                max_start_years=SCENARIO_MAX_START_YEARS,
+            )
+        _rg, _sg, _tbl, _ref, _ly = _unpack_cf_table(cf_tbl_r)
+        return _run_with_tables(scen, infl, rg, tbl, _rg, _sg, _tbl, _ref, _ly, years)
+
+    base_ip, base_aw, base_sr, base_fr = _run_with_tables(
+        base_scen, base_infl, base_rg, base_tbl,
+        _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly, base_years,
+    )
 
     is_portfolio_mode = req.input_mode != "withdrawal"
     if is_portfolio_mode:
@@ -1308,14 +1324,22 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
         for side, side_val in [("low", lo_val), ("high", hi_val)]:
             r_ip, r_aw, sr, fr = base_ip, base_aw, base_sr, base_fr
 
-            if key == "initial_portfolio":
-                r_ip, r_aw, sr, fr = _build_and_run(ip_override=side_val)
-            elif key == "annual_withdrawal":
-                r_ip, r_aw, sr, fr = _build_and_run(aw_override=side_val)
-            elif key == "target_success":
-                r_ip, r_aw, sr, fr = _build_and_run(target_override=side_val)
+            if key in ("initial_portfolio", "annual_withdrawal", "target_success"):
+                # Reuse base scenarios and tables — only the sim parameter changes
+                kw = {}
+                if key == "initial_portfolio":
+                    kw["ip_override"] = side_val
+                elif key == "annual_withdrawal":
+                    kw["aw_override"] = side_val
+                else:
+                    kw["target_override"] = side_val
+                r_ip, r_aw, sr, fr = _run_with_tables(
+                    base_scen, base_infl, base_rg, base_tbl,
+                    _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly,
+                    base_years, **kw,
+                )
             elif key == "retirement_years":
-                r_ip, r_aw, sr, fr = _build_and_run(yrs=int(side_val))
+                r_ip, r_aw, sr, fr = _build_fresh_and_run(yrs=int(side_val))
             elif key == "stock_allocation":
                 new_stock = side_val
                 if stock_pct > 0:
@@ -1331,7 +1355,7 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
                     dom_new /= total_s
                     glb_new /= total_s
                     bond_new = 0.0
-                r_ip, r_aw, sr, fr = _build_and_run(
+                r_ip, r_aw, sr, fr = _build_fresh_and_run(
                     scen_alloc={"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new},
                 )
 
@@ -1388,9 +1412,7 @@ def api_backtest(request: Request, req: BacktestRequest):
         country_dfs=country_dfs,
         country_weights=country_weights,
     )
-    rate_grid, table = build_success_rate_table(
-        scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-    )
+    rate_grid, table = build_success_rate_table(scenarios)
 
     # 历史数据 — 回测需要具体国家的真实历史路径
     bt_country = req.backtest_country or req.country
@@ -1421,10 +1443,7 @@ def api_backtest(request: Request, req: BacktestRequest):
         rep_schedule = build_representative_cf_schedule(
             cash_flows, req.retirement_years,
         )
-        bt_cf_result = build_cf_aware_table(
-            scenarios, rep_schedule,
-            GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
-        )
+        bt_cf_result = build_cf_aware_table(scenarios, rep_schedule)
     _bt_cf_rg, _bt_cf_sg, _bt_cf_tbl, _bt_cf_ref, _bt_last_cf_y = _unpack_cf_table(bt_cf_result)
 
     result = run_historical_backtest(
@@ -1500,9 +1519,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         country_dfs=country_dfs,
         country_weights=country_weights,
     )
-    rate_grid, table = build_success_rate_table(
-        scenarios, GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_RATE_STEP,
-    )
+    rate_grid, table = build_success_rate_table(scenarios)
 
     batch_cash_flows = _to_cash_flows(req.cash_flows)
 
@@ -1512,10 +1529,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         rep_schedule = build_representative_cf_schedule(
             batch_cash_flows, req.retirement_years,
         )
-        batch_cf_result = build_cf_aware_table(
-            scenarios, rep_schedule,
-            GUARDRAIL_RATE_MIN, GUARDRAIL_RATE_MAX, GUARDRAIL_CF_RATE_STEP,
-        )
+        batch_cf_result = build_cf_aware_table(scenarios, rep_schedule)
     _batch_cf_rg, _batch_cf_sg, _batch_cf_tbl, _batch_cf_ref, _batch_last_cf_y = _unpack_cf_table(batch_cf_result)
 
     # 确定回测用的国家数据
