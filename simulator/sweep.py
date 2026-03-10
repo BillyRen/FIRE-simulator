@@ -21,7 +21,9 @@ from .monte_carlo import compute_withdrawal
 from .portfolio import compute_real_portfolio_returns
 
 # 并行化配置：使用CPU核心数，但限制最大值避免资源耗尽
-MAX_WORKERS = min(cpu_count(), int(os.getenv("MAX_SWEEP_WORKERS", "8")))
+# 在低核心环境（如 Render 0.5 CPU）中，进程池 fork 开销反而拖慢性能
+_cpu = cpu_count() or 1
+MAX_WORKERS = min(_cpu, int(os.getenv("MAX_SWEEP_WORKERS", "8"))) if _cpu > 1 else 1
 
 # ============================================================================
 # 进程池 initializer：共享只读大数据，避免每个 task 重复 pickle 序列化
@@ -216,6 +218,31 @@ def _simulate_success_and_funded(
     has_cf = cash_flows is not None and len(cash_flows) > 0
     has_groups = has_cf and has_probabilistic_cf(cash_flows)
 
+    # ── Fast vectorized path: fixed strategy, no cash flows ──
+    if withdrawal_strategy == "fixed" and not has_cf:
+        values = np.full(num_sims, initial_portfolio, dtype=np.float64)
+        depletion_years = np.full(num_sims, float(retirement_years))
+        alive = np.ones(num_sims, dtype=bool)
+
+        for year in range(retirement_years):
+            grown = values[alive] * (1.0 + real_returns_matrix[alive, year])
+            actual_wd = np.minimum(annual_withdrawal, np.maximum(grown, 0.0))
+            values[alive] = grown - actual_wd
+
+            newly_failed = alive & (values <= 0)
+            if np.any(newly_failed):
+                depletion_years[newly_failed] = float(year + 1)
+                values[newly_failed] = 0.0
+                alive[newly_failed] = False
+
+            if not np.any(alive):
+                break
+
+        success_rate = float(np.mean(alive))
+        funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
+        return success_rate, funded_ratio
+
+    # ── General path: dynamic/declining/smile strategies or cash flows ──
     # 预计算通胀调整部分的固定 schedule（仅当无概率分组时可复用）
     if has_cf and not has_groups:
         has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
@@ -358,57 +385,80 @@ def _sweep_single_allocation(args):
     final_values = np.zeros(num_sims)
     depletion_years = np.full(num_sims, retirement_years, dtype=float)
 
-    for i in range(num_sims):
-        value = initial_portfolio
-        prev_wd = annual_withdrawal
-        failed = False
-
-        # 现金流 schedule
-        if has_groups:
-            active_cfs = sample_cash_flows(cash_flows, rng)
-            if active_cfs:
-                _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
-                _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
-                _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
-                if _nom and inflation is not None:
-                    _nom_sched = build_cf_schedule(_nom, retirement_years, inflation[i])
-                    cf_schedule = _adj_sched + _nom_sched
-                else:
-                    cf_schedule = _adj_sched
-            else:
-                cf_schedule = None
-        elif has_cf:
-            if has_nominal and inflation is not None:
-                nominal_schedule = build_cf_schedule(
-                    nominal_cfs, retirement_years, inflation[i]
-                )
-                cf_schedule = fixed_schedule + nominal_schedule
-            else:
-                cf_schedule = fixed_schedule
-        else:
-            cf_schedule = None
+    # ── Fast vectorized path: fixed strategy, no cash flows ──
+    if withdrawal_strategy == "fixed" and not has_cf:
+        values = np.full(num_sims, initial_portfolio, dtype=np.float64)
+        alive = np.ones(num_sims, dtype=bool)
 
         for year in range(retirement_years):
-            wd = compute_withdrawal(
-                withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
-                initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
-            )
+            grown = values[alive] * (1.0 + real_returns[alive, year])
+            actual_wd = np.minimum(annual_withdrawal, np.maximum(grown, 0.0))
+            values[alive] = grown - actual_wd
 
-            prev_wd = wd
-            value_after_growth = value * (1.0 + real_returns[i, year])
-            actual_wd = min(wd, max(value_after_growth, 0.0))
-            value = value_after_growth - actual_wd
+            newly_failed = alive & (values <= 0)
+            if np.any(newly_failed):
+                depletion_years[newly_failed] = year + 1
+                values[newly_failed] = 0.0
+                alive[newly_failed] = False
 
-            if cf_schedule is not None:
-                value += cf_schedule[year]
-
-            if value <= 0:
-                depletion_years[i] = year + 1
-                value = 0.0
-                failed = True
+            if not np.any(alive):
                 break
 
-        final_values[i] = value
+        final_values[:] = values
+
+    else:
+        # ── General path ──
+        for i in range(num_sims):
+            value = initial_portfolio
+            prev_wd = annual_withdrawal
+            failed = False
+
+            # 现金流 schedule
+            if has_groups:
+                active_cfs = sample_cash_flows(cash_flows, rng)
+                if active_cfs:
+                    _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                    _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                    _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                    if _nom and inflation is not None:
+                        _nom_sched = build_cf_schedule(_nom, retirement_years, inflation[i])
+                        cf_schedule = _adj_sched + _nom_sched
+                    else:
+                        cf_schedule = _adj_sched
+                else:
+                    cf_schedule = None
+            elif has_cf:
+                if has_nominal and inflation is not None:
+                    nominal_schedule = build_cf_schedule(
+                        nominal_cfs, retirement_years, inflation[i]
+                    )
+                    cf_schedule = fixed_schedule + nominal_schedule
+                else:
+                    cf_schedule = fixed_schedule
+            else:
+                cf_schedule = None
+
+            for year in range(retirement_years):
+                wd = compute_withdrawal(
+                    withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
+                    initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+                )
+
+                prev_wd = wd
+                value_after_growth = value * (1.0 + real_returns[i, year])
+                actual_wd = min(wd, max(value_after_growth, 0.0))
+                value = value_after_growth - actual_wd
+
+                if cf_schedule is not None:
+                    value += cf_schedule[year]
+
+                if value <= 0:
+                    depletion_years[i] = year + 1
+                    value = 0.0
+                    failed = True
+                    break
+
+            final_values[i] = value
 
     success_rate = float(np.mean(final_values > 0))
     median_final = float(np.median(final_values))

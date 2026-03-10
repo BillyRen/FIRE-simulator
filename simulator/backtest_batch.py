@@ -316,15 +316,20 @@ def run_guardrail_batch_backtest(
 
             year_labels = subset["Year"].tolist()
 
+            # 逐条路径的消费地板判定
+            _path_floor = consumption_floor * annual_withdrawal
+            _path_below_floor = any(w < _path_floor for w in result["g_withdrawals"])
+            _g_survived = (
+                float(result["g_portfolio"][-1]) > 0
+                and not _path_below_floor
+            )
+
             paths.append({
                 "country": iso,
                 "start_year": start_year,
                 "years_simulated": result["years_simulated"],
                 "is_complete": n_years >= retirement_years,
-                "g_survived": (
-                    float(result["g_portfolio"][-1]) > 0
-                    and not any(w < consumption_floor * annual_withdrawal for w in result["g_withdrawals"])
-                ),
+                "g_survived": _g_survived,
                 "b_survived": float(result["b_portfolio"][-1]) > 0,
                 "g_final_portfolio": float(result["g_portfolio"][-1]),
                 "b_final_portfolio": float(result["b_portfolio"][-1]),

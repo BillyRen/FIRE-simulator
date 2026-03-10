@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,55 @@ function CfNumberInput({
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
       }}
+      className={className ?? "h-8 text-sm"}
+    />
+  );
+}
+
+function CfTextInput({
+  value,
+  onChange: onCommit,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  const [display, setDisplay] = useState(value);
+  const composingRef = useRef(false);
+
+  useEffect(() => {
+    if (!composingRef.current) {
+      setDisplay(value);
+    }
+  }, [value]);
+
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setDisplay(e.target.value);
+      if (!composingRef.current) {
+        onCommit(e.target.value);
+      }
+    },
+    [onCommit]
+  );
+
+  const handleCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLInputElement>) => {
+      composingRef.current = false;
+      onCommit((e.target as HTMLInputElement).value);
+    },
+    [onCommit]
+  );
+
+  return (
+    <Input
+      value={display}
+      onChange={handleChange}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionEnd={handleCompositionEnd}
       className={className ?? "h-8 text-sm"}
     />
   );
@@ -237,9 +286,9 @@ function CashFlowCard({
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label className="text-xs">{t("name")}</Label>
-            <Input
+            <CfTextInput
               value={item.name}
-              onChange={(e) => onUpdate({ name: e.target.value })}
+              onChange={(v) => onUpdate({ name: v })}
               className="h-8 text-sm"
             />
           </div>

@@ -55,6 +55,7 @@ def _split_cashflows_at_year(
                 start_year=cf.start_year - fire_year,
                 duration=cf.duration,
                 inflation_adjusted=cf.inflation_adjusted,
+                growth_rate=cf.growth_rate,
                 probability=cf.probability,
                 group=cf.group,
             ))
@@ -67,16 +68,20 @@ def _split_cashflows_at_year(
                 start_year=cf.start_year,
                 duration=pre_duration,
                 inflation_adjusted=cf.inflation_adjusted,
+                growth_rate=cf.growth_rate,
                 probability=cf.probability,
                 group=cf.group,
             ))
             if post_duration > 0:
+                # Adjust amount for growth during pre-fire period
+                grown_amount = cf.amount * (1.0 + cf.growth_rate) ** pre_duration
                 post_fire.append(CashFlowItem(
                     name=cf.name,
-                    amount=cf.amount,
+                    amount=grown_amount,
                     start_year=1,
                     duration=post_duration,
                     inflation_adjusted=cf.inflation_adjusted,
+                    growth_rate=cf.growth_rate,
                     probability=cf.probability,
                     group=cf.group,
                 ))
@@ -267,8 +272,14 @@ def run_accumulation(
     portfolio_paths = np.zeros((num_simulations, max_working_years + 1))
     portfolio_paths[:, 0] = current_portfolio
 
-    for i in range(num_simulations):
-        if has_groups:
+    # 预计算每年的收入和支出（不依赖模拟路径）
+    income_series = annual_income * (1.0 + income_growth_rate) ** np.arange(max_working_years)
+    expense_series = annual_expenses * (1.0 + expense_growth_rate) ** np.arange(max_working_years)
+    base_savings = income_series - expense_series  # shape (max_working_years,)
+
+    if has_groups:
+        # 概率分组：每条路径有不同的现金流，无法完全向量化
+        for i in range(num_simulations):
             active_cfs = sample_cash_flows(cfs, rng)
             if active_cfs:
                 pre_active, _ = _split_cashflows_at_year(active_cfs, max_working_years)
@@ -282,22 +293,33 @@ def run_accumulation(
                     cf_schedule = _adj_sched
             else:
                 cf_schedule = np.zeros(max_working_years)
-        elif has_nominal:
-            nom_schedule = build_cf_schedule(
-                nominal_cfs, max_working_years, accum_inflation[i],
-            )
-            cf_schedule = fixed_cf_schedule + nom_schedule
-        else:
-            cf_schedule = fixed_cf_schedule
 
-        income = annual_income
-        expenses = annual_expenses
-        for t in range(max_working_years):
-            savings = income - expenses + cf_schedule[t]
-            new_val = portfolio_paths[i, t] * (1.0 + accum_scenarios[i, t]) + savings
-            portfolio_paths[i, t + 1] = max(new_val, 0.0)
-            income *= (1.0 + income_growth_rate)
-            expenses *= (1.0 + expense_growth_rate)
+            for t in range(max_working_years):
+                savings = base_savings[t] + cf_schedule[t]
+                new_val = portfolio_paths[i, t] * (1.0 + accum_scenarios[i, t]) + savings
+                portfolio_paths[i, t + 1] = max(new_val, 0.0)
+    else:
+        # 无概率分组：现金流 schedule 对所有路径相同或仅依赖通胀
+        if has_nominal:
+            # 名义现金流依赖每条路径的通胀，需要 per-sim 处理
+            # 但内层 year 循环可向量化
+            cf_matrix = np.zeros((num_simulations, max_working_years))
+            for i in range(num_simulations):
+                nom_schedule = build_cf_schedule(
+                    nominal_cfs, max_working_years, accum_inflation[i],
+                )
+                cf_matrix[i] = fixed_cf_schedule + nom_schedule
+
+            for t in range(max_working_years):
+                savings = base_savings[t] + cf_matrix[:, t]
+                new_val = portfolio_paths[:, t] * (1.0 + accum_scenarios[:, t]) + savings
+                portfolio_paths[:, t + 1] = np.maximum(new_val, 0.0)
+        else:
+            # 完全向量化：所有路径共用相同的 savings + cf_schedule
+            savings_with_cf = base_savings + fixed_cf_schedule  # shape (max_working_years,)
+            for t in range(max_working_years):
+                new_val = portfolio_paths[:, t] * (1.0 + accum_scenarios[:, t]) + savings_with_cf[t]
+                portfolio_paths[:, t + 1] = np.maximum(new_val, 0.0)
 
     # ── 6. 检测 FIRE 交叉点 ──
     fire_years = np.full(num_simulations, -1, dtype=int)
