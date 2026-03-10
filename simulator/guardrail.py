@@ -274,11 +274,14 @@ def build_cf_aware_table(
     # 对未直接计算的 start_year 做线性插值
     if len(selected_years) < num_start_years:
         selected_set = set(selected_years)
+        sorted_selected = sorted(selected_years)
         for sy in range(num_start_years):
             if sy in selected_set:
                 continue
-            lo = max(s for s in selected_years if s <= sy)
-            hi = min(s for s in selected_years if s >= sy)
+            # 用 searchsorted 做 O(log n) 查找，替代 O(n) 的 max/min
+            idx = np.searchsorted(sorted_selected, sy)
+            lo = sorted_selected[max(0, idx - 1)]
+            hi = sorted_selected[min(idx, len(sorted_selected) - 1)]
             if lo == hi:
                 table_3d[:, :, sy] = table_3d[:, :, lo]
             else:

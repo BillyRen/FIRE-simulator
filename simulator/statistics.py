@@ -61,15 +61,16 @@ def compute_funded_ratio(
     if retirement_years <= 0:
         raise ValueError("retirement_years must be > 0")
 
-    num_sims = trajectories.shape[0]
     # 跳过第 0 列（初始资产），从第 1 列开始检测
     depleted = trajectories[:, 1:] <= 0  # shape (num_sims, retirement_years)
 
-    depletion_years = np.full(num_sims, float(retirement_years))
-    for i in range(num_sims):
-        idx = np.where(depleted[i])[0]
-        if len(idx) > 0:
-            depletion_years[i] = float(idx[0])  # 第几年首次 <= 0
+    # 向量化：对每行找首次耗尽年份（无循环）
+    any_depleted = depleted.any(axis=1)
+    depletion_years = np.where(
+        any_depleted,
+        np.argmax(depleted, axis=1).astype(float),
+        float(retirement_years),
+    )
 
     return float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
 
