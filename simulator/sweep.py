@@ -17,13 +17,18 @@ import pandas as pd
 
 from .bootstrap import block_bootstrap, block_bootstrap_pooled
 from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
+from .config import is_low_memory
 from .monte_carlo import compute_withdrawal
 from .portfolio import compute_real_portfolio_returns
 
 # 并行化配置：使用CPU核心数，但限制最大值避免资源耗尽
 # 在低核心环境（如 Render 0.5 CPU）中，进程池 fork 开销反而拖慢性能
+# 低内存环境（如 Render Starter 512 MB）中禁用进程池以避免 fork 内存翻倍
 _cpu = cpu_count() or 1
-MAX_WORKERS = min(_cpu, int(os.getenv("MAX_SWEEP_WORKERS", "8"))) if _cpu > 1 else 1
+if is_low_memory():
+    MAX_WORKERS = 1
+else:
+    MAX_WORKERS = min(_cpu, int(os.getenv("MAX_SWEEP_WORKERS", "8"))) if _cpu > 1 else 1
 
 # ============================================================================
 # 进程池 initializer：共享只读大数据，避免每个 task 重复 pickle 序列化

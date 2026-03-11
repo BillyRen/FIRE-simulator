@@ -124,3 +124,93 @@ DEFAULT_EXPENSE_RATIOS = {"domestic_stock": 0.50, "global_stock": 0.50, "domesti
 DEFAULT_MIN_BLOCK = 5
 DEFAULT_MAX_BLOCK = 15
 DEFAULT_RETIREMENT_YEARS = 65
+
+
+# ---------------------------------------------------------------------------
+# 内存限制检测（用于 Render Starter 等低内存环境自适应优化）
+# ---------------------------------------------------------------------------
+_LOW_MEMORY_THRESHOLD_MB = 768
+
+
+def _detect_memory_limit_mb() -> int | None:
+    """检测当前环境的内存限制（MB）。
+
+    依次尝试：cgroup v2 → cgroup v1 → /proc/meminfo → os.sysconf → 环境变量。
+    """
+    import os as _os
+
+    # cgroup v2
+    try:
+        with open("/sys/fs/cgroup/memory.max") as f:
+            val = f.read().strip()
+            if val != "max":
+                return int(val) // (1024 * 1024)
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+
+    # cgroup v1
+    try:
+        with open("/sys/fs/cgroup/memory/memory.limit_in_bytes") as f:
+            val = int(f.read().strip())
+            # 极大值意味着无限制
+            if val < 2**62:
+                return val // (1024 * 1024)
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+
+    # /proc/meminfo (物理内存)
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    kb = int(line.split()[1])
+                    return kb // 1024
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+
+    # os.sysconf (macOS / BSD)
+    try:
+        pages = _os.sysconf("SC_PHYS_PAGES")
+        page_size = _os.sysconf("SC_PAGE_SIZE")
+        if pages > 0 and page_size > 0:
+            return (pages * page_size) // (1024 * 1024)
+    except (AttributeError, ValueError, OSError):
+        pass
+
+    # 环境变量 fallback
+    env_val = _os.environ.get("MEMORY_LIMIT_MB")
+    if env_val:
+        try:
+            return int(env_val)
+        except ValueError:
+            pass
+
+    return None
+
+
+_SENTINEL = object()
+_cached_memory_limit: int | None | object = _SENTINEL
+
+
+def get_memory_limit_mb() -> int | None:
+    """获取内存限制（MB），结果缓存。"""
+    global _cached_memory_limit
+    if _cached_memory_limit is _SENTINEL:
+        _cached_memory_limit = _detect_memory_limit_mb()
+    return _cached_memory_limit
+
+
+def is_low_memory() -> bool:
+    """当前环境是否为低内存（≤768 MB）。未知时返回 False。"""
+    import os as _os
+    # 环境变量优先（允许运行时覆盖，方便测试）
+    env_val = _os.environ.get("MEMORY_LIMIT_MB")
+    if env_val:
+        try:
+            return int(env_val) <= _LOW_MEMORY_THRESHOLD_MB
+        except ValueError:
+            pass
+    limit = get_memory_limit_mb()
+    if limit is None:
+        return False
+    return limit <= _LOW_MEMORY_THRESHOLD_MB

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import os
@@ -34,6 +35,7 @@ from simulator.config import (
     SCENARIO_MAX_START_YEARS,
     TARGET_SUCCESS_RATES,
     get_gdp_weights,
+    is_low_memory,
 )
 from simulator.buy_vs_rent import (
     find_breakeven_price_mc,
@@ -703,7 +705,7 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
 
         total = 1 + len(cf_scenarios)
         completed = 0
-        max_workers = max(1, os.cpu_count() or 1)
+        max_workers = 1 if is_low_memory() else max(1, os.cpu_count() or 1)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             future_base = pool.submit(_run_scenario, cash_flows, "base_case")
             futures = {
@@ -1168,6 +1170,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
                 cash_flows, req.retirement_years, inflation_matrix,
             )
             cf_table_result = build_cf_aware_table(scenarios, rep_schedule)
+            gc.collect()
 
         yield {"type": "progress", "stage": "refining" if progressive else "simulation", "pct": 85}
         result = _run_guardrail_and_build_result(
@@ -1288,7 +1291,7 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
 
         total = 1 + len(cf_scenarios)
         completed = 0
-        max_workers = max(1, os.cpu_count() or 1)
+        max_workers = 1 if is_low_memory() else max(1, os.cpu_count() or 1)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             future_base = pool.submit(_run_scenario, cash_flows, "base_case")
             futures = {

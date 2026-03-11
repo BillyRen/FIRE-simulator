@@ -17,6 +17,7 @@ from simulator.config import (
     GUARDRAIL_RATE_SEGMENTS, GUARDRAIL_CF_RATE_SEGMENTS,
     GUARDRAIL_CF_SCALE_SEGMENTS,
     build_nonuniform_grid,
+    is_low_memory,
 )
 
 
@@ -59,8 +60,9 @@ def build_success_rate_table(
     table[:, 0] = 1.0
 
     # 2D 广播：同时处理所有 rates, shape (num_rates, num_sims)
-    values = np.ones((num_rates, num_sims))
-    rates_col = rate_grid[:, np.newaxis]  # (num_rates, 1)
+    # 使用 float32 节省 50% 内存；最终输出为 boolean mean，精度无损
+    values = np.ones((num_rates, num_sims), dtype=np.float32)
+    rates_col = rate_grid[:, np.newaxis].astype(np.float32)  # (num_rates, 1)
     for year in range(max_years):
         values = values * (1.0 + scenarios[np.newaxis, :, year]) - rates_col
         alive = values > 0
@@ -225,8 +227,8 @@ def _compute_sy_slice(
     if remaining <= 0:
         return sy, np.ones((num_rates, num_cs))
 
-    values = np.ones((num_rates, num_cs, num_sims))
-    rates_3d = rate_grid[:, np.newaxis, np.newaxis]
+    values = np.ones((num_rates, num_cs, num_sims), dtype=np.float32)
+    rates_3d = rate_grid[:, np.newaxis, np.newaxis].astype(np.float32)
     active_r = num_rates
 
     for t in range(remaining):
@@ -251,12 +253,15 @@ def _compute_sy_slice(
     return sy, result
 
 
+_CF_DEFAULT_MAX_SIMS = 2000 if is_low_memory() else 5000
+
+
 def build_cf_aware_table(
     scenarios: np.ndarray,
     cf_schedule: np.ndarray,
     rate_segments: list[tuple[float, float]] | None = None,
     cf_scale_segments: list[tuple[float, float]] | None = None,
-    max_sims: int = 5000,
+    max_sims: int | None = None,
     max_start_years: int = _CF_TABLE_MAX_START_YEARS,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, int] | None:
     """构建现金流感知的 3D 成功率查找表。
@@ -266,6 +271,8 @@ def build_cf_aware_table(
 
     各 start_year 之间互相独立，通过线程池并行加速构建。
     """
+    if max_sims is None:
+        max_sims = _CF_DEFAULT_MAX_SIMS
     num_sims, max_years = scenarios.shape
     if num_sims > max_sims:
         rng = np.random.default_rng(0)
@@ -300,11 +307,17 @@ def build_cf_aware_table(
 
     selected_years = _select_cf_start_years(normalized_cf, last_cf_year, max_start_years)
 
-    # 预计算 1+returns 避免重复加法
-    returns_1p = 1.0 + scenarios[:, :n_years]
+    # 预计算 1+returns 避免重复加法；float32 节省内存
+    returns_1p = (1.0 + scenarios[:, :n_years]).astype(np.float32)
+    cf_scale_grid = cf_scale_grid.astype(np.float32)
 
     # 各 start_year 互相独立，用线程池并行（numpy 释放 GIL）
-    max_workers = max(1, min(os.cpu_count() or 1, 8, len(selected_years)))
+    # 低内存时限制为 1 worker，避免并行分配多份 (rates, cs, sims) 数组
+    cpu_count = os.cpu_count() or 1
+    if is_low_memory():
+        max_workers = 1
+    else:
+        max_workers = max(1, min(cpu_count, 8, len(selected_years)))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [
             pool.submit(

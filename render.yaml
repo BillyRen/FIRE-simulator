@@ -12,3 +12,5 @@ services:
         value: https://fire.rens.ai
       - key: PYTHON_VERSION
         value: "3.12.0"
+      - key: MEMORY_LIMIT_MB
+        value: "512"
