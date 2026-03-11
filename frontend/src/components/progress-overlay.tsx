@@ -57,5 +57,15 @@ export function ProgressOverlay({ message, progress }: ProgressOverlayProps) {
   );
 }
 
+export function PreliminaryBanner() {
+  const t = useTranslations("loading");
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300 mb-4">
+      <div className="h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent flex-shrink-0" />
+      <span>{t("preliminary")}</span>
+    </div>
+  );
+}
+
 // Backward-compatible alias
 export { ProgressOverlay as LoadingOverlay };

@@ -65,11 +65,21 @@ async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
 
 export type ProgressEvent = { type: "progress"; stage: string; pct: number; current?: number; total?: number };
 
+export interface StreamingCallbacks<TRes> {
+  onProgress?: (evt: ProgressEvent) => void;
+  onPreliminaryResult?: (data: TRes) => void;
+}
+
 async function postStreaming<TReq, TRes>(
   path: string,
   body: TReq,
-  onProgress?: (evt: ProgressEvent) => void,
+  onProgressOrCallbacks?: ((evt: ProgressEvent) => void) | StreamingCallbacks<TRes>,
 ): Promise<TRes> {
+  const callbacks: StreamingCallbacks<TRes> =
+    typeof onProgressOrCallbacks === "function"
+      ? { onProgress: onProgressOrCallbacks }
+      : onProgressOrCallbacks ?? {};
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
@@ -97,8 +107,14 @@ async function postStreaming<TReq, TRes>(
       for (const line of lines) {
         if (!line.trim()) continue;
         const msg = JSON.parse(line);
-        if (msg.type === "progress" && onProgress) onProgress(msg);
-        if (msg.type === "result") result = msg.data;
+        if (msg.type === "progress" && callbacks.onProgress) callbacks.onProgress(msg);
+        if (msg.type === "result") {
+          if (msg.preliminary && callbacks.onPreliminaryResult) {
+            callbacks.onPreliminaryResult(msg.data);
+          } else {
+            result = msg.data;
+          }
+        }
         if (msg.type === "error") throw new Error(msg.message);
       }
     }
@@ -123,12 +139,15 @@ export async function runSimulation(req: SimulationRequest, onProgress?: (evt: P
   return postStreaming<SimulationRequest, SimulationResponse>("/api/simulate", req, onProgress);
 }
 
-export async function runSweep(req: SweepRequest): Promise<SweepResponse> {
-  return post<SweepRequest, SweepResponse>("/api/sweep", req);
+export async function runSweep(req: SweepRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SweepResponse> {
+  return postStreaming<SweepRequest, SweepResponse>("/api/sweep", req, onProgress);
 }
 
-export async function runGuardrail(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<GuardrailResponse> {
-  return postStreaming<GuardrailRequest, GuardrailResponse>("/api/guardrail", req, onProgress);
+export async function runGuardrail(
+  req: GuardrailRequest,
+  onProgressOrCallbacks?: ((evt: ProgressEvent) => void) | StreamingCallbacks<GuardrailResponse>,
+): Promise<GuardrailResponse> {
+  return postStreaming<GuardrailRequest, GuardrailResponse>("/api/guardrail", req, onProgressOrCallbacks);
 }
 
 export async function runBacktest(req: BacktestRequest): Promise<BacktestResponse> {
@@ -139,8 +158,8 @@ export async function runSimBacktest(req: SimBacktestRequest): Promise<SimBackte
   return post<SimBacktestRequest, SimBacktestResponse>("/api/simulate/backtest", req);
 }
 
-export async function runAllocationSweep(req: AllocationSweepRequest): Promise<AllocationSweepResponse> {
-  return post<AllocationSweepRequest, AllocationSweepResponse>("/api/allocation-sweep", req);
+export async function runAllocationSweep(req: AllocationSweepRequest, onProgress?: (evt: ProgressEvent) => void): Promise<AllocationSweepResponse> {
+  return postStreaming<AllocationSweepRequest, AllocationSweepResponse>("/api/allocation-sweep", req, onProgress);
 }
 
 // 批量历史回测：主模拟页

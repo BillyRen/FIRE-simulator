@@ -16,7 +16,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { MetricCard } from "@/components/metric-card";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/components/fan-chart";
 import { runAllocationSweep } from "@/lib/api";
@@ -36,7 +36,7 @@ export default function AllocationPage() {
   } = useSharedParams();
   const [portfolio, setPortfolio] = usePersistedState("fire:allocation:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:allocation:withdrawal", params.annual_withdrawal);
-  const { data: result, loading, error, run: handleRun } = useApiCall(runAllocationSweep);
+  const { data: result, loading, error, progress, run: handleRun } = useApiCall(runAllocationSweep);
 
   const [sortKey, setSortKey] = useState<string>("funded_ratio");
   const [sortAsc, setSortAsc] = useState(false);
@@ -132,7 +132,7 @@ export default function AllocationPage() {
 
       {/* ── 右侧结果区 ── */}
       <main className="flex-1 space-y-6 relative">
-        {loading && <LoadingOverlay />}
+        {loading && <ProgressOverlay progress={progress} />}
 
         {error && (
           <Card className="border-red-300 bg-red-50">

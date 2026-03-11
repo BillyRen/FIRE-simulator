@@ -19,7 +19,7 @@ import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { FanChart, useIsMobile, MobileChartTitle } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
-import { ProgressOverlay, type ProgressInfo } from "@/components/progress-overlay";
+import { ProgressOverlay, PreliminaryBanner, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { Pin, PinOff } from "lucide-react";
@@ -75,6 +75,7 @@ export default function GuardrailPage() {
   const [pinnedResult, setPinnedResult] = useState<GuardrailResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
+  const [preliminary, setPreliminary] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Batch backtest state
@@ -145,10 +146,20 @@ export default function GuardrailPage() {
   const handleRunMC = async () => {
     setLoading(true);
     setProgress(null);
+    setPreliminary(false);
     setError(null);
     try {
-      const res = await runGuardrail(guardrailReqBase(), setProgress);
+      const res = await runGuardrail(guardrailReqBase(), {
+        onProgress: setProgress,
+        onPreliminaryResult: (data) => {
+          setMcResult(data);
+          setPreliminary(true);
+          setBatchResult(null);
+          setSelectedPath(null);
+        },
+      });
       setMcResult(res);
+      setPreliminary(false);
       setBatchResult(null);
       setSelectedPath(null);
     } catch (e) {
@@ -482,9 +493,9 @@ export default function GuardrailPage() {
           </div>
         )}
 
-        {loading && <ProgressOverlay message={t("guardrailLoading")} progress={progress} />}
+        {loading && !preliminary && <ProgressOverlay message={t("guardrailLoading")} progress={progress} />}
 
-        {mcResult && !loading && (
+        {mcResult && (!loading || preliminary) && (
           <Tabs defaultValue="mc">
             <TabsList className="mb-4">
               <TabsTrigger value="mc">{t("mcTab")}</TabsTrigger>
@@ -494,6 +505,7 @@ export default function GuardrailPage() {
 
             {/* ═══ MC Tab ═══ */}
             <TabsContent value="mc" className="space-y-6">
+              {preliminary && <PreliminaryBanner />}
               <div id="guardrail-results" className="space-y-6">
               {/* 下载按钮组 */}
               <div className="flex flex-wrap gap-2">

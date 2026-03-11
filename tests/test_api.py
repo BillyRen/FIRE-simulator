@@ -154,7 +154,7 @@ class TestSweep:
         }
         r = client.post("/api/sweep", json=params)
         assert r.status_code == 200
-        data = r.json()
+        data = parse_ndjson(r)
         assert "rates" in data
         assert "success_rates" in data
         assert len(data["rates"]) == len(data["success_rates"])

@@ -453,8 +453,12 @@
       "statistics": "Computing statistics…",
       "sensitivity_base": "Running base analysis…",
       "sensitivity_param": "Sensitivity analysis {current}/{total}…",
-      "scenario_run": "Running scenario {current}/{total}…"
-    }
+      "scenario_run": "Running scenario {current}/{total}…",
+      "refining": "Refining results…",
+      "sweep": "Sweeping withdrawal rates…",
+      "allocation_sweep": "Sweeping asset allocations…"
+    },
+    "preliminary": "Preliminary results (2D approx), computing precise results…"
   },
   "fanChart": {
     "yearAxis": "Year",

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { StatsTable } from "@/components/stats-table";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/components/fan-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
@@ -37,7 +37,7 @@ export default function SensitivityPage() {
   } = useSharedParams();
   const [portfolio, setPortfolio] = usePersistedState("fire:sensitivity:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:sensitivity:withdrawal", params.annual_withdrawal);
-  const { data: result, loading, error, run: handleRun } = useApiCall(runSweep);
+  const { data: result, loading, error, progress, run: handleRun } = useApiCall(runSweep);
 
   // 当前选中的指标数据
   const metricValues = result
@@ -137,7 +137,7 @@ export default function SensitivityPage() {
           </div>
         )}
 
-        {loading && <LoadingOverlay message={t("scanLoading")} />}
+        {loading && <ProgressOverlay message={t("scanLoading")} progress={progress} />}
 
         {result && !loading && (
           <>

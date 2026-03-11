@@ -1,17 +1,26 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import type { ProgressEvent } from "./api";
+
+export interface ProgressInfo {
+  stage: string;
+  pct: number;
+  current?: number;
+  total?: number;
+}
 
 /**
- * Generic hook for API calls with loading/error state management.
+ * Generic hook for API calls with loading/error/progress state management.
  * Handles request deduplication (ignores concurrent calls).
  */
 export function useApiCall<TReq, TRes>(
-  apiFn: (req: TReq) => Promise<TRes>,
+  apiFn: (req: TReq, onProgress?: (evt: ProgressEvent) => void) => Promise<TRes>,
 ) {
   const [data, setData] = useState<TRes | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ProgressInfo | null>(null);
   const inflight = useRef(false);
 
   const run = useCallback(
@@ -20,9 +29,10 @@ export function useApiCall<TReq, TRes>(
       inflight.current = true;
       setLoading(true);
       setError(null);
+      setProgress(null);
       opts?.onBefore?.();
       try {
-        const res = await apiFn(req);
+        const res = await apiFn(req, setProgress);
         setData(res);
         opts?.onSuccess?.(res);
         return res;
@@ -32,6 +42,7 @@ export function useApiCall<TReq, TRes>(
         return undefined;
       } finally {
         setLoading(false);
+        setProgress(null);
         inflight.current = false;
       }
     },
@@ -43,5 +54,5 @@ export function useApiCall<TReq, TRes>(
     setError(null);
   }, []);
 
-  return { data, loading, error, run, reset, setData, setError } as const;
+  return { data, loading, error, progress, run, reset, setData, setError } as const;
 }

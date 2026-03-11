@@ -453,8 +453,12 @@
       "statistics": "计算统计指标…",
       "sensitivity_base": "运行基准分析…",
       "sensitivity_param": "敏感性分析 {current}/{total}…",
-      "scenario_run": "运行情景 {current}/{total}…"
-    }
+      "scenario_run": "运行情景 {current}/{total}…",
+      "refining": "正在精确计算…",
+      "sweep": "扫描提取率…",
+      "allocation_sweep": "扫描资产配置…"
+    },
+    "preliminary": "初步结果（2D 近似），正在计算精确结果…"
   },
   "fanChart": {
     "yearAxis": "年",
