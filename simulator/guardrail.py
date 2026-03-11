@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import numpy as np
 
 from simulator.cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
@@ -158,8 +161,8 @@ def find_rate_for_target(
 # 归一化公式：v_{t+1} = v_t * (1+r_t) - rate + normalized_cf[t] * cf_scale
 # 与用户手动跑 MC 数学上等价。
 
-_CF_TABLE_RATE_BATCH = 20
 _CF_TABLE_MAX_START_YEARS = 15
+_CF_TABLE_EARLY_TERM_INTERVAL = 10
 
 
 def _select_cf_start_years(
@@ -169,20 +172,31 @@ def _select_cf_start_years(
 ) -> list[int]:
     """选择代表性的 start_year 子集用于 3D 表构建。
 
-    当总 start_year 数超过阈值时，优先保留 CF 转折点附近的年份，
-    其余均匀采样，未被选中的年份在构建后线性插值。
+    当总 start_year 数超过阈值时，按 CF 变化幅度排序选择最重要的
+    转折点，其余均匀采样填充，始终遵守 max_start_years 上限。
     """
     num_all = last_cf_year + 1
     if num_all <= max_start_years:
         return list(range(num_all))
 
+    # 始终包含首尾
     selected: set[int] = {0, last_cf_year}
+    budget = max_start_years - 2
 
+    # 按 CF 变化幅度排序，选择最重要的转折点
+    importance = np.zeros(num_all)
+    importance[0] = -1.0  # 已选
+    importance[last_cf_year] = -1.0  # 已选
     for y in range(1, num_all):
-        if abs(normalized_cf[y] - normalized_cf[y - 1]) > 1e-12:
-            selected.add(y)
-            selected.add(max(0, y - 1))
+        importance[y] = abs(normalized_cf[y] - normalized_cf[y - 1])
 
+    ranked = np.argsort(importance)[::-1]
+    for y in ranked[:budget]:
+        if importance[y] <= 1e-12:
+            break
+        selected.add(int(y))
+
+    # 用均匀采样填充剩余名额
     remaining_budget = max_start_years - len(selected)
     if remaining_budget > 0:
         candidates = [y for y in range(num_all) if y not in selected]
@@ -195,6 +209,48 @@ def _select_cf_start_years(
     return sorted(selected)
 
 
+def _compute_sy_slice(
+    sy: int,
+    n_years: int,
+    returns_1p: np.ndarray,
+    normalized_cf: np.ndarray,
+    rate_grid: np.ndarray,
+    cs_grid: np.ndarray,
+) -> tuple[int, np.ndarray]:
+    """计算单个 start_year 的 3D 表切片（用于并行）。"""
+    num_rates = len(rate_grid)
+    num_cs = len(cs_grid)
+    num_sims = returns_1p.shape[0]
+    remaining = n_years - sy
+    if remaining <= 0:
+        return sy, np.ones((num_rates, num_cs))
+
+    values = np.ones((num_rates, num_cs, num_sims))
+    rates_3d = rate_grid[:, np.newaxis, np.newaxis]
+    active_r = num_rates
+
+    for t in range(remaining):
+        y = sy + t
+        adj = (normalized_cf[y] * cs_grid)[np.newaxis, :, np.newaxis] - rates_3d[:active_r]
+        np.multiply(values[:active_r], returns_1p[:, y], out=values[:active_r])
+        values[:active_r] += adj
+        np.maximum(values[:active_r], 0.0, out=values[:active_r])
+
+        # 定期剪枝已全部失败的高提取率，减少后续计算量
+        if t % _CF_TABLE_EARLY_TERM_INTERVAL == _CF_TABLE_EARLY_TERM_INTERVAL - 1 and active_r > 10:
+            alive_any = np.any(values[:active_r] > 0, axis=(1, 2))
+            new_end = 0
+            for i in range(active_r - 1, -1, -1):
+                if alive_any[i]:
+                    new_end = i + 1
+                    break
+            active_r = max(new_end, 1)
+
+    result = np.zeros((num_rates, num_cs))
+    result[:active_r] = np.mean(values[:active_r] > 0, axis=2)
+    return sy, result
+
+
 def build_cf_aware_table(
     scenarios: np.ndarray,
     cf_schedule: np.ndarray,
@@ -205,27 +261,10 @@ def build_cf_aware_table(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, int] | None:
     """构建现金流感知的 3D 成功率查找表。
 
-    Parameters
-    ----------
-    scenarios : np.ndarray
-        shape (num_sims, max_years) 的实际组合回报率矩阵。
-    cf_schedule : np.ndarray
-        shape (retirement_years,) 的代表性现金流时间表。
-    rate_segments : list of (upper_bound, step) or None
-        非均匀提取率网格分段。None 时使用全局默认。
-    cf_scale_segments : list of (upper_bound, step) or None
-        非均匀 cf_scale 网格分段。None 时使用全局默认。
-    max_sims : int
-        构建 3D 表时使用的最大场景数。5000 条路径的存活率标准误 < 0.5%，
-        足以满足插值精度要求。
-    max_start_years : int
-        start_year 维度最多直接计算的年份数，其余插值。
+    对于固定提取策略，3D 表在 2D 表基础上增加 cf_scale 维度和 start_year
+    维度，以精确建模绝对金额现金流对成功率的影响。
 
-    Returns
-    -------
-    tuple | None
-        (rate_grid, cf_scale_grid, table_3d, cf_ref, last_cf_year)
-        如果 cf_schedule 全为零，返回 None。
+    各 start_year 之间互相独立，通过线程池并行加速构建。
     """
     num_sims, max_years = scenarios.shape
     if num_sims > max_sims:
@@ -258,32 +297,25 @@ def build_cf_aware_table(
     num_start_years = last_cf_year + 1
 
     table_3d = np.zeros((num_rates, num_cs, num_start_years))
-    batch = _CF_TABLE_RATE_BATCH
 
     selected_years = _select_cf_start_years(normalized_cf, last_cf_year, max_start_years)
 
-    for sy in selected_years:
-        remaining = n_years - sy
-        if remaining <= 0:
-            table_3d[:, :, sy] = 1.0
-            continue
+    # 预计算 1+returns 避免重复加法
+    returns_1p = 1.0 + scenarios[:, :n_years]
 
-        for r_start in range(0, num_rates, batch):
-            r_end = min(r_start + batch, num_rates)
-            batch_rates = rate_grid[r_start:r_end]
-            values = np.ones((r_end - r_start, num_cs, num_sims))
-            for t in range(remaining):
-                y = sy + t
-                returns = scenarios[:, y]
-                cf_contrib = normalized_cf[y] * cf_scale_grid
-                values = (
-                    values * (1.0 + returns[np.newaxis, np.newaxis, :])
-                    - batch_rates[:, np.newaxis, np.newaxis]
-                    + cf_contrib[np.newaxis, :, np.newaxis]
-                )
-                alive = values > 0
-                values = np.where(alive, values, 0.0)
-            table_3d[r_start:r_end, :, sy] = np.mean(values > 0, axis=2)
+    # 各 start_year 互相独立，用线程池并行（numpy 释放 GIL）
+    max_workers = max(1, min(os.cpu_count() or 1, 8, len(selected_years)))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [
+            pool.submit(
+                _compute_sy_slice, sy, n_years, returns_1p,
+                normalized_cf, rate_grid, cf_scale_grid,
+            )
+            for sy in selected_years
+        ]
+        for fut in as_completed(futures):
+            sy, result = fut.result()
+            table_3d[:, :, sy] = result
 
     # 对未直接计算的 start_year 做线性插值
     if len(selected_years) < num_start_years:
@@ -292,7 +324,6 @@ def build_cf_aware_table(
         for sy in range(num_start_years):
             if sy in selected_set:
                 continue
-            # 用 searchsorted 做 O(log n) 查找，替代 O(n) 的 max/min
             idx = np.searchsorted(sorted_selected, sy)
             lo = sorted_selected[max(0, idx - 1)]
             hi = sorted_selected[min(idx, len(sorted_selected) - 1)]
