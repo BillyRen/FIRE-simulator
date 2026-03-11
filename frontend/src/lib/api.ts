@@ -35,9 +35,9 @@ import type {
 const API_TIMEOUT_MS = 120_000; // 2 minutes
 const HEAVY_API_TIMEOUT_MS = 180_000; // 3 minutes — scenarios & sensitivity
 
-async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs: number = API_TIMEOUT_MS): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
     if (!res.ok) {
@@ -55,12 +55,12 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
   }
 }
 
-async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
+async function post<TReq, TRes>(path: string, body: TReq, timeoutMs: number = API_TIMEOUT_MS): Promise<TRes> {
   const res = await fetchWithTimeout(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, timeoutMs);
   return res.json();
 }
 
@@ -166,12 +166,12 @@ export async function runAllocationSweep(req: AllocationSweepRequest, onProgress
 
 // 批量历史回测：主模拟页
 export async function runSimBatchBacktest(params: FormParams): Promise<SimBatchBacktestResponse> {
-  return post<FormParams, SimBatchBacktestResponse>("/api/simulate/backtest-batch", params);
+  return post<FormParams, SimBatchBacktestResponse>("/api/simulate/backtest-batch", params, HEAVY_API_TIMEOUT_MS);
 }
 
 // 批量历史回测：Guardrail 页
 export async function runGuardrailBatchBacktest(req: Record<string, unknown>): Promise<GuardrailBatchBacktestResponse> {
-  return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req);
+  return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req, HEAVY_API_TIMEOUT_MS);
 }
 
 // 情景分析：现金流情景分解（护栏页）

@@ -725,3 +725,58 @@ def run_simple_historical_backtest(
         "withdrawals": withdrawals_out,
         "survived": survived,
     }
+
+
+def batch_backtest_fixed_vectorized(
+    real_returns_2d: np.ndarray,
+    initial_portfolio: float,
+    annual_withdrawal: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorized batch backtest for fixed withdrawal strategy with no cash flows.
+
+    Parameters
+    ----------
+    real_returns_2d : np.ndarray, shape (num_paths, max_years)
+        Real portfolio returns for each path. Paths shorter than max_years
+        should be NaN-padded (handled by caller via masking).
+    initial_portfolio : float
+        Starting portfolio value.
+    annual_withdrawal : float
+        Fixed annual withdrawal (real dollars).
+
+    Returns
+    -------
+    portfolios : np.ndarray, shape (num_paths, max_years + 1)
+        Portfolio value trajectories (year 0 = initial).
+    withdrawals : np.ndarray, shape (num_paths, max_years)
+        Actual withdrawal each year.
+    survived : np.ndarray, shape (num_paths,)
+        True if portfolio > 0 at end.
+    """
+    num_paths, max_years = real_returns_2d.shape
+    portfolios = np.zeros((num_paths, max_years + 1))
+    portfolios[:, 0] = initial_portfolio
+    wd_out = np.zeros((num_paths, max_years))
+
+    # Track which paths are still alive
+    alive = np.ones(num_paths, dtype=bool)
+
+    for yr in range(max_years):
+        vals = portfolios[:, yr]
+        after_growth = vals * (1.0 + real_returns_2d[:, yr])
+        # For alive paths: withdraw min(annual_withdrawal, max(after_growth, 0))
+        actual_wd = np.where(
+            alive,
+            np.minimum(annual_withdrawal, np.maximum(after_growth, 0.0)),
+            0.0,
+        )
+        new_val = np.where(alive, after_growth - actual_wd, 0.0)
+        # Mark as dead if value <= 0
+        just_died = alive & (new_val <= 0)
+        new_val[just_died] = 0.0
+        alive[just_died] = False
+        portfolios[:, yr + 1] = new_val
+        wd_out[:, yr] = actual_wd
+
+    survived = portfolios[:, -1] > 0
+    return portfolios, wd_out, survived

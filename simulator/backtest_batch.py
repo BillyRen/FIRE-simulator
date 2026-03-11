@@ -7,7 +7,7 @@ import pandas as pd
 
 from .cashflow import CashFlowItem
 from .guardrail import run_historical_backtest
-from .monte_carlo import run_simple_historical_backtest
+from .monte_carlo import run_simple_historical_backtest, batch_backtest_fixed_vectorized
 from .portfolio import compute_real_portfolio_returns
 from .statistics import (
     compute_effective_funded_ratio,
@@ -20,6 +20,17 @@ from .statistics import (
 )
 
 MIN_BACKTEST_YEARS = 10
+
+
+def _compute_country_arrays(cdf_sorted: pd.DataFrame, allocation, expense_ratios,
+                            leverage, borrowing_spread):
+    """Pre-compute full real returns and inflation arrays for one country."""
+    real_returns_full = compute_real_portfolio_returns(
+        cdf_sorted, allocation, expense_ratios,
+        leverage=leverage, borrowing_spread=borrowing_spread,
+    )
+    inflation_full = cdf_sorted["Inflation"].values
+    return real_returns_full, inflation_full
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +78,13 @@ def run_sim_batch_backtest(
     if country_dfs is not None:
         iter_dfs = country_dfs
     elif filtered_df is not None and len(filtered_df) > 0:
-        # 单国：从 Country 列推断 ISO
         iso = str(filtered_df["Country"].iloc[0])
         iter_dfs = {iso: filtered_df}
     else:
         return _empty_sim_batch_result()
+
+    has_cf = cash_flows is not None and len(cash_flows) > 0
+    use_vectorized = withdrawal_strategy == "fixed" and not has_cf
 
     paths: list[dict] = []
 
@@ -80,67 +93,121 @@ def run_sim_batch_backtest(
         years = cdf_sorted["Year"].values
         max_year = int(years[-1])
 
-        for start_year in years:
-            start_year = int(start_year)
-            avail = max_year - start_year + 1
-            if avail < MIN_BACKTEST_YEARS:
+        # Pre-compute full real returns and inflation for this country (once)
+        real_returns_full, inflation_full = _compute_country_arrays(
+            cdf_sorted, allocation, expense_ratios, leverage, borrowing_spread,
+        )
+
+        if use_vectorized:
+            # Collect all valid (start_idx, n_years) pairs for batch processing
+            batch_entries = []
+            for i, sy in enumerate(years):
+                sy = int(sy)
+                avail = max_year - sy + 1
+                if avail < MIN_BACKTEST_YEARS:
+                    continue
+                n_years = min(retirement_years, avail)
+                batch_entries.append((i, n_years, sy))
+
+            if not batch_entries:
                 continue
 
-            subset = cdf_sorted[cdf_sorted["Year"] >= start_year].iloc[
-                : min(retirement_years, avail)
-            ]
-            n_years = len(subset)
+            # Build 2D return matrix for vectorized batch
+            max_n = max(e[1] for e in batch_entries)
+            ret_2d = np.zeros((len(batch_entries), max_n))
+            infl_2d = np.zeros((len(batch_entries), max_n))
+            for bi, (start_idx, n_years, _) in enumerate(batch_entries):
+                ret_2d[bi, :n_years] = real_returns_full[start_idx:start_idx + n_years]
+                infl_2d[bi, :n_years] = inflation_full[start_idx:start_idx + n_years]
 
-            real_returns = compute_real_portfolio_returns(
-                subset, allocation, expense_ratios,
-                leverage=leverage, borrowing_spread=borrowing_spread,
-            )
-            inflation_series = subset["Inflation"].values
-
-            result = run_simple_historical_backtest(
-                real_returns=real_returns,
-                initial_portfolio=initial_portfolio,
-                annual_withdrawal=annual_withdrawal,
-                retirement_years=n_years,
-                withdrawal_strategy=withdrawal_strategy,
-                dynamic_ceiling=dynamic_ceiling,
-                dynamic_floor=dynamic_floor,
-                retirement_age=retirement_age,
-                cash_flows=cash_flows,
-                inflation_series=inflation_series,
-                declining_rate=declining_rate,
-                declining_start_age=declining_start_age,
-                smile_decline_rate=smile_decline_rate,
-                smile_decline_start_age=smile_decline_start_age,
-                smile_min_age=smile_min_age,
-                smile_increase_rate=smile_increase_rate,
+            portfolios, withdrawals, survived_arr = batch_backtest_fixed_vectorized(
+                ret_2d, initial_portfolio, annual_withdrawal,
             )
 
-            pm = compute_single_path_metrics(
-                real_returns[:n_years],
-                inflation_series[:n_years],
-            )
+            for bi, (start_idx, n_years, start_year) in enumerate(batch_entries):
+                is_complete = n_years >= retirement_years
+                port_list = portfolios[bi, :n_years + 1].tolist()
+                wd_list = withdrawals[bi, :n_years].tolist()
+                rr = real_returns_full[start_idx:start_idx + n_years]
+                inf = inflation_full[start_idx:start_idx + n_years]
+                pm = compute_single_path_metrics(rr, inf)
+                year_labels = years[start_idx:start_idx + n_years].tolist()
 
-            year_labels = subset["Year"].tolist()
+                paths.append({
+                    "country": iso,
+                    "start_year": start_year,
+                    "years_simulated": n_years,
+                    "is_complete": is_complete,
+                    "survived": bool(survived_arr[bi]),
+                    "final_portfolio": port_list[-1],
+                    "total_consumption": sum(wd_list),
+                    "year_labels": year_labels,
+                    "portfolio": port_list,
+                    "withdrawals": wd_list,
+                    "path_metrics": pm,
+                    # Cached for aggregation phase
+                    "_real_returns": rr,
+                    "_inflation": inf,
+                })
+        else:
+            # Non-fixed strategies: per-path loop with numpy slicing
+            for i, start_year in enumerate(years):
+                start_year = int(start_year)
+                avail = max_year - start_year + 1
+                if avail < MIN_BACKTEST_YEARS:
+                    continue
 
-            paths.append({
-                "country": iso,
-                "start_year": start_year,
-                "years_simulated": n_years,
-                "is_complete": n_years >= retirement_years,
-                "survived": result["survived"],
-                "final_portfolio": result["portfolio"][-1],
-                "total_consumption": sum(result["withdrawals"]),
-                "year_labels": year_labels,
-                "portfolio": result["portfolio"],
-                "withdrawals": result["withdrawals"],
-                "path_metrics": pm,
-            })
+                n_years = min(retirement_years, avail)
+                real_returns = real_returns_full[i:i + n_years]
+                inflation_series = inflation_full[i:i + n_years]
+
+                result = run_simple_historical_backtest(
+                    real_returns=real_returns,
+                    initial_portfolio=initial_portfolio,
+                    annual_withdrawal=annual_withdrawal,
+                    retirement_years=n_years,
+                    withdrawal_strategy=withdrawal_strategy,
+                    dynamic_ceiling=dynamic_ceiling,
+                    dynamic_floor=dynamic_floor,
+                    retirement_age=retirement_age,
+                    cash_flows=cash_flows,
+                    inflation_series=inflation_series,
+                    declining_rate=declining_rate,
+                    declining_start_age=declining_start_age,
+                    smile_decline_rate=smile_decline_rate,
+                    smile_decline_start_age=smile_decline_start_age,
+                    smile_min_age=smile_min_age,
+                    smile_increase_rate=smile_increase_rate,
+                )
+
+                pm = compute_single_path_metrics(real_returns, inflation_series)
+                year_labels = years[i:i + n_years].tolist()
+
+                paths.append({
+                    "country": iso,
+                    "start_year": start_year,
+                    "years_simulated": n_years,
+                    "is_complete": n_years >= retirement_years,
+                    "survived": result["survived"],
+                    "final_portfolio": result["portfolio"][-1],
+                    "total_consumption": sum(result["withdrawals"]),
+                    "year_labels": year_labels,
+                    "portfolio": result["portfolio"],
+                    "withdrawals": result["withdrawals"],
+                    "path_metrics": pm,
+                    # Cached for aggregation phase
+                    "_real_returns": real_returns,
+                    "_inflation": inflation_series,
+                })
 
     # --- 聚合统计（仅完整路径） ---
     complete = [p for p in paths if p["is_complete"]]
 
     if len(complete) == 0:
+        # Strip cached arrays before returning
+        for p in paths:
+            p.pop("_real_returns", None)
+            p.pop("_inflation", None)
         return {
             "num_paths": len(paths),
             "num_complete": 0,
@@ -160,27 +227,16 @@ def run_sim_batch_backtest(
     stats = compute_statistics(traj, retirement_years, wd_mat)
     summary_df = final_values_summary_table(stats)
 
-    # 构建回报/通胀矩阵用于 portfolio_metrics
-    # 需要从完整路径重新计算回报
-    real_ret_mat = np.zeros((len(complete), retirement_years))
-    infl_mat = np.zeros((len(complete), retirement_years))
-
-    for idx, p in enumerate(complete):
-        iso = p["country"]
-        start_year = p["start_year"]
-        if country_dfs is not None:
-            cdf = country_dfs[iso]
-        else:
-            cdf = filtered_df
-        cdf_sorted = cdf.sort_values("Year").reset_index(drop=True)
-        subset = cdf_sorted[cdf_sorted["Year"] >= start_year].iloc[:retirement_years]
-        real_ret_mat[idx] = compute_real_portfolio_returns(
-            subset, allocation, expense_ratios,
-            leverage=leverage, borrowing_spread=borrowing_spread,
-        )
-        infl_mat[idx] = subset["Inflation"].values
+    # 构建回报/通胀矩阵 — 直接从缓存读取，无需重新计算
+    real_ret_mat = np.array([p["_real_returns"] for p in complete])
+    infl_mat = np.array([p["_inflation"] for p in complete])
 
     port_metrics = compute_portfolio_metrics(real_ret_mat, infl_mat)
+
+    # Strip cached arrays before returning (avoid serialization overhead)
+    for p in paths:
+        p.pop("_real_returns", None)
+        p.pop("_inflation", None)
 
     # 序列化分位数轨迹
     pct_traj = {str(k): v.tolist() for k, v in stats.percentile_trajectories.items()}
@@ -271,20 +327,20 @@ def run_guardrail_batch_backtest(
         years_arr = cdf_sorted["Year"].values
         max_year = int(years_arr[-1])
 
-        for start_year in years_arr:
+        # Pre-compute full real returns and inflation for this country (once)
+        real_returns_full, inflation_full = _compute_country_arrays(
+            cdf_sorted, allocation, expense_ratios, leverage, borrowing_spread,
+        )
+
+        for i, start_year in enumerate(years_arr):
             start_year = int(start_year)
             avail = max_year - start_year + 1
             if avail < MIN_BACKTEST_YEARS:
                 continue
 
             n_years = min(retirement_years, avail)
-            subset = cdf_sorted[cdf_sorted["Year"] >= start_year].iloc[:n_years]
-
-            real_returns = compute_real_portfolio_returns(
-                subset, allocation, expense_ratios,
-                leverage=leverage, borrowing_spread=borrowing_spread,
-            )
-            inflation_series = subset["Inflation"].values
+            real_returns = real_returns_full[i:i + n_years]
+            inflation_series = inflation_full[i:i + n_years]
 
             result = run_historical_backtest(
                 real_returns=real_returns,
@@ -309,12 +365,8 @@ def run_guardrail_batch_backtest(
                 last_cf_year=last_cf_year,
             )
 
-            pm = compute_single_path_metrics(
-                real_returns[:n_years],
-                inflation_series[:n_years],
-            )
-
-            year_labels = subset["Year"].tolist()
+            pm = compute_single_path_metrics(real_returns, inflation_series)
+            year_labels = years_arr[i:i + n_years].tolist()
 
             # 逐条路径的消费地板判定
             _path_floor = consumption_floor * annual_withdrawal
