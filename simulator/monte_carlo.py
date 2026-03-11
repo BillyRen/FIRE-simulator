@@ -49,6 +49,191 @@ def compute_withdrawal(
     return annual_withdrawal
 
 
+def run_simulation_from_matrix(
+    real_returns_matrix: np.ndarray,
+    inflation_matrix: np.ndarray,
+    initial_portfolio: float,
+    annual_withdrawal: float,
+    retirement_years: int,
+    withdrawal_strategy: str = "fixed",
+    dynamic_ceiling: float = 0.05,
+    dynamic_floor: float = 0.025,
+    retirement_age: int = 45,
+    cash_flows: list[CashFlowItem] | None = None,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
+    smile_increase_rate: float = 0.01,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Run simulation using pre-generated return/inflation matrices (skip bootstrap).
+
+    This enables sharing a single bootstrap across multiple simulation variants
+    (different cash flows, withdrawal amounts, etc.), dramatically reducing compute
+    time for scenario analysis and sensitivity endpoints.
+
+    Parameters
+    ----------
+    real_returns_matrix : np.ndarray
+        Shape (num_simulations, retirement_years) real portfolio returns.
+    inflation_matrix : np.ndarray
+        Shape (num_simulations, retirement_years) inflation rates.
+    Other parameters same as run_simulation().
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+        (trajectories, withdrawals, real_returns_matrix, inflation_matrix)
+    """
+    num_simulations = real_returns_matrix.shape[0]
+    can_use_vectorized = (
+        withdrawal_strategy == "fixed"
+        and (cash_flows is None or len(cash_flows) == 0)
+    )
+
+    if can_use_vectorized:
+        return _simulate_vectorized_fixed_from_matrix(
+            real_returns_matrix, initial_portfolio, annual_withdrawal, retirement_years,
+        )
+
+    return _simulate_general_from_matrix(
+        real_returns_matrix, inflation_matrix,
+        initial_portfolio, annual_withdrawal, retirement_years,
+        withdrawal_strategy, dynamic_ceiling, dynamic_floor,
+        retirement_age, cash_flows,
+        declining_rate, declining_start_age,
+        smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+    )
+
+
+def _simulate_vectorized_fixed_from_matrix(
+    real_returns_matrix: np.ndarray,
+    initial_portfolio: float,
+    annual_withdrawal: float,
+    retirement_years: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorized fixed-strategy simulation from pre-generated matrices."""
+    num_simulations = real_returns_matrix.shape[0]
+    trajectories = np.zeros((num_simulations, retirement_years + 1))
+    trajectories[:, 0] = initial_portfolio
+    withdrawals = np.full((num_simulations, retirement_years), float(annual_withdrawal))
+    values = np.full(num_simulations, initial_portfolio, dtype=float)
+    alive = np.ones(num_simulations, dtype=bool)
+
+    for year in range(retirement_years):
+        grown = values[alive] * (1.0 + real_returns_matrix[alive, year])
+        actual_wd = np.minimum(annual_withdrawal, np.maximum(grown, 0.0))
+        values[alive] = grown - actual_wd
+        withdrawals[alive, year] = actual_wd
+        newly_failed = alive & (values <= 0)
+        values[newly_failed] = 0.0
+        alive[newly_failed] = False
+        withdrawals[newly_failed, year + 1:] = 0.0
+        trajectories[:, year + 1] = values
+
+    # Return a dummy inflation_matrix of zeros to match signature
+    return trajectories, withdrawals, real_returns_matrix, np.zeros_like(real_returns_matrix)
+
+
+def _simulate_general_from_matrix(
+    real_returns_matrix: np.ndarray,
+    inflation_matrix: np.ndarray,
+    initial_portfolio: float,
+    annual_withdrawal: float,
+    retirement_years: int,
+    withdrawal_strategy: str,
+    dynamic_ceiling: float,
+    dynamic_floor: float,
+    retirement_age: int,
+    cash_flows: list[CashFlowItem] | None,
+    declining_rate: float,
+    declining_start_age: int,
+    smile_decline_rate: float,
+    smile_decline_start_age: int,
+    smile_min_age: int,
+    smile_increase_rate: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """General simulation loop from pre-generated matrices (all strategies + cash flows)."""
+    num_simulations = real_returns_matrix.shape[0]
+    initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
+
+    trajectories = np.zeros((num_simulations, retirement_years + 1))
+    trajectories[:, 0] = initial_portfolio
+    withdrawals = np.zeros((num_simulations, retirement_years))
+
+    has_cf = cash_flows is not None and len(cash_flows) > 0
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+
+    if has_cf and not has_groups:
+        adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
+        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
+        has_nominal = len(nominal_cfs) > 0
+        fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
+    else:
+        fixed_cf_schedule = None
+        nominal_cfs = []
+        has_nominal = False
+
+    rng = np.random.default_rng() if has_groups else None
+
+    for i in range(num_simulations):
+        real_returns = real_returns_matrix[i]
+
+        # Cash flow schedule for this path
+        if has_groups:
+            active_cfs = sample_cash_flows(cash_flows, rng)
+            if active_cfs:
+                _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
+                _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
+                _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                if _nom:
+                    _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_matrix[i])
+                    cf_schedule = _adj_sched + _nom_sched
+                else:
+                    cf_schedule = _adj_sched
+            else:
+                cf_schedule = None
+        elif has_cf:
+            if has_nominal:
+                nominal_schedule = build_cf_schedule(
+                    nominal_cfs, retirement_years, inflation_matrix[i]
+                )
+                cf_schedule = fixed_cf_schedule + nominal_schedule
+            else:
+                cf_schedule = fixed_cf_schedule
+        else:
+            cf_schedule = None
+
+        value = initial_portfolio
+        prev_withdrawal = annual_withdrawal
+
+        for year in range(retirement_years):
+            withdrawal = compute_withdrawal(
+                withdrawal_strategy, year, value, annual_withdrawal, prev_withdrawal,
+                initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+                declining_rate, declining_start_age,
+                smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+            )
+            prev_withdrawal = withdrawal
+            value_after_growth = value * (1.0 + real_returns[year])
+            actual_wd = min(withdrawal, max(value_after_growth, 0.0))
+            value = value_after_growth - actual_wd
+            withdrawals[i, year] = actual_wd
+            if cf_schedule is not None:
+                value += cf_schedule[year]
+                if cf_schedule[year] < 0:
+                    withdrawals[i, year] -= cf_schedule[year]
+            if value <= 0:
+                value = 0.0
+                trajectories[i, year + 1:] = 0.0
+                withdrawals[i, year + 1:] = 0.0
+                break
+            trajectories[i, year + 1] = value
+
+    return trajectories, withdrawals, real_returns_matrix, inflation_matrix
+
+
 def run_simulation_vectorized_fixed(
     initial_portfolio: float,
     annual_withdrawal: float,

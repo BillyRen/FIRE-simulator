@@ -189,6 +189,12 @@ def _simulate_success_and_funded(
     retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_matrix: np.ndarray | None = None,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
+    smile_increase_rate: float = 0.01,
 ) -> tuple[float, float]:
     """给定预生成回报矩阵和参数，快速计算成功率和资金覆盖率。
 
@@ -298,6 +304,8 @@ def _simulate_success_and_funded(
             wd = compute_withdrawal(
                 withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
                 initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+                declining_rate, declining_start_age,
+                smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
             )
 
             prev_wd = wd
@@ -350,7 +358,10 @@ def _sweep_single_allocation(args):
     (w_us, w_intl, w_bond,
      initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
      withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
-     cash_flows) = args
+     cash_flows,
+     declining_rate, declining_start_age,
+     smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+     ) = args
 
     us_stock = _worker_shared["us_stock"]
     intl_stock = _worker_shared["intl_stock"]
@@ -447,6 +458,8 @@ def _sweep_single_allocation(args):
                 wd = compute_withdrawal(
                     withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
                     initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+                    declining_rate, declining_start_age,
+                    smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
                 )
 
                 prev_wd = wd
@@ -496,6 +509,43 @@ def _sweep_single_allocation(args):
         "cvar_10": cvar_10,
         "p90_final": p90_final,
     }
+
+
+def raw_to_combined(
+    raw: dict[str, np.ndarray],
+    allocation: dict[str, float],
+    leverage: float = 1.0,
+    borrowing_spread: float = 0.0,
+) -> np.ndarray:
+    """Compute combined real returns from per-asset raw return matrices.
+
+    Parameters
+    ----------
+    raw : dict
+        Output from pregenerate_raw_scenarios() — per-asset return matrices
+        (already net of expense ratios) and inflation.
+    allocation : dict
+        Asset weights, e.g. {"domestic_stock": 0.6, "global_stock": 0.1, "domestic_bond": 0.3}.
+    leverage : float
+        Leverage multiplier.
+    borrowing_spread : float
+        Borrowing cost spread (above inflation).
+
+    Returns
+    -------
+    np.ndarray
+        Shape (num_simulations, retirement_years) combined real returns.
+    """
+    w_us = allocation.get("domestic_stock", 0)
+    w_intl = allocation.get("global_stock", 0)
+    w_bond = allocation.get("domestic_bond", 0)
+    inflation = raw["inflation"]
+
+    nominal = w_us * raw["domestic_stock"] + w_intl * raw["global_stock"] + w_bond * raw["domestic_bond"]
+    if leverage != 1.0:
+        nominal = leverage * nominal - (leverage - 1.0) * (inflation + borrowing_spread)
+    real = (1.0 + nominal) / (1.0 + inflation) - 1.0
+    return real
 
 
 def sweep_withdrawal_rates(
@@ -642,6 +692,12 @@ def sweep_allocations(
     cash_flows: list[CashFlowItem] | None = None,
     leverage: float = 1.0,
     borrowing_spread: float = 0.0,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
+    smile_increase_rate: float = 0.01,
 ) -> list[dict]:
     """扫描所有满足 a+b+c=1 的资产配置，计算各项关键指标。
 
@@ -699,6 +755,8 @@ def sweep_allocations(
             initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
             withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
             cash_flows,
+            declining_rate, declining_start_age,
+            smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
         ))
         for w_us, w_intl, w_bond in allocations
     ]

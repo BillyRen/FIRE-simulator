@@ -63,7 +63,7 @@ from simulator.guardrail import (
     run_guardrail_simulation,
     run_historical_backtest,
 )
-from simulator.monte_carlo import run_simulation, run_simple_historical_backtest
+from simulator.monte_carlo import run_simulation, run_simulation_from_matrix, run_simple_historical_backtest
 from simulator.portfolio import compute_real_portfolio_returns
 from simulator.statistics import (
     PERCENTILES,
@@ -82,6 +82,7 @@ from simulator.sweep import (
     interpolate_targets,
     pregenerate_raw_scenarios,
     pregenerate_return_scenarios,
+    raw_to_combined,
     sweep_allocations,
     sweep_withdrawal_rates,
 )
@@ -632,7 +633,11 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
 @app.post("/api/simulate/scenarios")
 @limiter.limit("5/minute")
 def api_simulate_scenarios(request: Request, req: SimulationRequest):
-    """枚举概率现金流的所有确定性组合，用用户选择的提取策略模拟。"""
+    """枚举概率现金流的所有确定性组合，用用户选择的提取策略模拟。
+
+    优化：所有情景共享同一组 bootstrap 回报矩阵（Common Random Numbers），
+    将 bootstrap 次数从 N+1 降至 1，同时消除随机噪声使对比更准确。
+    """
     filtered, country_dfs = _resolve_data(req)
     _validate_data_sufficient(filtered, country_dfs)
 
@@ -653,42 +658,45 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
 
         country_weights = _resolve_country_weights(req, country_dfs)
 
-        def _sim_kwargs_base():
-            return dict(
+        # Single bootstrap for all scenarios
+        scenarios, inflation_matrix = pregenerate_return_scenarios(
+            allocation=_alloc_dict(req.allocation),
+            expense_ratios=_expense_dict(req.expense_ratios),
+            retirement_years=req.retirement_years,
+            min_block=req.min_block,
+            max_block=req.max_block,
+            num_simulations=req.num_simulations,
+            returns_df=filtered,
+            leverage=req.leverage,
+            borrowing_spread=req.borrowing_spread,
+            country_dfs=country_dfs,
+            country_weights=country_weights,
+        )
+
+        yield {"type": "progress", "stage": "scenario_run", "pct": 20}
+
+        def _run_scenario(
+            scenario_cfs: list[CashFlowItem] | None,
+            label: str,
+        ) -> ScenarioResult:
+            traj, wd, _, _ = run_simulation_from_matrix(
+                real_returns_matrix=scenarios,
+                inflation_matrix=inflation_matrix,
                 initial_portfolio=req.initial_portfolio,
                 annual_withdrawal=req.annual_withdrawal,
-                allocation=_alloc_dict(req.allocation),
-                expense_ratios=_expense_dict(req.expense_ratios),
                 retirement_years=req.retirement_years,
-                min_block=req.min_block,
-                max_block=req.max_block,
-                num_simulations=req.num_simulations,
-                returns_df=filtered,
                 withdrawal_strategy=req.withdrawal_strategy,
                 dynamic_ceiling=req.dynamic_ceiling,
                 dynamic_floor=req.dynamic_floor,
                 retirement_age=req.retirement_age,
-                leverage=req.leverage,
-                borrowing_spread=req.borrowing_spread,
-                country_dfs=country_dfs,
-                country_weights=country_weights,
+                cash_flows=scenario_cfs,
                 declining_rate=req.declining_rate,
                 declining_start_age=req.declining_start_age,
                 smile_decline_rate=req.smile_decline_rate,
                 smile_decline_start_age=req.smile_decline_start_age,
                 smile_min_age=req.smile_min_age,
                 smile_increase_rate=req.smile_increase_rate,
-                glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
-                glide_path_years=req.glide_path_years,
             )
-
-        def _run_scenario(
-            scenario_cfs: list[CashFlowItem] | None,
-            label: str,
-        ) -> ScenarioResult:
-            kw = _sim_kwargs_base()
-            kw["cash_flows"] = scenario_cfs
-            traj, wd, _, _ = run_simulation(**kw)
             sr = float(np.mean(traj[:, -1] > 0))
             fr = compute_funded_ratio(traj, req.retirement_years)
             total = np.sum(wd, axis=1)
@@ -718,7 +726,7 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
             results = []
             for fut in as_completed(all_futures):
                 completed += 1
-                pct = 15 + int(80 * completed / total)
+                pct = 20 + int(75 * completed / total)
                 yield {"type": "progress", "stage": "scenario_run", "pct": pct, "current": completed, "total": total}
                 if fut is future_base:
                     base = fut.result()
@@ -744,7 +752,11 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
 @app.post("/api/simulate/sensitivity")
 @limiter.limit("5/minute")
 def api_simulate_sensitivity(request: Request, req: SimulationRequest):
-    """核心参数 ±delta 对成功率的影响（使用用户选择的提取策略）。"""
+    """核心参数 ±delta 对成功率的影响（使用用户选择的提取策略）。
+
+    优化：使用 Common Random Numbers — 单次 bootstrap 生成 raw 矩阵，
+    所有变体复用同一组随机回报，bootstrap 次数从 9 降至 1。
+    """
     filtered, country_dfs = _resolve_data(req)
     _validate_data_sufficient(filtered, country_dfs)
 
@@ -754,46 +766,59 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
         country_weights = _resolve_country_weights(req, country_dfs)
         cash_flows = _to_cash_flows(req.cash_flows)
 
-        def _run_sim(ip, aw, yrs, alloc=None, er=None, cfs=None):
-            kw = dict(
+        base_ip = req.initial_portfolio
+        base_aw = req.annual_withdrawal
+        base_years = req.retirement_years
+        stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
+        base_alloc = _alloc_dict(req.allocation)
+
+        # Single bootstrap: generate raw per-asset matrices with max needed length
+        max_years = base_years + 10
+        raw = pregenerate_raw_scenarios(
+            expense_ratios=_expense_dict(req.expense_ratios),
+            retirement_years=max_years,
+            min_block=req.min_block,
+            max_block=req.max_block,
+            num_simulations=req.num_simulations,
+            returns_df=filtered,
+            country_dfs=country_dfs,
+            country_weights=country_weights,
+        )
+
+        yield {"type": "progress", "stage": "sensitivity_combine", "pct": 15}
+
+        # Combined real returns for base allocation (full length)
+        base_combined_full = raw_to_combined(raw, base_alloc, req.leverage, req.borrowing_spread)
+        base_inflation_full = raw["inflation"]
+
+        # Base case: use base_years slice
+        base_combined = base_combined_full[:, :base_years]
+        base_inflation = base_inflation_full[:, :base_years]
+
+        def _run_from_matrix(returns_mat, inflation_mat, ip, aw, yrs, cfs=None):
+            traj, wd, _, _ = run_simulation_from_matrix(
+                real_returns_matrix=returns_mat[:, :yrs],
+                inflation_matrix=inflation_mat[:, :yrs],
                 initial_portfolio=ip,
                 annual_withdrawal=aw,
-                allocation=alloc or _alloc_dict(req.allocation),
-                expense_ratios=er or _expense_dict(req.expense_ratios),
                 retirement_years=yrs,
-                min_block=req.min_block,
-                max_block=req.max_block,
-                num_simulations=req.num_simulations,
-                returns_df=filtered,
                 withdrawal_strategy=req.withdrawal_strategy,
                 dynamic_ceiling=req.dynamic_ceiling,
                 dynamic_floor=req.dynamic_floor,
                 retirement_age=req.retirement_age,
                 cash_flows=cfs if cfs is not None else cash_flows,
-                leverage=req.leverage,
-                borrowing_spread=req.borrowing_spread,
-                country_dfs=country_dfs,
-                country_weights=country_weights,
                 declining_rate=req.declining_rate,
                 declining_start_age=req.declining_start_age,
                 smile_decline_rate=req.smile_decline_rate,
                 smile_decline_start_age=req.smile_decline_start_age,
                 smile_min_age=req.smile_min_age,
                 smile_increase_rate=req.smile_increase_rate,
-                glide_path_end_allocation=_alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
-                glide_path_years=req.glide_path_years,
             )
-            traj, _, _, _ = run_simulation(**kw)
             sr = float(np.mean(traj[:, -1] > 0))
             fr = compute_funded_ratio(traj, yrs)
             return sr, fr
 
-        base_ip = req.initial_portfolio
-        base_aw = req.annual_withdrawal
-        base_years = req.retirement_years
-        stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
-
-        base_sr, base_fr = _run_sim(base_ip, base_aw, base_years)
+        base_sr, base_fr = _run_from_matrix(base_combined, base_inflation, base_ip, base_aw, base_years)
 
         param_specs = [
             ("initial_portfolio", "初始资产", base_ip, base_ip * 0.8, base_ip * 1.2),
@@ -811,22 +836,22 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
 
             for side, side_val in [("low", lo_val), ("high", hi_val)]:
                 run_idx += 1
-                pct = 10 + int(85 * run_idx / total_runs)
+                pct = 20 + int(75 * run_idx / total_runs)
                 yield {"type": "progress", "stage": "sensitivity_param", "pct": pct, "current": run_idx, "total": total_runs}
 
                 sr, fr = base_sr, base_fr
 
                 if key == "initial_portfolio":
-                    sr, fr = _run_sim(side_val, base_aw, base_years)
+                    sr, fr = _run_from_matrix(base_combined, base_inflation, side_val, base_aw, base_years)
                 elif key == "annual_withdrawal":
-                    sr, fr = _run_sim(base_ip, side_val, base_years)
+                    sr, fr = _run_from_matrix(base_combined, base_inflation, base_ip, side_val, base_years)
                 elif key == "retirement_years":
-                    sr, fr = _run_sim(base_ip, base_aw, int(side_val))
+                    yrs = int(side_val)
+                    sr, fr = _run_from_matrix(base_combined_full, base_inflation_full, base_ip, base_aw, yrs)
                 elif key == "stock_allocation":
                     new_stock = side_val
-                    old_stock = stock_pct
-                    if old_stock > 0:
-                        ratio = new_stock / old_stock
+                    if stock_pct > 0:
+                        ratio = new_stock / stock_pct
                         dom_new = req.allocation.domestic_stock * ratio
                         glb_new = req.allocation.global_stock * ratio
                     else:
@@ -834,7 +859,8 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
                         glb_new = new_stock / 2.0
                     bond_new = max(0.0, 1.0 - dom_new - glb_new)
                     new_alloc = {"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new}
-                    sr, fr = _run_sim(base_ip, base_aw, base_years, alloc=new_alloc)
+                    new_combined = raw_to_combined(raw, new_alloc, req.leverage, req.borrowing_spread)
+                    sr, fr = _run_from_matrix(new_combined, base_inflation_full, base_ip, base_aw, base_years)
 
                 if side == "low":
                     lo_sr, lo_fr = sr, fr
@@ -1147,7 +1173,7 @@ def api_guardrail(request: Request, req: GuardrailRequest):
 
         cash_flows = _to_cash_flows(req.cash_flows)
         available_cpus = os.cpu_count() or 1
-        progressive = cash_flows and available_cpus < _PROGRESSIVE_CPU_THRESHOLD
+        progressive = cash_flows and (available_cpus < _PROGRESSIVE_CPU_THRESHOLD or is_low_memory())
 
         if progressive:
             # 低 CPU: 先用 2D 表快速返回初步结果
@@ -1330,7 +1356,11 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
 @app.post("/api/guardrail/sensitivity")
 @limiter.limit("5/minute")
 def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
-    """固定目标成功率，变动参数后用护栏策略计算最优提取额/初始资产。"""
+    """固定目标成功率，变动参数后用护栏策略计算最优提取额/初始资产。
+
+    优化：使用 Common Random Numbers — 单次 bootstrap 生成 raw 矩阵，
+    所有变体（含 stock_allocation / retirement_years）共享同一组随机序列。
+    """
     filtered, country_dfs = _resolve_data(req)
     _validate_data_sufficient(filtered, country_dfs)
 
@@ -1342,30 +1372,42 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
 
         base_years = req.retirement_years
         stock_pct = req.allocation.domestic_stock + req.allocation.global_stock
-
         base_alloc = _alloc_dict(req.allocation)
         base_er = _expense_dict(req.expense_ratios)
-        base_scen, base_infl = pregenerate_return_scenarios(
-            allocation=base_alloc, expense_ratios=base_er,
-            retirement_years=base_years,
+
+        # Single bootstrap: generate raw per-asset matrices at max needed length
+        max_years = base_years + 10
+        raw = pregenerate_raw_scenarios(
+            expense_ratios=base_er,
+            retirement_years=max_years,
             min_block=req.min_block, max_block=req.max_block,
             num_simulations=req.num_simulations, returns_df=filtered,
-            leverage=req.leverage, borrowing_spread=req.borrowing_spread,
             country_dfs=country_dfs, country_weights=country_weights,
         )
 
         yield {"type": "progress", "stage": "table_2d", "pct": 15}
-        base_rg, base_tbl = build_success_rate_table(base_scen)
-        base_cf_tbl_r = None
-        if cash_flows:
-            base_rep = build_representative_cf_schedule(cash_flows, base_years, base_infl)
-            base_cf_tbl_r = build_cf_aware_table(
-                base_scen, base_rep,
-                rate_segments=SCENARIO_CF_RATE_SEGMENTS,
-                cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
-                max_sims=SCENARIO_CF_MAX_SIMS,
-                max_start_years=SCENARIO_MAX_START_YEARS,
+
+        # Helper: derive combined returns + tables from raw for given alloc/years
+        def _build_tables(alloc, years):
+            scen = raw_to_combined(
+                {k: v[:, :years] for k, v in raw.items()},
+                alloc, req.leverage, req.borrowing_spread,
             )
+            infl = raw["inflation"][:, :years]
+            rg, tbl = build_success_rate_table(scen)
+            cf_tbl_r = None
+            if cash_flows:
+                rep = build_representative_cf_schedule(cash_flows, years, infl)
+                cf_tbl_r = build_cf_aware_table(
+                    scen, rep,
+                    rate_segments=SCENARIO_CF_RATE_SEGMENTS,
+                    cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
+                    max_sims=SCENARIO_CF_MAX_SIMS,
+                    max_start_years=SCENARIO_MAX_START_YEARS,
+                )
+            return scen, infl, rg, tbl, cf_tbl_r
+
+        base_scen, base_infl, base_rg, base_tbl, base_cf_tbl_r = _build_tables(base_alloc, base_years)
         _base_rg, _base_sg, _base_tbl, _base_ref, _base_ly = _unpack_cf_table(base_cf_tbl_r)
 
         def _run_with_tables(
@@ -1407,29 +1449,8 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
             r_fr = compute_funded_ratio(r_traj, years)
             return r_ip, r_aw, r_sr, r_fr
 
-        def _build_fresh_and_run(scen_alloc=None, scen_er=None, yrs=None):
-            alloc = scen_alloc or base_alloc
-            er = scen_er or base_er
-            years = yrs or base_years
-            scen, infl = pregenerate_return_scenarios(
-                allocation=alloc, expense_ratios=er,
-                retirement_years=years,
-                min_block=req.min_block, max_block=req.max_block,
-                num_simulations=req.num_simulations, returns_df=filtered,
-                leverage=req.leverage, borrowing_spread=req.borrowing_spread,
-                country_dfs=country_dfs, country_weights=country_weights,
-            )
-            rg, tbl = build_success_rate_table(scen)
-            cf_tbl_r = None
-            if cash_flows:
-                rep = build_representative_cf_schedule(cash_flows, years, infl)
-                cf_tbl_r = build_cf_aware_table(
-                    scen, rep,
-                    rate_segments=SCENARIO_CF_RATE_SEGMENTS,
-                    cf_scale_segments=SCENARIO_CF_SCALE_SEGMENTS,
-                    max_sims=SCENARIO_CF_MAX_SIMS,
-                    max_start_years=SCENARIO_MAX_START_YEARS,
-                )
+        def _build_and_run(alloc, years):
+            scen, infl, rg, tbl, cf_tbl_r = _build_tables(alloc, years)
             _rg, _sg, _tbl, _ref, _ly = _unpack_cf_table(cf_tbl_r)
             return _run_with_tables(scen, infl, rg, tbl, _rg, _sg, _tbl, _ref, _ly, years)
 
@@ -1487,7 +1508,7 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
                         base_years, **kw,
                     )
                 elif key == "retirement_years":
-                    r_ip, r_aw, sr, fr = _build_fresh_and_run(yrs=int(side_val))
+                    r_ip, r_aw, sr, fr = _build_and_run(base_alloc, int(side_val))
                 elif key == "stock_allocation":
                     new_stock = side_val
                     if stock_pct > 0:
@@ -1503,8 +1524,9 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
                         dom_new /= total_s
                         glb_new /= total_s
                         bond_new = 0.0
-                    r_ip, r_aw, sr, fr = _build_fresh_and_run(
-                        scen_alloc={"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new},
+                    r_ip, r_aw, sr, fr = _build_and_run(
+                        {"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new},
+                        base_years,
                     )
 
                 if side == "low":
@@ -1797,6 +1819,12 @@ def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
             cash_flows=cash_flows,
             leverage=req.leverage,
             borrowing_spread=req.borrowing_spread,
+            declining_rate=req.declining_rate,
+            declining_start_age=req.declining_start_age,
+            smile_decline_rate=req.smile_decline_rate,
+            smile_decline_start_age=req.smile_decline_start_age,
+            smile_min_age=req.smile_min_age,
+            smile_increase_rate=req.smile_increase_rate,
         )
 
         yield {"type": "progress", "stage": "statistics", "pct": 90}

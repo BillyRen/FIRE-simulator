@@ -160,6 +160,93 @@ class TestSweep:
         assert len(data["rates"]) == len(data["success_rates"])
 
 
+class TestSensitivity:
+    """Test /api/simulate/sensitivity endpoint (shared bootstrap optimization)."""
+
+    BASE_PARAMS = TestSimulation.BASE_PARAMS
+
+    def test_sensitivity_basic(self, client):
+        r = client.post("/api/simulate/sensitivity", json=self.BASE_PARAMS)
+        assert r.status_code == 200
+        data = parse_ndjson(r)
+        assert "base_success_rate" in data
+        assert "base_funded_ratio" in data
+        assert "deltas" in data
+        assert len(data["deltas"]) == 4  # 4 params
+
+    def test_sensitivity_direction_correct(self, client):
+        """Higher IP => higher SR; higher AW => lower SR."""
+        r = client.post("/api/simulate/sensitivity", json=self.BASE_PARAMS)
+        data = parse_ndjson(r)
+        for d in data["deltas"]:
+            if d["param_key"] == "initial_portfolio":
+                # More money => better survival
+                assert d["high_success_rate"] >= d["low_success_rate"]
+            elif d["param_key"] == "annual_withdrawal":
+                # More spending => worse survival
+                assert d["low_success_rate"] >= d["high_success_rate"]
+
+    def test_sensitivity_with_cash_flows(self, client):
+        params = {**self.BASE_PARAMS, "cash_flows": [
+            {"name": "pension", "amount": 15000, "start_year": 10,
+             "duration": 20, "inflation_adjusted": True, "enabled": True},
+        ]}
+        r = client.post("/api/simulate/sensitivity", json=params)
+        assert r.status_code == 200
+        parse_ndjson(r)
+
+    def test_sensitivity_declining_strategy(self, client):
+        params = {**self.BASE_PARAMS, "withdrawal_strategy": "declining"}
+        r = client.post("/api/simulate/sensitivity", json=params)
+        assert r.status_code == 200
+        parse_ndjson(r)
+
+
+class TestScenarios:
+    """Test /api/simulate/scenarios endpoint (shared bootstrap optimization)."""
+
+    BASE_PARAMS = TestSimulation.BASE_PARAMS
+
+    def test_scenarios_basic(self, client):
+        params = {**self.BASE_PARAMS, "cash_flows": [
+            {"name": "pension_a", "amount": 20000, "start_year": 10,
+             "duration": 20, "inflation_adjusted": True, "enabled": True,
+             "probability": 0.6, "group": "career"},
+            {"name": "pension_b", "amount": 10000, "start_year": 10,
+             "duration": 20, "inflation_adjusted": True, "enabled": True,
+             "probability": 0.4, "group": "career"},
+        ]}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 200
+        data = parse_ndjson(r)
+        assert "base_case" in data
+        assert "scenarios" in data
+        assert "mode" in data
+
+    def test_scenarios_result_format(self, client):
+        params = {**self.BASE_PARAMS, "cash_flows": [
+            {"name": "option_a", "amount": 20000, "start_year": 5,
+             "duration": 10, "inflation_adjusted": True, "enabled": True,
+             "probability": 0.5, "group": "job"},
+            {"name": "option_b", "amount": 30000, "start_year": 5,
+             "duration": 10, "inflation_adjusted": True, "enabled": True,
+             "probability": 0.5, "group": "job"},
+        ]}
+        r = client.post("/api/simulate/scenarios", json=params)
+        data = parse_ndjson(r)
+        base = data["base_case"]
+        assert "success_rate" in base
+        assert "funded_ratio" in base
+        assert "median_final_portfolio" in base
+        for s in data["scenarios"]:
+            assert "label" in s
+            assert "success_rate" in s
+
+    def test_scenarios_no_cash_flows_returns_400(self, client):
+        r = client.post("/api/simulate/scenarios", json=self.BASE_PARAMS)
+        assert r.status_code == 400
+
+
 class TestBuyVsRent:
     def test_simple(self, client):
         params = {

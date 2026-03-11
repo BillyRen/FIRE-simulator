@@ -33,6 +33,7 @@ import type {
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
+const HEAVY_API_TIMEOUT_MS = 180_000; // 3 minutes — scenarios & sensitivity
 
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
@@ -74,6 +75,7 @@ async function postStreaming<TReq, TRes>(
   path: string,
   body: TReq,
   onProgressOrCallbacks?: ((evt: ProgressEvent) => void) | StreamingCallbacks<TRes>,
+  timeoutMs: number = API_TIMEOUT_MS,
 ): Promise<TRes> {
   const callbacks: StreamingCallbacks<TRes> =
     typeof onProgressOrCallbacks === "function"
@@ -81,7 +83,7 @@ async function postStreaming<TReq, TRes>(
       : onProgressOrCallbacks ?? {};
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
@@ -174,22 +176,22 @@ export async function runGuardrailBatchBacktest(req: Record<string, unknown>): P
 
 // 情景分析：现金流情景分解（护栏页）
 export async function runGuardrailScenarios(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<ScenarioAnalysisResponse> {
-  return postStreaming<GuardrailRequest, ScenarioAnalysisResponse>("/api/guardrail/scenarios", req, onProgress);
+  return postStreaming<GuardrailRequest, ScenarioAnalysisResponse>("/api/guardrail/scenarios", req, onProgress, HEAVY_API_TIMEOUT_MS);
 }
 
 // 参数敏感性分析（护栏页 — 龙卷风图）
 export async function runGuardrailSensitivity(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SensitivityAnalysisResponse> {
-  return postStreaming<GuardrailRequest, SensitivityAnalysisResponse>("/api/guardrail/sensitivity", req, onProgress);
+  return postStreaming<GuardrailRequest, SensitivityAnalysisResponse>("/api/guardrail/sensitivity", req, onProgress, HEAVY_API_TIMEOUT_MS);
 }
 
 // 情景分析：现金流情景分解（退休模拟页）
 export async function runSimScenarios(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<ScenarioAnalysisResponse> {
-  return postStreaming<SimulationRequest, ScenarioAnalysisResponse>("/api/simulate/scenarios", req, onProgress);
+  return postStreaming<SimulationRequest, ScenarioAnalysisResponse>("/api/simulate/scenarios", req, onProgress, HEAVY_API_TIMEOUT_MS);
 }
 
 // 参数敏感性分析（退休模拟页 — 龙卷风图）
 export async function runSimSensitivity(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SensitivityAnalysisResponse> {
-  return postStreaming<SimulationRequest, SensitivityAnalysisResponse>("/api/simulate/sensitivity", req, onProgress);
+  return postStreaming<SimulationRequest, SensitivityAnalysisResponse>("/api/simulate/sensitivity", req, onProgress, HEAVY_API_TIMEOUT_MS);
 }
 
 // 买房 vs 租房

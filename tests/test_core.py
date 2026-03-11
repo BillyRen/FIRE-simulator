@@ -1,7 +1,8 @@
 """Core simulation engine tests.
 
 Tests cover: bootstrap (single + pooled), portfolio returns, cash flow schedule,
-Monte Carlo simulation, and AllocationSchema validation.
+Monte Carlo simulation, run_simulation_from_matrix, raw_to_combined,
+and AllocationSchema validation.
 """
 
 import numpy as np
@@ -10,8 +11,9 @@ import pytest
 
 from simulator.bootstrap import block_bootstrap, block_bootstrap_pooled
 from simulator.cashflow import CashFlowItem, build_cf_schedule
-from simulator.monte_carlo import run_simulation
+from simulator.monte_carlo import run_simulation, run_simulation_from_matrix
 from simulator.portfolio import compute_real_portfolio_returns
+from simulator.sweep import raw_to_combined, _simulate_success_and_funded
 
 
 # ---------------------------------------------------------------------------
@@ -423,3 +425,268 @@ class TestAllocationValidation:
         from backend.schemas import AllocationSchema
         a = AllocationSchema(domestic_stock=0.333, global_stock=0.334, domestic_bond=0.333)
         assert abs(a.domestic_stock + a.global_stock + a.domestic_bond - 1.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# run_simulation_from_matrix Tests
+# ---------------------------------------------------------------------------
+
+class TestRunSimulationFromMatrix:
+
+    def test_equivalence_fixed_no_cf(self, sample_returns_df, default_allocation, default_expenses):
+        """run_simulation_from_matrix matches run_simulation with same random state."""
+        # Run full simulation to get the return matrices
+        traj1, wd1, ret_mat, infl_mat = run_simulation(
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=10,
+            min_block=3,
+            max_block=5,
+            num_simulations=50,
+            returns_df=sample_returns_df,
+            seed=42,
+            withdrawal_strategy="fixed",
+        )
+
+        # Now run from the same matrices
+        traj2, wd2, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=ret_mat,
+            inflation_matrix=infl_mat,
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            retirement_years=10,
+            withdrawal_strategy="fixed",
+        )
+
+        np.testing.assert_allclose(traj1, traj2, rtol=1e-10)
+        np.testing.assert_allclose(wd1, wd2, rtol=1e-10)
+
+    def test_equivalence_dynamic(self, sample_returns_df, default_allocation, default_expenses):
+        """run_simulation_from_matrix matches run_simulation for dynamic strategy."""
+        traj1, wd1, ret_mat, infl_mat = run_simulation(
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=10,
+            min_block=3,
+            max_block=5,
+            num_simulations=30,
+            returns_df=sample_returns_df,
+            seed=99,
+            withdrawal_strategy="dynamic",
+            dynamic_ceiling=0.05,
+            dynamic_floor=0.025,
+        )
+
+        traj2, wd2, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=ret_mat,
+            inflation_matrix=infl_mat,
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            retirement_years=10,
+            withdrawal_strategy="dynamic",
+            dynamic_ceiling=0.05,
+            dynamic_floor=0.025,
+        )
+
+        np.testing.assert_allclose(traj1, traj2, rtol=1e-10)
+        np.testing.assert_allclose(wd1, wd2, rtol=1e-10)
+
+    def test_with_cash_flows(self, sample_returns_df, default_allocation, default_expenses):
+        """run_simulation_from_matrix handles cash flows correctly."""
+        cfs = [
+            CashFlowItem(name="pension", amount=10_000, start_year=5, duration=5, inflation_adjusted=True),
+        ]
+        traj1, wd1, ret_mat, infl_mat = run_simulation(
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=10,
+            min_block=3,
+            max_block=5,
+            num_simulations=30,
+            returns_df=sample_returns_df,
+            seed=7,
+            withdrawal_strategy="fixed",
+            cash_flows=cfs,
+        )
+
+        traj2, wd2, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=ret_mat,
+            inflation_matrix=infl_mat,
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            retirement_years=10,
+            withdrawal_strategy="fixed",
+            cash_flows=cfs,
+        )
+
+        np.testing.assert_allclose(traj1, traj2, rtol=1e-10)
+        np.testing.assert_allclose(wd1, wd2, rtol=1e-10)
+
+    def test_different_withdrawal_amounts_same_matrix(self, sample_returns_df, default_allocation, default_expenses):
+        """Different withdrawal amounts on same returns should give different results."""
+        _, _, ret_mat, infl_mat = run_simulation(
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=10,
+            min_block=3, max_block=5,
+            num_simulations=50,
+            returns_df=sample_returns_df,
+            seed=42,
+        )
+
+        traj_low, _, _, _ = run_simulation_from_matrix(
+            ret_mat, infl_mat, 500_000, 15_000, 10,
+        )
+        traj_high, _, _, _ = run_simulation_from_matrix(
+            ret_mat, infl_mat, 500_000, 40_000, 10,
+        )
+
+        # Lower withdrawal => higher final values on average
+        assert np.mean(traj_low[:, -1]) > np.mean(traj_high[:, -1])
+
+    def test_output_shapes(self, sample_returns_df, default_allocation, default_expenses):
+        """Verify output array shapes."""
+        n_sims, n_years = 20, 10
+        _, _, ret_mat, infl_mat = run_simulation(
+            initial_portfolio=500_000,
+            annual_withdrawal=20_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=n_years,
+            min_block=3, max_block=5,
+            num_simulations=n_sims,
+            returns_df=sample_returns_df,
+            seed=42,
+        )
+
+        traj, wd, ret_out, infl_out = run_simulation_from_matrix(
+            ret_mat, infl_mat, 500_000, 20_000, n_years,
+        )
+        assert traj.shape == (n_sims, n_years + 1)
+        assert wd.shape == (n_sims, n_years)
+        assert ret_out.shape == (n_sims, n_years)
+
+
+# ---------------------------------------------------------------------------
+# raw_to_combined Tests
+# ---------------------------------------------------------------------------
+
+class TestRawToCombined:
+
+    def test_basic_combination(self):
+        """Verify raw_to_combined produces correct weighted returns."""
+        n_sims, n_years = 10, 5
+        rng = np.random.default_rng(42)
+        raw = {
+            "domestic_stock": rng.normal(0.10, 0.15, (n_sims, n_years)),
+            "global_stock": rng.normal(0.08, 0.18, (n_sims, n_years)),
+            "domestic_bond": rng.normal(0.04, 0.05, (n_sims, n_years)),
+            "inflation": rng.normal(0.03, 0.01, (n_sims, n_years)),
+        }
+        alloc = {"domestic_stock": 0.6, "global_stock": 0.2, "domestic_bond": 0.2}
+        result = raw_to_combined(raw, alloc)
+        assert result.shape == (n_sims, n_years)
+
+        # Manual check: compute expected nominal and real return
+        nominal = (0.6 * raw["domestic_stock"] + 0.2 * raw["global_stock"]
+                   + 0.2 * raw["domestic_bond"])
+        expected = (1.0 + nominal) / (1.0 + raw["inflation"]) - 1.0
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_leverage(self):
+        """Verify leverage math."""
+        n_sims, n_years = 5, 3
+        raw = {
+            "domestic_stock": np.full((n_sims, n_years), 0.10),
+            "global_stock": np.full((n_sims, n_years), 0.08),
+            "domestic_bond": np.full((n_sims, n_years), 0.04),
+            "inflation": np.full((n_sims, n_years), 0.02),
+        }
+        alloc = {"domestic_stock": 0.5, "global_stock": 0.3, "domestic_bond": 0.2}
+        leverage = 1.5
+        spread = 0.01
+
+        result = raw_to_combined(raw, alloc, leverage=leverage, borrowing_spread=spread)
+        nominal_base = 0.5 * 0.10 + 0.3 * 0.08 + 0.2 * 0.04
+        nominal_lev = leverage * nominal_base - (leverage - 1.0) * (0.02 + spread)
+        expected = (1.0 + nominal_lev) / (1.0 + 0.02) - 1.0
+        np.testing.assert_allclose(result, expected, rtol=1e-12)
+
+    def test_different_allocations_different_results(self):
+        """Different allocations on same raw data should give different results."""
+        n_sims, n_years = 10, 5
+        rng = np.random.default_rng(42)
+        raw = {
+            "domestic_stock": rng.normal(0.10, 0.15, (n_sims, n_years)),
+            "global_stock": rng.normal(0.08, 0.18, (n_sims, n_years)),
+            "domestic_bond": rng.normal(0.04, 0.05, (n_sims, n_years)),
+            "inflation": rng.normal(0.03, 0.01, (n_sims, n_years)),
+        }
+        r1 = raw_to_combined(raw, {"domestic_stock": 0.8, "global_stock": 0.1, "domestic_bond": 0.1})
+        r2 = raw_to_combined(raw, {"domestic_stock": 0.2, "global_stock": 0.2, "domestic_bond": 0.6})
+        assert not np.allclose(r1, r2)
+
+
+# ---------------------------------------------------------------------------
+# _simulate_success_and_funded declining/smile params Tests
+# ---------------------------------------------------------------------------
+
+class TestSimulateSuccessFundedStrategies:
+
+    def test_declining_params_affect_result(self):
+        """Declining strategy params should change the funded ratio."""
+        n_sims, n_years = 100, 30
+        rng = np.random.default_rng(42)
+        ret_mat = rng.normal(0.05, 0.15, (n_sims, n_years))
+
+        sr1, fr1 = _simulate_success_and_funded(
+            ret_mat, 1_000_000, 50_000,
+            "declining", 0.05, 0.025,
+            retirement_age=45,
+            declining_rate=0.0,
+            declining_start_age=65,
+        )
+        sr2, fr2 = _simulate_success_and_funded(
+            ret_mat, 1_000_000, 50_000,
+            "declining", 0.05, 0.025,
+            retirement_age=45,
+            declining_rate=0.05,
+            declining_start_age=55,
+        )
+        # Faster decline => higher survival (less total withdrawal)
+        assert fr2 >= fr1
+
+    def test_smile_params_affect_result(self):
+        """Smile strategy params should change the funded ratio."""
+        n_sims, n_years = 100, 40
+        rng = np.random.default_rng(42)
+        ret_mat = rng.normal(0.04, 0.15, (n_sims, n_years))
+
+        sr1, fr1 = _simulate_success_and_funded(
+            ret_mat, 1_000_000, 50_000,
+            "smile", 0.05, 0.025,
+            retirement_age=45,
+            smile_decline_rate=0.0,
+            smile_decline_start_age=65,
+            smile_min_age=80,
+            smile_increase_rate=0.03,
+        )
+        sr2, fr2 = _simulate_success_and_funded(
+            ret_mat, 1_000_000, 50_000,
+            "smile", 0.05, 0.025,
+            retirement_age=45,
+            smile_decline_rate=0.03,
+            smile_decline_start_age=55,
+            smile_min_age=75,
+            smile_increase_rate=0.0,
+        )
+        # More decline + no late-life increase => better survival
+        assert fr2 >= fr1
