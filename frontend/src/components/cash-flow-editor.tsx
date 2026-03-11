@@ -100,7 +100,7 @@ function CfTextInput({
 
   useEffect(() => {
     if (!composingRef.current) {
-      setDisplay(value);
+      setDisplay(value); // eslint-disable-line react-hooks/set-state-in-effect -- sync from parent prop for IME compat
     }
   }, [value]);
 

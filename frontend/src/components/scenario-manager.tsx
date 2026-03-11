@@ -44,7 +44,7 @@ export function ScenarioManager({
 }) {
   const t = useTranslations("scenarioManager");
   const [scenarios, setScenarios] = useState<SavedScenario[]>([]);
-  useEffect(() => { setScenarios(loadScenarios()); }, []);
+  useEffect(() => { setScenarios(loadScenarios()); }, []); // eslint-disable-line react-hooks/set-state-in-effect -- hydrate from localStorage on mount
   const [saveName, setSaveName] = useState("");
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [justSaved, setJustSaved] = useState(false);

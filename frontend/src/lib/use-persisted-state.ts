@@ -15,7 +15,7 @@ export function usePersistedState<T>(
         const parsed = JSON.parse(saved);
         if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
             && typeof defaultValue === "object" && defaultValue !== null) {
-          setValue({ ...defaultValue, ...parsed } as T);
+          setValue({ ...defaultValue, ...parsed } as T); // eslint-disable-line react-hooks/set-state-in-effect -- hydrate from localStorage
         } else {
           setValue(parsed);
         }
