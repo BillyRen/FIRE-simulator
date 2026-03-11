@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
+import { useApiCall } from "@/lib/use-api-call";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -14,14 +16,13 @@ import {
 import { Label } from "@/components/ui/label";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { MetricCard } from "@/components/metric-card";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/components/fan-chart";
 import { runAllocationSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
-import { DEFAULT_PARAMS } from "@/lib/types";
-import type { FormParams, AllocationSweepResponse } from "@/lib/types";
+import { useSharedParams } from "@/lib/params-context";
 import { fmt, pct } from "@/lib/utils";
 
 export default function AllocationPage() {
@@ -29,18 +30,15 @@ export default function AllocationPage() {
   const tc = useTranslations("common");
   const isMobile = useIsMobile();
 
-  const [params, setParams] = useState<FormParams>({
-    ...DEFAULT_PARAMS,
-    num_simulations: 1_000,
-  });
-  const [portfolio, setPortfolio] = useState(DEFAULT_PARAMS.initial_portfolio);
-  const [withdrawal, setWithdrawal] = useState(DEFAULT_PARAMS.annual_withdrawal);
-  const [allocStep, setAllocStep] = useState(0.1);
-  const [result, setResult] = useState<AllocationSweepResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    params, setParams,
+    allocationAllocStep: allocStep, setAllocationAllocStep: setAllocStep,
+  } = useSharedParams();
+  const [portfolio, setPortfolio] = usePersistedState("fire:allocation:portfolio", params.initial_portfolio);
+  const [withdrawal, setWithdrawal] = usePersistedState("fire:allocation:withdrawal", params.annual_withdrawal);
+  const { data: result, loading, error, progress, run: handleRun } = useApiCall(runAllocationSweep);
 
-  const [sortKey, setSortKey] = useState<string>("success_rate");
+  const [sortKey, setSortKey] = useState<string>("funded_ratio");
   const [sortAsc, setSortAsc] = useState(false);
 
   const STEP_OPTIONS = [
@@ -48,24 +46,6 @@ export default function AllocationPage() {
     { value: "0.1", label: t("stepOption10") },
     { value: "0.2", label: t("stepOption20") },
   ];
-
-  const handleRun = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await runAllocationSweep({
-        ...params,
-        initial_portfolio: portfolio,
-        annual_withdrawal: withdrawal,
-        allocation_step: allocStep,
-      });
-      setResult(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : tc("unknownError"));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const sortedResults = result
     ? [...result.results].sort((a, b) => {
@@ -136,16 +116,23 @@ export default function AllocationPage() {
               showWithdrawalStrategy={true}
             />
 
-            <Button onClick={handleRun} className="w-full" disabled={loading}>
+          </CardContent>
+          <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
+            <Button onClick={() => handleRun({
+              ...params,
+              initial_portfolio: portfolio,
+              annual_withdrawal: withdrawal,
+              allocation_step: allocStep,
+            })} className="w-full" disabled={loading}>
               {loading ? t("scanning") : t("startScan")}
             </Button>
-          </CardContent>
+          </div>
         </Card>
       </aside>
 
       {/* ── 右侧结果区 ── */}
       <main className="flex-1 space-y-6 relative">
-        {loading && <LoadingOverlay />}
+        {loading && <ProgressOverlay progress={progress} />}
 
         {error && (
           <Card className="border-red-300 bg-red-50">
@@ -156,27 +143,27 @@ export default function AllocationPage() {
         {result && (
           <>
             {/* 最优配置指标 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <MetricCard
-                label={t("bestSuccessRate")}
-                value={pct(result.best_by_success.success_rate)}
+                label={t("bestFundedRatio")}
+                value={pct(result.best.funded_ratio)}
               />
               <MetricCard
                 label={t("bestAllocation")}
-                value={`${(result.best_by_success.us_stock * 100).toFixed(0)}/${(result.best_by_success.intl_stock * 100).toFixed(0)}/${(result.best_by_success.us_bond * 100).toFixed(0)}`}
+                value={`${(result.best.domestic_stock * 100).toFixed(0)}/${(result.best.global_stock * 100).toFixed(0)}/${(result.best.domestic_bond * 100).toFixed(0)}`}
                 sub={t("allocationSub")}
               />
               <MetricCard
-                label={t("medianFinalPortfolio")}
-                value={fmt(result.best_by_success.median_final)}
+                label={t("bestSuccessRate")}
+                value={pct(result.best.success_rate)}
               />
               <MetricCard
-                label={t("p10DepletionYear")}
-                value={
-                  result.best_by_success.p10_depletion_year
-                    ? tc("yearN", { n: result.best_by_success.p10_depletion_year })
-                    : tc("notDepleted")
-                }
+                label={t("medianFinalPortfolio")}
+                value={fmt(result.best.median_final)}
+              />
+              <MetricCard
+                label={t("colCvar10")}
+                value={fmt(result.best.cvar_10)}
               />
             </div>
 
@@ -191,20 +178,20 @@ export default function AllocationPage() {
                     {
                       type: "scatterternary" as string,
                       mode: "markers",
-                      a: result.results.map((r) => r.us_stock * 100),
-                      b: result.results.map((r) => r.intl_stock * 100),
-                      c: result.results.map((r) => r.us_bond * 100),
+                      a: result.results.map((r) => r.domestic_stock * 100),
+                      b: result.results.map((r) => r.global_stock * 100),
+                      c: result.results.map((r) => r.domestic_bond * 100),
                       text: result.results.map(
                         (r) =>
-                          `${t("ternaryUSStock").replace(" %", "")}${(r.us_stock * 100).toFixed(0)}% ${t("ternaryIntlStock").replace(" %", "")}${(r.intl_stock * 100).toFixed(0)}% ${t("ternaryUSBond").replace(" %", "")}${(r.us_bond * 100).toFixed(0)}%<br>${tc("successRate")}: ${(r.success_rate * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`
+                          `${t("ternaryDomStock").replace(" %", "")}${(r.domestic_stock * 100).toFixed(0)}% ${t("ternaryGlobalStock").replace(" %", "")}${(r.global_stock * 100).toFixed(0)}% ${t("ternaryDomBond").replace(" %", "")}${(r.domestic_bond * 100).toFixed(0)}%<br>${t("colFundedRatio")}: ${(r.funded_ratio * 100).toFixed(1)}%<br>${tc("successRate")}: ${(r.success_rate * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`
                       ),
                       hoverinfo: "text",
                       marker: {
                         size: allocStep <= 0.05 ? 8 : allocStep <= 0.1 ? 14 : 20,
-                        color: result.results.map((r) => r.success_rate * 100),
+                        color: result.results.map((r) => r.funded_ratio * 100),
                         colorscale: "RdYlGn",
-                        cmin: Math.min(...result.results.map((r) => r.success_rate * 100)),
-                        cmax: Math.max(...result.results.map((r) => r.success_rate * 100)),
+                        cmin: Math.min(...result.results.map((r) => r.funded_ratio * 100)),
+                        cmax: Math.max(...result.results.map((r) => r.funded_ratio * 100)),
                         colorbar: {
                           title: { text: t("ternaryColorbar") },
                           ticksuffix: "%",
@@ -217,22 +204,22 @@ export default function AllocationPage() {
                     ternary: {
                       sum: 100,
                       aaxis: {
-                        title: { text: t("ternaryUSStock") },
+                        title: { text: t("ternaryDomStock") },
                         min: 0,
                         linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.1)",
+                        gridcolor: "rgba(0,0,0,0.08)",
                       },
                       baxis: {
-                        title: { text: t("ternaryIntlStock") },
+                        title: { text: t("ternaryGlobalStock") },
                         min: 0,
                         linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.1)",
+                        gridcolor: "rgba(0,0,0,0.08)",
                       },
                       caxis: {
-                        title: { text: t("ternaryUSBond") },
+                        title: { text: t("ternaryDomBond") },
                         min: 0,
                         linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.1)",
+                        gridcolor: "rgba(0,0,0,0.08)",
                       },
                     },
                     margin: isMobile ? { t: 20, b: 20, l: 10, r: 10 } : { t: 40, b: 40, l: 60, r: 60 },
@@ -241,11 +228,6 @@ export default function AllocationPage() {
                   }}
                   config={{
                     displayModeBar: isMobile ? false : ("hover" as const),
-                    modeBarButtonsToRemove: [
-                      "select2d",
-                      "lasso2d",
-                      "autoScale2d",
-                    ],
                     toImageButtonOptions: {
                       format: "png",
                       filename: "allocation_ternary",
@@ -253,7 +235,7 @@ export default function AllocationPage() {
                       height: 800,
                     },
                   }}
-                  style={{ width: "100%", height: isMobile ? "350px" : "500px" }}
+                  style={{ height: isMobile ? "350px" : "500px" }}
                 />
               </CardContent>
             </Card>
@@ -268,20 +250,26 @@ export default function AllocationPage() {
                   label={t("downloadCSV")}
                   onClick={() => {
                     const headers = [
-                      t("colUSStock"),
-                      t("colIntlStock"),
-                      t("colUSBond"),
+                      t("colDomStock"),
+                      t("colGlobalStock"),
+                      t("colDomBond"),
+                      t("colFundedRatio"),
                       t("colSuccessRate"),
+                      t("colCvar10"),
                       t("colMedianFinal"),
+                      t("colP90Final"),
                       t("colMeanFinal"),
                       t("colP10Depletion"),
                     ];
                     const rows = sortedResults.map((r) => [
-                      (r.us_stock * 100).toFixed(0),
-                      (r.intl_stock * 100).toFixed(0),
-                      (r.us_bond * 100).toFixed(0),
+                      (r.domestic_stock * 100).toFixed(0),
+                      (r.global_stock * 100).toFixed(0),
+                      (r.domestic_bond * 100).toFixed(0),
+                      (r.funded_ratio * 100).toFixed(1) + "%",
                       (r.success_rate * 100).toFixed(1) + "%",
+                      Math.round(r.cvar_10),
                       Math.round(r.median_final),
+                      Math.round(r.p90_final),
                       Math.round(r.mean_final),
                       r.p10_depletion_year ?? tc("notDepleted"),
                     ]);
@@ -295,11 +283,14 @@ export default function AllocationPage() {
                     <thead className="sticky top-0 bg-background border-b">
                       <tr>
                         {[
-                          { key: "us_stock", label: t("colUSStock") },
-                          { key: "intl_stock", label: t("colIntlStock") },
-                          { key: "us_bond", label: t("colUSBond") },
+                          { key: "domestic_stock", label: t("colDomStock") },
+                          { key: "global_stock", label: t("colGlobalStock") },
+                          { key: "domestic_bond", label: t("colDomBond") },
+                          { key: "funded_ratio", label: t("colFundedRatio") },
                           { key: "success_rate", label: t("colSuccessRate") },
+                          { key: "cvar_10", label: t("colCvar10") },
                           { key: "median_final", label: t("colMedianFinal") },
+                          { key: "p90_final", label: t("colP90Final") },
                           { key: "mean_final", label: t("colMeanFinal") },
                           { key: "p10_depletion_year", label: t("colP10Depletion") },
                         ].map((col) => (
@@ -319,25 +310,28 @@ export default function AllocationPage() {
                     <tbody>
                       {sortedResults.map((r, i) => {
                         const isBest =
-                          r.us_stock === result.best_by_success.us_stock &&
-                          r.intl_stock === result.best_by_success.intl_stock &&
-                          r.us_bond === result.best_by_success.us_bond;
+                          r.domestic_stock === result.best.domestic_stock &&
+                          r.global_stock === result.best.global_stock &&
+                          r.domestic_bond === result.best.domestic_bond;
                         return (
                           <tr
                             key={i}
                             className={`border-b ${isBest ? "bg-green-50 font-medium" : "hover:bg-accent/50"}`}
                           >
                             <td className="px-2 py-1">
-                              {(r.us_stock * 100).toFixed(0)}
+                              {(r.domestic_stock * 100).toFixed(0)}
                             </td>
                             <td className="px-2 py-1">
-                              {(r.intl_stock * 100).toFixed(0)}
+                              {(r.global_stock * 100).toFixed(0)}
                             </td>
                             <td className="px-2 py-1">
-                              {(r.us_bond * 100).toFixed(0)}
+                              {(r.domestic_bond * 100).toFixed(0)}
                             </td>
+                            <td className="px-2 py-1 font-medium">{pct(r.funded_ratio)}</td>
                             <td className="px-2 py-1">{pct(r.success_rate)}</td>
+                            <td className="px-2 py-1">{fmt(r.cvar_10)}</td>
                             <td className="px-2 py-1">{fmt(r.median_final)}</td>
+                            <td className="px-2 py-1">{fmt(r.p90_final)}</td>
                             <td className="px-2 py-1">{fmt(r.mean_final)}</td>
                             <td className="px-2 py-1">
                               {r.p10_depletion_year

@@ -6,6 +6,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { ParamsProvider } from "@/lib/params-context";
 
 const OG_LOCALE_MAP: Record<string, string> = {
   en: "en_US",
@@ -22,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
       template: "%s | FIRE Lab",
     },
     description:
-      "Free Monte Carlo simulation tool for retirement planning (FIRE). Analyze withdrawal strategies, asset allocation, and risk guardrails with historical data. 免费的蒙特卡洛退休模拟工具，支持提取策略分析、资产配置优化和风险护栏策略。",
+      "Free Monte Carlo simulation tool for retirement planning (FIRE). Analyze withdrawal strategies, asset allocation, and risk guardrails with 150+ years of historical data.",
     keywords: [
       "FIRE",
       "retirement simulator",
@@ -71,9 +72,11 @@ export default async function RootLayout({
         className="antialiased min-h-screen bg-background flex flex-col font-sans"
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <Navbar />
-          <main className="flex-1">{children}</main>
-          <Footer />
+          <ParamsProvider>
+            <Navbar />
+            <main className="flex-1">{children}</main>
+            <Footer />
+          </ParamsProvider>
         </NextIntlClientProvider>
         <Analytics />
         <SpeedInsights />

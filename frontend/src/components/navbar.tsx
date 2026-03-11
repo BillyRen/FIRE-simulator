@@ -11,10 +11,13 @@ export function Navbar() {
   const locale = useLocale();
 
   const NAV_ITEMS = [
-    { href: "/", label: t("simulator") },
-    { href: "/sensitivity", label: t("sensitivity") },
-    { href: "/guardrail", label: t("guardrail") },
-    { href: "/allocation", label: t("allocation") },
+    { href: "/dashboard", label: t("dashboard"), icon: "📋" },
+    { href: "/accumulation", label: t("accumulation"), icon: "💰" },
+    { href: "/", label: t("simulator"), icon: "🔥" },
+    { href: "/sensitivity", label: t("sensitivity"), icon: "📊" },
+    { href: "/guardrail", label: t("guardrail"), icon: "🛡️" },
+    { href: "/allocation", label: t("allocation"), icon: "🎯" },
+    { href: "/buy-vs-rent", label: t("buyVsRent"), icon: "🏠" },
   ];
 
   const switchLocale = () => {
@@ -35,7 +38,7 @@ export function Navbar() {
           </Link>
           <div className="w-px h-5 bg-border shrink-0" />
           <nav className="flex items-center gap-0.5 sm:gap-1">
-          {NAV_ITEMS.map(({ href, label }) => (
+          {NAV_ITEMS.map(({ href, label, icon }) => (
             <Link
               key={href}
               href={href}
@@ -45,8 +48,11 @@ export function Navbar() {
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
               )}
+              title={label}
+              aria-label={label}
             >
-              {label}
+              <span className="md:hidden">{icon}</span>
+              <span className="hidden md:inline">{label}</span>
             </Link>
           ))}
           </nav>

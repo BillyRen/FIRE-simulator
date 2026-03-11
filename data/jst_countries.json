@@ -1,0 +1,178 @@
+[
+  {
+    "iso": "AUS",
+    "name_en": "Australia",
+    "name_zh": "澳大利亚",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 155,
+    "extended": true
+  },
+  {
+    "iso": "BEL",
+    "name_en": "Belgium",
+    "name_zh": "比利时",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 147,
+    "extended": true
+  },
+  {
+    "iso": "CHE",
+    "name_en": "Switzerland",
+    "name_zh": "瑞士",
+    "min_year": 1900,
+    "max_year": 2025,
+    "n_years": 126,
+    "has_housing": true,
+    "housing_years": 124,
+    "extended": true
+  },
+  {
+    "iso": "DEU",
+    "name_en": "Germany",
+    "name_zh": "德国",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 129,
+    "extended": true
+  },
+  {
+    "iso": "DNK",
+    "name_en": "Denmark",
+    "name_zh": "丹麦",
+    "min_year": 1873,
+    "max_year": 2025,
+    "n_years": 153,
+    "has_housing": true,
+    "housing_years": 150,
+    "extended": true
+  },
+  {
+    "iso": "ESP",
+    "name_en": "Spain",
+    "name_zh": "西班牙",
+    "min_year": 1900,
+    "max_year": 2025,
+    "n_years": 126,
+    "has_housing": true,
+    "housing_years": 125,
+    "extended": true
+  },
+  {
+    "iso": "FIN",
+    "name_en": "Finland",
+    "name_zh": "芬兰",
+    "min_year": 1896,
+    "max_year": 2025,
+    "n_years": 130,
+    "has_housing": true,
+    "housing_years": 118,
+    "extended": true
+  },
+  {
+    "iso": "FRA",
+    "name_en": "France",
+    "name_zh": "法国",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 155,
+    "extended": true
+  },
+  {
+    "iso": "GBR",
+    "name_en": "United Kingdom",
+    "name_zh": "英国",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 123,
+    "extended": true
+  },
+  {
+    "iso": "ITA",
+    "name_en": "Italy",
+    "name_zh": "意大利",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 98,
+    "extended": true
+  },
+  {
+    "iso": "JPN",
+    "name_en": "Japan",
+    "name_zh": "日本",
+    "min_year": 1886,
+    "max_year": 2025,
+    "n_years": 140,
+    "has_housing": true,
+    "housing_years": 112,
+    "extended": true
+  },
+  {
+    "iso": "NLD",
+    "name_en": "Netherlands",
+    "name_zh": "荷兰",
+    "min_year": 1900,
+    "max_year": 2025,
+    "n_years": 126,
+    "has_housing": true,
+    "housing_years": 126,
+    "extended": true
+  },
+  {
+    "iso": "NOR",
+    "name_en": "Norway",
+    "name_zh": "挪威",
+    "min_year": 1881,
+    "max_year": 2025,
+    "n_years": 145,
+    "has_housing": true,
+    "housing_years": 145,
+    "extended": true
+  },
+  {
+    "iso": "PRT",
+    "name_en": "Portugal",
+    "name_zh": "葡萄牙",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 94,
+    "extended": true
+  },
+  {
+    "iso": "SWE",
+    "name_en": "Sweden",
+    "name_zh": "瑞典",
+    "min_year": 1871,
+    "max_year": 2025,
+    "n_years": 155,
+    "has_housing": true,
+    "housing_years": 150,
+    "extended": true
+  },
+  {
+    "iso": "USA",
+    "name_en": "United States",
+    "name_zh": "美国",
+    "min_year": 1872,
+    "max_year": 2025,
+    "n_years": 154,
+    "has_housing": true,
+    "housing_years": 135,
+    "extended": true
+  }
+]

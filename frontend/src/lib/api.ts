@@ -9,13 +9,77 @@ import type {
   GuardrailResponse,
   BacktestRequest,
   BacktestResponse,
+  SimBacktestRequest,
+  SimBacktestResponse,
+  SimBatchBacktestResponse,
+  GuardrailBatchBacktestResponse,
   AllocationSweepRequest,
   AllocationSweepResponse,
+  CountryInfo,
+  FormParams,
+  BuyVsRentSimpleRequest,
+  BuyVsRentSimpleResponse,
+  BuyVsRentMCRequest,
+  BuyVsRentMCResponse,
+  HousingCountryInfo,
+  BreakevenSimpleRequest,
+  BreakevenMCRequest,
+  BreakevenResponse,
+  AccumulationRequest,
+  AccumulationResponse,
+  ScenarioAnalysisResponse,
+  SensitivityAnalysisResponse,
+  HistoricalEvent,
 } from "./types";
 
 const API_TIMEOUT_MS = 120_000; // 2 minutes
 
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new Error(`API error ${res.status}: ${detail}`);
+    }
+    return res;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Request timed out. Try reducing simulation count or parameters.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export type ProgressEvent = { type: "progress"; stage: string; pct: number; current?: number; total?: number };
+
+export interface StreamingCallbacks<TRes> {
+  onProgress?: (evt: ProgressEvent) => void;
+  onPreliminaryResult?: (data: TRes) => void;
+}
+
+async function postStreaming<TReq, TRes>(
+  path: string,
+  body: TReq,
+  onProgressOrCallbacks?: ((evt: ProgressEvent) => void) | StreamingCallbacks<TRes>,
+): Promise<TRes> {
+  const callbacks: StreamingCallbacks<TRes> =
+    typeof onProgressOrCallbacks === "function"
+      ? { onProgress: onProgressOrCallbacks }
+      : onProgressOrCallbacks ?? {};
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
@@ -29,7 +93,33 @@ async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
       const detail = await res.text();
       throw new Error(`API error ${res.status}: ${detail}`);
     }
-    return res.json();
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: TRes | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const msg = JSON.parse(line);
+        if (msg.type === "progress" && callbacks.onProgress) callbacks.onProgress(msg);
+        if (msg.type === "result") {
+          if (msg.preliminary && callbacks.onPreliminaryResult) {
+            callbacks.onPreliminaryResult(msg.data);
+          } else {
+            result = msg.data;
+          }
+        }
+        if (msg.type === "error") throw new Error(msg.message);
+      }
+    }
+    if (!result) throw new Error("No result received from server");
+    return result;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
       throw new Error("Request timed out. Try reducing simulation count or parameters.");
@@ -40,22 +130,102 @@ async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   }
 }
 
-export async function runSimulation(req: SimulationRequest): Promise<SimulationResponse> {
-  return post<SimulationRequest, SimulationResponse>("/api/simulate", req);
+async function get<TRes>(path: string): Promise<TRes> {
+  const res = await fetchWithTimeout(`${API_BASE}${path}`);
+  return res.json();
 }
 
-export async function runSweep(req: SweepRequest): Promise<SweepResponse> {
-  return post<SweepRequest, SweepResponse>("/api/sweep", req);
+export async function runSimulation(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SimulationResponse> {
+  return postStreaming<SimulationRequest, SimulationResponse>("/api/simulate", req, onProgress);
 }
 
-export async function runGuardrail(req: GuardrailRequest): Promise<GuardrailResponse> {
-  return post<GuardrailRequest, GuardrailResponse>("/api/guardrail", req);
+export async function runSweep(req: SweepRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SweepResponse> {
+  return postStreaming<SweepRequest, SweepResponse>("/api/sweep", req, onProgress);
+}
+
+export async function runGuardrail(
+  req: GuardrailRequest,
+  onProgressOrCallbacks?: ((evt: ProgressEvent) => void) | StreamingCallbacks<GuardrailResponse>,
+): Promise<GuardrailResponse> {
+  return postStreaming<GuardrailRequest, GuardrailResponse>("/api/guardrail", req, onProgressOrCallbacks);
 }
 
 export async function runBacktest(req: BacktestRequest): Promise<BacktestResponse> {
   return post<BacktestRequest, BacktestResponse>("/api/guardrail/backtest", req);
 }
 
-export async function runAllocationSweep(req: AllocationSweepRequest): Promise<AllocationSweepResponse> {
-  return post<AllocationSweepRequest, AllocationSweepResponse>("/api/allocation-sweep", req);
+export async function runSimBacktest(req: SimBacktestRequest): Promise<SimBacktestResponse> {
+  return post<SimBacktestRequest, SimBacktestResponse>("/api/simulate/backtest", req);
+}
+
+export async function runAllocationSweep(req: AllocationSweepRequest, onProgress?: (evt: ProgressEvent) => void): Promise<AllocationSweepResponse> {
+  return postStreaming<AllocationSweepRequest, AllocationSweepResponse>("/api/allocation-sweep", req, onProgress);
+}
+
+// 批量历史回测：主模拟页
+export async function runSimBatchBacktest(params: FormParams): Promise<SimBatchBacktestResponse> {
+  return post<FormParams, SimBatchBacktestResponse>("/api/simulate/backtest-batch", params);
+}
+
+// 批量历史回测：Guardrail 页
+export async function runGuardrailBatchBacktest(req: Record<string, unknown>): Promise<GuardrailBatchBacktestResponse> {
+  return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req);
+}
+
+// 情景分析：现金流情景分解（护栏页）
+export async function runGuardrailScenarios(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<ScenarioAnalysisResponse> {
+  return postStreaming<GuardrailRequest, ScenarioAnalysisResponse>("/api/guardrail/scenarios", req, onProgress);
+}
+
+// 参数敏感性分析（护栏页 — 龙卷风图）
+export async function runGuardrailSensitivity(req: GuardrailRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SensitivityAnalysisResponse> {
+  return postStreaming<GuardrailRequest, SensitivityAnalysisResponse>("/api/guardrail/sensitivity", req, onProgress);
+}
+
+// 情景分析：现金流情景分解（退休模拟页）
+export async function runSimScenarios(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<ScenarioAnalysisResponse> {
+  return postStreaming<SimulationRequest, ScenarioAnalysisResponse>("/api/simulate/scenarios", req, onProgress);
+}
+
+// 参数敏感性分析（退休模拟页 — 龙卷风图）
+export async function runSimSensitivity(req: SimulationRequest, onProgress?: (evt: ProgressEvent) => void): Promise<SensitivityAnalysisResponse> {
+  return postStreaming<SimulationRequest, SensitivityAnalysisResponse>("/api/simulate/sensitivity", req, onProgress);
+}
+
+// 买房 vs 租房
+export async function runBuyVsRentSimple(req: BuyVsRentSimpleRequest): Promise<BuyVsRentSimpleResponse> {
+  return post<BuyVsRentSimpleRequest, BuyVsRentSimpleResponse>("/api/buy-vs-rent/simple", req);
+}
+
+export async function runBuyVsRentMC(req: BuyVsRentMCRequest): Promise<BuyVsRentMCResponse> {
+  return post<BuyVsRentMCRequest, BuyVsRentMCResponse>("/api/buy-vs-rent/simulate", req);
+}
+
+export async function runBreakevenSimple(req: BreakevenSimpleRequest): Promise<BreakevenResponse> {
+  return post<BreakevenSimpleRequest, BreakevenResponse>("/api/buy-vs-rent/breakeven/simple", req);
+}
+
+export async function runBreakevenMC(req: BreakevenMCRequest): Promise<BreakevenResponse> {
+  return post<BreakevenMCRequest, BreakevenResponse>("/api/buy-vs-rent/breakeven/mc", req);
+}
+
+export async function fetchHousingCountries(): Promise<HousingCountryInfo[]> {
+  const data = await get<{ countries: HousingCountryInfo[] }>("/api/buy-vs-rent/countries");
+  return data.countries;
+}
+
+export async function runAccumulation(req: AccumulationRequest): Promise<AccumulationResponse> {
+  return post<AccumulationRequest, AccumulationResponse>("/api/accumulation", req);
+}
+
+export async function fetchCountries(dataSource: string = "jst"): Promise<CountryInfo[]> {
+  const data = await get<{ countries: CountryInfo[] }>(`/api/countries?data_source=${dataSource}`);
+  return data.countries;
+}
+
+export async function fetchHistoricalEvents(country?: string): Promise<HistoricalEvent[]> {
+  const path = country
+    ? `/api/historical-events?country=${country}`
+    : `/api/historical-events`;
+  return get<HistoricalEvent[]>(path);
 }

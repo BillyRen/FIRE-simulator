@@ -18,3 +18,16 @@ dist/
 build/
 .venv/
 venv/
+
+# IDE
+.cursor/
+.vscode/
+
+# Build artifacts
+frontend/.next_old/
+
+# Analysis output (generated)
+analysis/output/
+
+# Raw data files (large, not committed)
+data/raw/
