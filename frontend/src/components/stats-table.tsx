@@ -1,6 +1,8 @@
 "use client";
 
+import { memo } from "react";
 import { useMessages } from "next-intl";
+import { Download } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -18,7 +20,7 @@ interface StatsTableProps {
   downloadName?: string;
 }
 
-export function StatsTable({ rows, downloadName }: StatsTableProps) {
+export const StatsTable = memo(function StatsTable({ rows, downloadName }: StatsTableProps) {
   const messages = useMessages();
   const backendMap = (messages?.backendKeys ?? {}) as Record<string, string>;
 
@@ -48,21 +50,7 @@ export function StatsTable({ rows, downloadName }: StatsTableProps) {
             className="h-6 text-xs text-muted-foreground gap-1 px-2"
             onClick={() => downloadTableRows(downloadName, translatedRows)}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
+            <Download className="h-3 w-3" />
             CSV
           </Button>
         </div>
@@ -91,4 +79,4 @@ export function StatsTable({ rows, downloadName }: StatsTableProps) {
       </div>
     </div>
   );
-}
+});

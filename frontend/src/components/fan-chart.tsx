@@ -1,29 +1,14 @@
 "use client";
 
-import { useState, useEffect, memo } from "react";
+import { useState, memo } from "react";
 import { useTranslations } from "next-intl";
 import { Button } from "./ui/button";
 import PlotlyChart from "./plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
-export function useIsMobile(breakpoint = 640) {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < breakpoint);
-    check();
-    let timer: ReturnType<typeof setTimeout>;
-    const debouncedCheck = () => {
-      clearTimeout(timer);
-      timer = setTimeout(check, 150);
-    };
-    window.addEventListener("resize", debouncedCheck);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("resize", debouncedCheck);
-    };
-  }, [breakpoint]);
-  return isMobile;
-}
+// Re-export for backward compatibility
+export { useIsMobile };
 
 export function MobileChartTitle({ title, isMobile }: { title: string; isMobile: boolean }) {
   if (!isMobile) return null;

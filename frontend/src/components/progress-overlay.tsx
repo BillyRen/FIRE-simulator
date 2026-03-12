@@ -1,13 +1,8 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-
-export interface ProgressInfo {
-  stage: string;
-  pct: number;
-  current?: number;
-  total?: number;
-}
+import type { ProgressInfo } from "@/lib/use-api-call";
+export type { ProgressInfo };
 
 interface ProgressOverlayProps {
   message?: string;
@@ -66,6 +61,3 @@ export function PreliminaryBanner() {
     </div>
   );
 }
-
-// Backward-compatible alias
-export { ProgressOverlay as LoadingOverlay };

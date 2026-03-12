@@ -20,6 +20,20 @@ export function pct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+/** Format difference as percentage-point delta, e.g. +2.3pp or -1.0pp */
+export function deltaPct(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${(d * 100).toFixed(1)}pp`;
+}
+
+/** Format difference as USD delta, e.g. +$12,345 or -$6.78M */
+export function deltaFmt(cur: number, pin: number): string {
+  const d = cur - pin;
+  const sign = d >= 0 ? "+" : "";
+  return `${sign}${fmt(d)}`;
+}
+
 const ISO3_TO_ALPHA2: Record<string, string> = {
   AUS: "AU", BEL: "BE", CHE: "CH", DEU: "DE",
   DNK: "DK", ESP: "ES", FIN: "FI", FRA: "FR",
