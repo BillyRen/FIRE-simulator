@@ -440,7 +440,20 @@
     "colMedianFinal": "中位终值",
     "colP90Final": "P90 终值",
     "colMeanFinal": "均值终值",
-    "colP10Depletion": "P10 耗尽年"
+    "colP10Depletion": "P10 耗尽年",
+    "nearOptimalZone": "等效区域",
+    "nearOptimalDesc": "在最优 {pct} 以内",
+    "nearOptimalTooltip": "覆盖率与最优配置相差不超过 1% 的配置，统计上表现相近，可根据个人偏好选择。",
+    "heatmapHint": "金色边框 = 近最优区域，星形 = 最优配置",
+    "paretoHint": "蓝色菱形展示安全性（覆盖率）与上行空间（终值中位数）之间的最优权衡，没有其他配置能同时超越它们。",
+    "paretoFrontier": "帕累托前沿",
+    "paretoChartTitle": "覆盖率 vs 终值中位数",
+    "paretoAxisFR": "覆盖率 (%)",
+    "paretoAxisMedian": "终值中位数 ($)",
+    "legendRegular": "其他",
+    "legendNearOptimal": "近最优",
+    "legendPareto": "帕累托最优",
+    "legendBest": "最优"
   },
   "loading": {
     "default": "模拟运行中…",

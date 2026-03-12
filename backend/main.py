@@ -1892,9 +1892,30 @@ def api_allocation_sweep(request: Request, req: AllocationSweepRequest):
         alloc_results = [AllocationResult(**r) for r in raw_results]
         best = max(alloc_results, key=lambda x: x.funded_ratio)
 
+        # Near-optimal flagging (within 1 percentage point of best)
+        threshold = 0.01
+        for r in alloc_results:
+            r.is_near_optimal = (best.funded_ratio - r.funded_ratio) <= threshold
+        best.is_near_optimal = True
+        near_optimal_count = sum(1 for r in alloc_results if r.is_near_optimal)
+
+        # Pareto frontier (funded_ratio↑ + median_final↑)
+        sorted_by_fr = sorted(alloc_results, key=lambda x: x.funded_ratio, reverse=True)
+        pareto = []
+        max_median = float('-inf')
+        for r in sorted_by_fr:
+            if r.median_final >= max_median:
+                r.is_pareto = True
+                pareto.append(r)
+                max_median = r.median_final
+        pareto_frontier = sorted(pareto, key=lambda x: x.funded_ratio)
+
         yield {"type": "result", "data": AllocationSweepResponse(
             results=alloc_results,
             best=best,
+            near_optimal_count=near_optimal_count,
+            near_optimal_threshold=threshold,
+            pareto_frontier=pareto_frontier,
         ).model_dump()}
 
     return _streaming(_generate())

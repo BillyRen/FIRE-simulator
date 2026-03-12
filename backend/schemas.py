@@ -446,11 +446,16 @@ class AllocationResult(BaseModel):
     funded_ratio: float = 0.0
     cvar_10: float = 0.0
     p90_final: float = 0.0
+    is_near_optimal: bool = False
+    is_pareto: bool = False
 
 
 class AllocationSweepResponse(BaseModel):
     results: list[AllocationResult]
     best: AllocationResult
+    near_optimal_count: int = 0
+    near_optimal_threshold: float = 0.01
+    pareto_frontier: list[AllocationResult] = []
 
 
 # ---------------------------------------------------------------------------

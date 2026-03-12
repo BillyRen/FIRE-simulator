@@ -374,11 +374,16 @@ export interface AllocationResult {
   funded_ratio: number;
   cvar_10: number;
   p90_final: number;
+  is_near_optimal: boolean;
+  is_pareto: boolean;
 }
 
 export interface AllocationSweepResponse {
   results: AllocationResult[];
   best: AllocationResult;
+  near_optimal_count: number;
+  near_optimal_threshold: number;
+  pareto_frontier: AllocationResult[];
 }
 
 // ---------------------------------------------------------------------------

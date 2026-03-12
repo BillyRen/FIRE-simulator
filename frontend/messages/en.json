@@ -440,7 +440,20 @@
     "colMedianFinal": "Median Final",
     "colP90Final": "P90 Final",
     "colMeanFinal": "Mean Final",
-    "colP10Depletion": "P10 Depletion Year"
+    "colP10Depletion": "P10 Depletion Year",
+    "nearOptimalZone": "Near-Optimal Zone",
+    "nearOptimalDesc": "within {pct} of best",
+    "nearOptimalTooltip": "Allocations with funded ratio within 1% of the best. These perform statistically similarly — pick based on your preference.",
+    "heatmapHint": "Gold borders = near-optimal zone. Star = best allocation.",
+    "paretoHint": "Blue diamonds show the best trade-off between safety (funded ratio) and upside (median final). No other allocation beats them on both.",
+    "paretoFrontier": "Pareto Frontier",
+    "paretoChartTitle": "Funded Ratio vs Median Final",
+    "paretoAxisFR": "Funded Ratio (%)",
+    "paretoAxisMedian": "Median Final Portfolio ($)",
+    "legendRegular": "Other",
+    "legendNearOptimal": "Near-Optimal",
+    "legendPareto": "Pareto Optimal",
+    "legendBest": "Best"
   },
   "loading": {
     "default": "Running simulation…",

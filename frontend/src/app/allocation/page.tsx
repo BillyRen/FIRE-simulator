@@ -143,7 +143,7 @@ export default function AllocationPage() {
         {result && (
           <>
             {/* 最优配置指标 */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <MetricCard
                 label={t("bestFundedRatio")}
                 value={pct(result.best.funded_ratio)}
@@ -165,12 +165,19 @@ export default function AllocationPage() {
                 label={t("colCvar10")}
                 value={fmt(result.best.cvar_10)}
               />
+              <MetricCard
+                label={t("nearOptimalZone")}
+                value={`${result.near_optimal_count} / ${result.results.length}`}
+                sub={t("nearOptimalDesc", { pct: `±${(result.near_optimal_threshold * 100).toFixed(0)}%` })}
+                tooltip={t("nearOptimalTooltip")}
+              />
             </div>
 
             {/* 三角热力图 */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">{t("heatmapTitle")}</CardTitle>
+                <p className="text-xs text-muted-foreground">{t("heatmapHint")}</p>
               </CardHeader>
               <CardContent>
                 <PlotlyChart
@@ -178,6 +185,7 @@ export default function AllocationPage() {
                     {
                       type: "scatterternary" as string,
                       mode: "markers",
+                      name: t("legendRegular"),
                       a: result.results.map((r) => r.domestic_stock * 100),
                       b: result.results.map((r) => r.global_stock * 100),
                       c: result.results.map((r) => r.domestic_bond * 100),
@@ -196,8 +204,29 @@ export default function AllocationPage() {
                           title: { text: t("ternaryColorbar") },
                           ticksuffix: "%",
                         },
-                        line: { width: 1, color: "rgba(0,0,0,0.2)" },
+                        line: {
+                          width: result.results.map((r) => r.is_near_optimal ? 3 : 1),
+                          color: result.results.map((r) => r.is_near_optimal ? "#F59E0B" : "rgba(0,0,0,0.2)"),
+                        },
                       },
+                      showlegend: false,
+                    } as Record<string, unknown>,
+                    {
+                      type: "scatterternary" as string,
+                      mode: "markers",
+                      name: t("legendBest"),
+                      a: [result.best.domestic_stock * 100],
+                      b: [result.best.global_stock * 100],
+                      c: [result.best.domestic_bond * 100],
+                      text: [`${t("legendBest")}<br>${t("ternaryDomStock").replace(" %", "")}${(result.best.domestic_stock * 100).toFixed(0)}% ${t("ternaryGlobalStock").replace(" %", "")}${(result.best.global_stock * 100).toFixed(0)}% ${t("ternaryDomBond").replace(" %", "")}${(result.best.domestic_bond * 100).toFixed(0)}%<br>${t("colFundedRatio")}: ${(result.best.funded_ratio * 100).toFixed(1)}%`],
+                      hoverinfo: "text",
+                      marker: {
+                        size: allocStep <= 0.05 ? 14 : allocStep <= 0.1 ? 20 : 26,
+                        color: "#EF4444",
+                        symbol: "star",
+                        line: { width: 2, color: "#991B1B" },
+                      },
+                      showlegend: true,
                     } as Record<string, unknown>,
                   ]}
                   layout={{
@@ -223,7 +252,8 @@ export default function AllocationPage() {
                       },
                     },
                     margin: isMobile ? { t: 20, b: 20, l: 10, r: 10 } : { t: 40, b: 40, l: 60, r: 60 },
-                    showlegend: false,
+                    showlegend: true,
+                    legend: { x: 0.02, y: 0.98, bgcolor: "rgba(255,255,255,0.7)" },
                     height: isMobile ? 350 : 500,
                   }}
                   config={{
@@ -237,6 +267,87 @@ export default function AllocationPage() {
                   }}
                   style={{ height: isMobile ? "350px" : "500px" }}
                 />
+              </CardContent>
+            </Card>
+
+            {/* Pareto 散点图 */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">{t("paretoChartTitle")}</CardTitle>
+                <p className="text-xs text-muted-foreground">{t("paretoHint")}</p>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  const regular = result.results.filter((r) => !r.is_near_optimal && !r.is_pareto);
+                  const nearOpt = result.results.filter((r) => r.is_near_optimal && !r.is_pareto);
+                  const hoverText = (r: typeof result.best) =>
+                    `${(r.domestic_stock * 100).toFixed(0)}/${(r.global_stock * 100).toFixed(0)}/${(r.domestic_bond * 100).toFixed(0)}<br>${t("colFundedRatio")}: ${(r.funded_ratio * 100).toFixed(1)}%<br>${t("colMedianFinal")}: ${fmt(r.median_final)}`;
+                  return (
+                    <PlotlyChart
+                      data={[
+                        {
+                          type: "scatter",
+                          mode: "markers",
+                          name: t("legendRegular"),
+                          x: regular.map((r) => r.funded_ratio * 100),
+                          y: regular.map((r) => r.median_final),
+                          text: regular.map(hoverText),
+                          hoverinfo: "text",
+                          marker: { size: 7, color: "#D1D5DB", opacity: 0.6 },
+                        },
+                        {
+                          type: "scatter",
+                          mode: "markers",
+                          name: t("legendNearOptimal"),
+                          x: nearOpt.map((r) => r.funded_ratio * 100),
+                          y: nearOpt.map((r) => r.median_final),
+                          text: nearOpt.map(hoverText),
+                          hoverinfo: "text",
+                          marker: { size: 9, color: "#FBBF24", line: { width: 2, color: "#F59E0B" } },
+                        },
+                        {
+                          type: "scatter",
+                          mode: "lines+markers",
+                          name: t("legendPareto"),
+                          x: result.pareto_frontier.map((r) => r.funded_ratio * 100),
+                          y: result.pareto_frontier.map((r) => r.median_final),
+                          text: result.pareto_frontier.map(hoverText),
+                          hoverinfo: "text",
+                          marker: { size: 10, color: "#3B82F6", symbol: "diamond" },
+                          line: { color: "#3B82F6", width: 2, dash: "dot" },
+                        },
+                        {
+                          type: "scatter",
+                          mode: "markers",
+                          name: t("legendBest"),
+                          x: [result.best.funded_ratio * 100],
+                          y: [result.best.median_final],
+                          text: [hoverText(result.best)],
+                          hoverinfo: "text",
+                          marker: { size: 14, color: "#EF4444", symbol: "star", line: { width: 2, color: "#991B1B" } },
+                        },
+                      ]}
+                      layout={{
+                        xaxis: { title: { text: t("paretoAxisFR") } },
+                        yaxis: { title: { text: t("paretoAxisMedian") } },
+                        margin: isMobile ? { t: 20, b: 50, l: 60, r: 20 } : { t: 30, b: 50, l: 80, r: 30 },
+                        showlegend: true,
+                        legend: { x: 0.02, y: 0.98, bgcolor: "rgba(255,255,255,0.7)" },
+                        height: isMobile ? 300 : 400,
+                      }}
+                      config={{
+                        displayModeBar: isMobile ? false : ("hover" as const),
+                        toImageButtonOptions: {
+                          format: "png",
+                          filename: "allocation_pareto",
+                          width: 1200,
+                          height: 800,
+                        },
+                      }}
+                      style={{ height: isMobile ? "300px" : "400px" }}
+                    />
+                  );
+                })()}
               </CardContent>
             </Card>
 
@@ -313,10 +424,15 @@ export default function AllocationPage() {
                           r.domestic_stock === result.best.domestic_stock &&
                           r.global_stock === result.best.global_stock &&
                           r.domestic_bond === result.best.domestic_bond;
+                        const rowClass = isBest
+                          ? "bg-green-50 font-medium"
+                          : r.is_near_optimal
+                            ? "bg-amber-50"
+                            : "hover:bg-accent/50";
                         return (
                           <tr
                             key={i}
-                            className={`border-b ${isBest ? "bg-green-50 font-medium" : "hover:bg-accent/50"}`}
+                            className={`border-b ${rowClass}`}
                           >
                             <td className="px-2 py-1">
                               {(r.domestic_stock * 100).toFixed(0)}
