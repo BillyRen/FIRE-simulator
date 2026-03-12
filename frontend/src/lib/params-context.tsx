@@ -1,9 +1,10 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, type Dispatch, type SetStateAction } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { DEFAULT_PARAMS } from "./types";
 import type { FormParams } from "./types";
 import { usePersistedState } from "./use-persisted-state";
+import { fetchServerDefaults } from "./api";
 
 interface SharedParamsState {
   params: FormParams;
@@ -50,6 +51,20 @@ const ParamsContext = createContext<SharedParamsState | null>(null);
 
 export function ParamsProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
+
+  // Apply server-recommended num_simulations on first load (only if user never changed it)
+  const applied = useRef(false);
+  useEffect(() => {
+    if (applied.current) return;
+    applied.current = true;
+    const hasUserSaved = localStorage.getItem("fire:params") !== null;
+    if (hasUserSaved) return; // user already has persisted params, don't override
+    fetchServerDefaults()
+      .then((defaults) => {
+        setParams((p) => ({ ...p, num_simulations: defaults.recommended_sim_counts.default }));
+      })
+      .catch(() => { /* use static default on failure */ });
+  }, [setParams]);
 
   // Guardrail
   const [guardrailTargetSuccess, setGuardrailTargetSuccess] = usePersistedState("fire:guardrailTargetSuccess", 0.85);

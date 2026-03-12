@@ -225,6 +225,17 @@ export async function fetchCountries(dataSource: string = "jst"): Promise<Countr
   return data.countries;
 }
 
+export interface ServerDefaults {
+  tier: "low" | "mid" | "high";
+  cores: number;
+  memory_gb: number;
+  recommended_sim_counts: { default: number; heavy: number };
+}
+
+export async function fetchServerDefaults(): Promise<ServerDefaults> {
+  return get<ServerDefaults>("/api/defaults");
+}
+
 export async function fetchHistoricalEvents(country?: string): Promise<HistoricalEvent[]> {
   const path = country
     ? `/api/historical-events?country=${country}`
