@@ -38,13 +38,8 @@ import type {
   ScenarioAnalysisResponse,
   SensitivityAnalysisResponse,
 } from "@/lib/types";
-import { fmt, pct, countryFlag } from "@/lib/utils";
-
-function deltaPct(cur: number, pin: number): string {
-  const d = cur - pin;
-  const sign = d >= 0 ? "+" : "";
-  return `${sign}${(d * 100).toFixed(1)}pp`;
-}
+import { fmt, pct, countryFlag, deltaPct } from "@/lib/utils";
+import { ErrorBanner } from "@/components/error-banner";
 
 export default function GuardrailPage() {
   const t = useTranslations("guardrail");
@@ -487,11 +482,7 @@ export default function GuardrailPage() {
 
       {/* ── 右侧结果 ── */}
       <main className="flex-1 space-y-6 min-w-0">
-        {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <ErrorBanner message={error} />}
 
         {loading && !preliminary && <ProgressOverlay message={t("guardrailLoading")} progress={progress} />}
 

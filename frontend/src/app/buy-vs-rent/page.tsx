@@ -21,7 +21,7 @@ import { MetricCard } from "@/components/metric-card";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { StatsTable } from "@/components/stats-table";
-import { useIsMobile } from "@/components/fan-chart";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import {
   runBuyVsRentSimple,

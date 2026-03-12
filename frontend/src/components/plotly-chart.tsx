@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import dynamic from "next/dynamic";
 import type { PlotParams } from "react-plotly.js";
 import { mergeLayout, mergeConfig } from "@/lib/chart-theme";
@@ -16,7 +17,7 @@ const Plot = dynamic(
   { ssr: false }
 );
 
-export default function PlotlyChart({ layout, config, style, ...rest }: PlotParams) {
+export default memo(function PlotlyChart({ layout, config, style, ...rest }: PlotParams) {
   return (
     <Plot
       {...rest}
@@ -25,4 +26,4 @@ export default function PlotlyChart({ layout, config, style, ...rest }: PlotPara
       style={{ width: "100%", ...style }}
     />
   );
-}
+});

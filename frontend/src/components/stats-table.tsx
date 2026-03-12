@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { useMessages } from "next-intl";
 import {
   Table,
@@ -18,7 +19,7 @@ interface StatsTableProps {
   downloadName?: string;
 }
 
-export function StatsTable({ rows, downloadName }: StatsTableProps) {
+export const StatsTable = memo(function StatsTable({ rows, downloadName }: StatsTableProps) {
   const messages = useMessages();
   const backendMap = (messages?.backendKeys ?? {}) as Record<string, string>;
 
@@ -91,4 +92,4 @@ export function StatsTable({ rows, downloadName }: StatsTableProps) {
       </div>
     </div>
   );
-}
+});

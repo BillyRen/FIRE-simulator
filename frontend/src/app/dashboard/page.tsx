@@ -11,6 +11,7 @@ import { CHART_COLORS } from "@/lib/chart-theme";
 import { runSimulation } from "@/lib/api";
 import { useSharedParams } from "@/lib/params-context";
 import { fmt, pct } from "@/lib/utils";
+import { ErrorBanner } from "@/components/error-banner";
 import type { SimulationResponse } from "@/lib/types";
 
 function computeScore(result: SimulationResponse): number {
@@ -109,11 +110,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner message={error} />}
 
       {/* Parameter summary */}
       <Card>

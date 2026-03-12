@@ -18,7 +18,7 @@ import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { MetricCard } from "@/components/metric-card";
 import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
-import { useIsMobile } from "@/components/fan-chart";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { runAllocationSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";

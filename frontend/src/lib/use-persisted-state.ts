@@ -1,21 +1,24 @@
 "use client";
 
-import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction } from "react";
 
 export function usePersistedState<T>(
   key: string,
   defaultValue: T,
 ): [T, Dispatch<SetStateAction<T>>] {
   const [value, setValue] = useState<T>(defaultValue);
+  const defaultRef = useRef(defaultValue);
+  useEffect(() => { defaultRef.current = defaultValue; }, [defaultValue]);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(key);
       if (saved !== null) {
         const parsed = JSON.parse(saved);
+        const def = defaultRef.current;
         if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-            && typeof defaultValue === "object" && defaultValue !== null) {
-          setValue({ ...defaultValue, ...parsed } as T); // eslint-disable-line react-hooks/set-state-in-effect -- hydrate from localStorage
+            && typeof def === "object" && def !== null) {
+          setValue({ ...def, ...parsed } as T);
         } else {
           setValue(parsed);
         }

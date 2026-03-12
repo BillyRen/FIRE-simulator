@@ -30,18 +30,8 @@ import { DownloadButton } from "@/components/download-button";
 import { PdfExportButton } from "@/components/pdf-export-button";
 import { useSharedParams } from "@/lib/params-context";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
-import { fmt, pct, countryFlag } from "@/lib/utils";
-
-function deltaPct(cur: number, pin: number): string {
-  const d = cur - pin;
-  const sign = d >= 0 ? "+" : "";
-  return `${sign}${(d * 100).toFixed(1)}pp`;
-}
-function deltaFmt(cur: number, pin: number): string {
-  const d = cur - pin;
-  const sign = d >= 0 ? "+" : "";
-  return `${sign}${fmt(d)}`;
-}
+import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
+import { ErrorBanner } from "@/components/error-banner";
 
 export default function SimulatorPage() {
   const t = useTranslations("simulator");
@@ -341,16 +331,8 @@ export default function SimulatorPage() {
 
       {/* ── 右侧结果区 ── */}
       <main className="flex-1 space-y-6 min-w-0">
-        {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-        {btError && (
-          <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            {btError}
-          </div>
-        )}
+        {error && <ErrorBanner message={error} />}
+        {btError && <ErrorBanner message={btError} />}
 
         <Tabs defaultValue="mc">
           <TabsList className="mb-4">

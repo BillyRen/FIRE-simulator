@@ -16,25 +16,15 @@ import {
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import PlotlyChart from "@/components/plotly-chart";
-import { useIsMobile } from "@/components/fan-chart";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { Pin, PinOff } from "lucide-react";
 import { runAccumulation } from "@/lib/api";
 import { useSharedParams } from "@/lib/params-context";
 import type { AccumulationResponse } from "@/lib/types";
-import { fmt as fmtUtil } from "@/lib/utils";
+import { fmt as fmtUtil, deltaPct, deltaFmt } from "@/lib/utils";
 import { MetricCard } from "@/components/metric-card";
-
-function deltaPct(cur: number, pin: number): string {
-  const d = cur - pin;
-  const sign = d >= 0 ? "+" : "";
-  return `${sign}${(d * 100).toFixed(1)}pp`;
-}
-function deltaFmt(cur: number, pin: number): string {
-  const d = cur - pin;
-  const sign = d >= 0 ? "+" : "";
-  return `${sign}${fmtUtil(d)}`;
-}
+import { ErrorBanner } from "@/components/error-banner";
 function deltaNum(cur: number, pin: number): string {
   const d = cur - pin;
   const sign = d >= 0 ? "+" : "";
@@ -267,11 +257,7 @@ export default function AccumulationPage() {
 
       {/* ── 右侧结果 ── */}
       <main className="flex-1 space-y-6 min-w-0">
-        {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <ErrorBanner message={error} />}
 
         {loading && <LoadingOverlay message={t("run")} />}
 

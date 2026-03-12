@@ -14,10 +14,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
+import { ErrorBanner } from "@/components/error-banner";
 import { StatsTable } from "@/components/stats-table";
 import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
-import { useIsMobile } from "@/components/fan-chart";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { runSweep } from "@/lib/api";
 import { downloadCSV } from "@/lib/csv";
@@ -131,11 +132,7 @@ export default function SensitivityPage() {
 
       {/* ── 右侧结果 ── */}
       <main className="flex-1 space-y-6 min-w-0">
-        {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+        {error && <ErrorBanner message={error} />}
 
         {loading && <ProgressOverlay message={t("scanLoading")} progress={progress} />}
 
