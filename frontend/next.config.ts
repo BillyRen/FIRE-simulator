@@ -14,6 +14,7 @@ try {
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  poweredByHeader: false,
   async headers() {
     return [
       {
