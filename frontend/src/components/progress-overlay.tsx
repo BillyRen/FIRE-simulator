@@ -66,6 +66,3 @@ export function PreliminaryBanner() {
     </div>
   );
 }
-
-// Backward-compatible alias
-export { ProgressOverlay as LoadingOverlay };

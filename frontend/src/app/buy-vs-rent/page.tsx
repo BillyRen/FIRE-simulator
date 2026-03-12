@@ -18,7 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { NumberField } from "@/components/sidebar-form";
 import { MetricCard } from "@/components/metric-card";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { StatsTable } from "@/components/stats-table";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -607,7 +607,7 @@ export default function BuyVsRentPage() {
 
       {/* Main content */}
       <div className="flex-1 min-w-0 space-y-4">
-        {loading && <LoadingOverlay />}
+        {loading && <ProgressOverlay />}
         {activeTab === "simple" && simpleResult && (
           <SimpleResults result={simpleResult} t={t} isMobile={isMobile} />
         )}

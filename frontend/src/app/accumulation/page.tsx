@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SidebarForm, NumberField } from "@/components/sidebar-form";
-import { LoadingOverlay } from "@/components/loading-overlay";
+import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
@@ -259,7 +259,7 @@ export default function AccumulationPage() {
       <main className="flex-1 space-y-6 min-w-0">
         {error && <ErrorBanner message={error} />}
 
-        {loading && <LoadingOverlay message={t("run")} />}
+        {loading && <ProgressOverlay message={t("run")} />}
 
         {result && !loading && (
           <>
