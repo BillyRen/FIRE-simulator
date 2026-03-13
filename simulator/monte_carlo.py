@@ -718,7 +718,8 @@ def run_simple_historical_backtest(
 
         if value <= 0:
             value = 0.0
-            survived = False
+            # Last-year depletion = survived (aligned with compute_success_rate)
+            survived = (year == n_years - 1)
             portfolio.append(0.0)
             # 后续年份补零
             for _ in range(year + 1, n_years):

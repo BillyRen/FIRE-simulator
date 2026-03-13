@@ -373,9 +373,17 @@ def run_guardrail_batch_backtest(
             # 逐条路径的消费地板判定
             _path_floor = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
             _path_below_floor = any(w < _path_floor for w in result["g_withdrawals"])
+
+            # Survived = completed full retirement + no early depletion + above consumption floor
+            # Check depletion: if any portfolio value (excluding initial) is <= 0 before the last year,
+            # the path depleted early (guardrail fills remaining years with zeros).
+            g_port = result["g_portfolio"]
+            b_port = result["b_portfolio"]
+            _g_early_depleted = any(g_port[y] <= 0 for y in range(1, len(g_port) - 1))
+            _b_early_depleted = any(b_port[y] <= 0 for y in range(1, len(b_port) - 1))
             _g_survived = (
                 n_years >= retirement_years
-                and float(result["g_portfolio"][-1]) >= 0
+                and not _g_early_depleted
                 and not _path_below_floor
             )
 
@@ -385,7 +393,7 @@ def run_guardrail_batch_backtest(
                 "years_simulated": result["years_simulated"],
                 "is_complete": n_years >= retirement_years,
                 "g_survived": _g_survived,
-                "b_survived": n_years >= retirement_years and float(result["b_portfolio"][-1]) >= 0,
+                "b_survived": n_years >= retirement_years and not _b_early_depleted,
                 "g_final_portfolio": float(result["g_portfolio"][-1]),
                 "b_final_portfolio": float(result["b_portfolio"][-1]),
                 "g_total_consumption": result["g_total_consumption"],
