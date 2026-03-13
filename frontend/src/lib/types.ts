@@ -46,6 +46,7 @@ export interface SimulationRequest {
   min_block: number;
   max_block: number;
   num_simulations: number;
+  seed?: number;
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";

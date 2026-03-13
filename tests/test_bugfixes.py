@@ -417,7 +417,7 @@ class TestEffectiveFundedRatio:
         )
 
         assert sr == 0.0
-        expected_fr = 20.0 / 40.0  # depletes at year 20
+        expected_fr = 21.0 / 40.0  # below floor at year 20 → funded through year 21
         assert abs(fr - expected_fr) < 0.01
 
     def test_asset_depletion_overrides_good_withdrawals(self):
@@ -439,8 +439,8 @@ class TestEffectiveFundedRatio:
         )
 
         assert sr == 0.0
-        # trajectories[:, 5]=0 → depleted index 4 in [:, 1:] → 4/10=0.4
-        assert abs(fr - 0.4) < 0.01
+        # trajectories[:, 5]=0 → depleted index 4 in [:, 1:] + 1 → 5/10=0.5
+        assert abs(fr - 0.5) < 0.01
 
     def test_portfolio_zero_last_year_wd_positive_is_failure(self):
         """Portfolio=0 at end of retirement → asset depletion → failure,
@@ -460,10 +460,10 @@ class TestEffectiveFundedRatio:
             trajectories=trajectories,
         )
 
-        # Asset depleted at last year → failure
-        assert sr == 0.0
-        # depletion index 39 in [:, 1:] → 39/40 = 0.975
-        assert abs(fr - 39.0 / 40.0) < 0.01
+        # Asset depleted at exactly the last year → funded for all retirement years
+        assert sr == 1.0
+        # depletion index 39 in [:, 1:] + 1 → 40/40 = 1.0
+        assert abs(fr - 1.0) < 0.01
 
     def test_portfolio_zero_one_year_early_is_failure(self):
         """Portfolio=0 one year before end, wd=0 → both checks fail."""

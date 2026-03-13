@@ -374,6 +374,7 @@ export default function GuardrailPage() {
               params={params}
               onChange={setParams}
               showWithdrawalStrategy={false}
+              countries={countries}
             >
               <Separator />
               <div>
