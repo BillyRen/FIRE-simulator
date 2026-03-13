@@ -575,6 +575,93 @@ class TestRunSimulationFromMatrix:
         assert ret_out.shape == (n_sims, n_years)
 
 
+class TestPositiveCFDoesNotMaskDepletion:
+    """Verify that positive cash flows (pension/social security) do not prevent
+    portfolio depletion detection."""
+
+    def test_positive_cf_does_not_rescue_depleted_portfolio(self):
+        """When portfolio depletes due to market losses, positive CF should not
+        prevent failure even if CF > withdrawal."""
+        n_sims, n_years = 5, 10
+        # Extreme negative returns to force depletion
+        real_returns = np.full((n_sims, n_years), -0.50)  # -50% per year
+        inflation = np.zeros((n_sims, n_years))
+        # Large positive CF that would normally rescue
+        large_pension = CashFlowItem(
+            name="pension", amount=100_000, start_year=0,
+            duration=n_years, inflation_adjusted=True,
+        )
+
+        traj, wd, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=real_returns,
+            inflation_matrix=inflation,
+            initial_portfolio=200_000,
+            annual_withdrawal=50_000,
+            retirement_years=n_years,
+            withdrawal_strategy="fixed",
+            cash_flows=[large_pension],
+        )
+
+        # Portfolio should eventually deplete (returns are -50%/year)
+        # Before the fix, positive CF would prevent depletion forever
+        assert float(np.mean(traj[:, -1] > 0)) < 1.0, (
+            "Large positive CF should not make portfolio immortal"
+        )
+
+    def test_negative_cf_still_deducts_before_check(self):
+        """Negative CFs (extra expenses) should reduce portfolio before depletion check."""
+        n_sims, n_years = 5, 10
+        real_returns = np.full((n_sims, n_years), -0.10)
+        inflation = np.zeros((n_sims, n_years))
+        # Extra expense that accelerates depletion
+        expense = CashFlowItem(
+            name="expense", amount=-50_000, start_year=0,
+            duration=n_years, inflation_adjusted=True,
+        )
+
+        traj_no_cf, _, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=real_returns,
+            inflation_matrix=inflation,
+            initial_portfolio=200_000,
+            annual_withdrawal=20_000,
+            retirement_years=n_years,
+            withdrawal_strategy="fixed",
+        )
+        traj_with_cf, _, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=real_returns,
+            inflation_matrix=inflation,
+            initial_portfolio=200_000,
+            annual_withdrawal=20_000,
+            retirement_years=n_years,
+            withdrawal_strategy="fixed",
+            cash_flows=[expense],
+        )
+
+        # Negative CF should cause earlier depletion
+        sr_no_cf = float(np.mean(traj_no_cf[:, -1] > 0))
+        sr_with_cf = float(np.mean(traj_with_cf[:, -1] > 0))
+        assert sr_with_cf <= sr_no_cf
+
+    def test_backtest_records_actual_withdrawal(self):
+        """run_simple_historical_backtest should record actual withdrawal, not intended."""
+        from simulator.monte_carlo import run_simple_historical_backtest
+
+        # Returns so bad the portfolio depletes quickly
+        real_returns = np.array([-0.8, -0.5, -0.3, 0.05, 0.05])
+        result = run_simple_historical_backtest(
+            real_returns=real_returns,
+            initial_portfolio=100_000,
+            annual_withdrawal=50_000,
+            retirement_years=5,
+        )
+
+        # After -80% return: value = 100k * 0.2 = 20k, withdraw min(50k, 20k) = 20k
+        # First withdrawal should be capped at available value, not full 50k
+        assert result["withdrawals"][0] < 50_000, (
+            "Withdrawal should be capped at portfolio value after growth"
+        )
+
+
 # ---------------------------------------------------------------------------
 # raw_to_combined Tests
 # ---------------------------------------------------------------------------

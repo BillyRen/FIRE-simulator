@@ -874,10 +874,10 @@ def run_guardrail_simulation(
             withdrawals[i, year] = wd
             value = value * (1.0 + scenarios[i, year]) - wd
 
-            if cf_schedule is not None:
+            # Apply negative CFs (expenses) before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
                 value += cf_schedule[year]
-                if cf_schedule[year] < 0:
-                    withdrawals[i, year] -= cf_schedule[year]
+                withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
@@ -885,6 +885,9 @@ def run_guardrail_simulation(
                 withdrawals[i, year + 1:] = 0.0
                 break
 
+            # Apply positive CFs (income) after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
             trajectories[i, year + 1] = value
 
     return initial_portfolio, annual_withdrawal, trajectories, withdrawals
@@ -1000,16 +1003,20 @@ def run_fixed_baseline(
             withdrawals[i, year] = annual_wd
             value = value * (1.0 + scenarios[i, year]) - annual_wd
 
-            if cf_schedule is not None:
+            # Apply negative CFs (expenses) before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
                 value += cf_schedule[year]
-                if cf_schedule[year] < 0:
-                    withdrawals[i, year] -= cf_schedule[year]
+                withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
                 trajectories[i, year + 1:] = 0.0
                 withdrawals[i, year + 1:] = 0.0
                 break
+
+            # Apply positive CFs (income) after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals
@@ -1190,16 +1197,20 @@ def run_historical_backtest(
         g_withdrawals[year] = wd
         value = value * (1.0 + real_returns[year]) - wd
 
-        if cf_schedule is not None:
+        # Apply negative CFs (expenses) before depletion check
+        if cf_schedule is not None and cf_schedule[year] < 0:
             value += cf_schedule[year]
-            if cf_schedule[year] < 0:
-                g_withdrawals[year] -= cf_schedule[year]
+            g_withdrawals[year] -= cf_schedule[year]
 
         if value <= 0:
             value = 0.0
             g_portfolio[year + 1:] = 0.0
             g_withdrawals[year + 1:] = 0.0
             break
+
+        # Apply positive CFs (income) after depletion check
+        if cf_schedule is not None and cf_schedule[year] > 0:
+            value += cf_schedule[year]
         g_portfolio[year + 1] = value
 
     # 基准固定策略
@@ -1214,13 +1225,17 @@ def run_historical_backtest(
         if value > 0:
             value = value * (1.0 + real_returns[year]) - baseline_wd
 
-            if cf_schedule is not None:
+            # Apply negative CFs (expenses) before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
                 value += cf_schedule[year]
-                if cf_schedule[year] < 0:
-                    b_withdrawals[year] -= cf_schedule[year]
+                b_withdrawals[year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
+
+            # Apply positive CFs (income) after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
         b_portfolio[year + 1] = value
 
     return {

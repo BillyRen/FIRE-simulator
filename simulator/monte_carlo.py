@@ -220,15 +220,18 @@ def _simulate_general_from_matrix(
             actual_wd = min(withdrawal, max(value_after_growth, 0.0))
             value = value_after_growth - actual_wd
             withdrawals[i, year] = actual_wd
-            if cf_schedule is not None:
+            # Apply negative CFs (expenses) before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
                 value += cf_schedule[year]
-                if cf_schedule[year] < 0:
-                    withdrawals[i, year] -= cf_schedule[year]
+                withdrawals[i, year] -= cf_schedule[year]
             if value <= 0:
                 value = 0.0
                 trajectories[i, year + 1:] = 0.0
                 withdrawals[i, year + 1:] = 0.0
                 break
+            # Apply positive CFs (income) after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
@@ -548,16 +551,20 @@ def run_simulation(
 
             withdrawals[i, year] = actual_wd
 
-            if cf_schedule is not None:
+            # Apply negative CFs (expenses) before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
                 value += cf_schedule[year]
-                if cf_schedule[year] < 0:
-                    withdrawals[i, year] -= cf_schedule[year]
+                withdrawals[i, year] -= cf_schedule[year]
 
             if value <= 0:
                 value = 0.0
                 trajectories[i, year + 1 :] = 0.0
                 withdrawals[i, year + 1 :] = 0.0
                 break
+
+            # Apply positive CFs (income) after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
@@ -698,14 +705,15 @@ def run_simple_historical_backtest(
             smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
         )
 
-        withdrawals_out.append(wd)
         prev_wd = wd
 
         value_after_growth = value * (1.0 + real_returns[year])
         actual_wd = min(wd, max(value_after_growth, 0.0))
         value = value_after_growth - actual_wd
+        withdrawals_out.append(actual_wd)
 
-        if cf_schedule is not None:
+        # Apply negative CFs (expenses) before depletion check
+        if cf_schedule is not None and cf_schedule[year] < 0:
             value += cf_schedule[year]
 
         if value <= 0:
@@ -717,6 +725,10 @@ def run_simple_historical_backtest(
                 portfolio.append(0.0)
                 withdrawals_out.append(0.0)
             break
+
+        # Apply positive CFs (income) after depletion check
+        if cf_schedule is not None and cf_schedule[year] > 0:
+            value += cf_schedule[year]
         portfolio.append(value)
 
     return {
