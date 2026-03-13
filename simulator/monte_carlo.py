@@ -6,6 +6,9 @@ import numpy as np
 import pandas as pd
 
 from .bootstrap import (
+    IDX_DB,
+    IDX_DS,
+    IDX_GS,
     IDX_INF,
     RETURN_COLS,
     block_bootstrap,

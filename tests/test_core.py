@@ -403,6 +403,48 @@ class TestMonteCarloSimulation:
         assert traj.shape == (20, 11)
         assert wd.shape == (20, 10)
 
+    def test_glide_path_fixed(self, sample_returns_df, default_allocation, default_expenses):
+        """Glide path with fixed strategy should run without error."""
+        end_alloc = {"domestic_stock": 0.2, "global_stock": 0.1, "domestic_bond": 0.7}
+        traj, wd, ret_mat, infl_mat = run_simulation(
+            initial_portfolio=1_000_000,
+            annual_withdrawal=40_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=10,
+            min_block=2,
+            max_block=4,
+            num_simulations=20,
+            returns_df=sample_returns_df,
+            seed=42,
+            glide_path_end_allocation=end_alloc,
+            glide_path_years=5,
+        )
+        assert traj.shape == (20, 11)
+        assert wd.shape == (20, 10)
+        assert np.all(traj[:, 0] == 1_000_000)
+
+    def test_glide_path_dynamic(self, sample_returns_df, default_allocation, default_expenses):
+        """Glide path with dynamic strategy should run without error."""
+        end_alloc = {"domestic_stock": 0.2, "global_stock": 0.1, "domestic_bond": 0.7}
+        traj, wd, ret_mat, infl_mat = run_simulation(
+            initial_portfolio=1_000_000,
+            annual_withdrawal=40_000,
+            allocation=default_allocation,
+            expense_ratios=default_expenses,
+            retirement_years=10,
+            min_block=2,
+            max_block=4,
+            num_simulations=20,
+            returns_df=sample_returns_df,
+            seed=42,
+            withdrawal_strategy="dynamic",
+            glide_path_end_allocation=end_alloc,
+            glide_path_years=5,
+        )
+        assert traj.shape == (20, 11)
+        assert wd.shape == (20, 10)
+
 
 # ---------------------------------------------------------------------------
 # Pydantic Validation Tests
