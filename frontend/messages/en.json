@@ -122,6 +122,8 @@
     "income": "Income",
     "expense": "Expense",
     "amountLabel": "Amount ($)",
+    "amountHintReal": "In today's dollars (inflation-adjusted)",
+    "amountHintNominal": "Fixed nominal amount (not inflation-adjusted)",
     "startYear": "Start Year",
     "duration": "Duration",
     "probability": "Prob (%)",

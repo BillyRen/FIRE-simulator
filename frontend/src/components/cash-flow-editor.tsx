@@ -314,6 +314,9 @@ function CashFlowCard({
         >
           <div>
             <Label className="text-xs">{t("amountLabel")}</Label>
+            <p className="text-[10px] text-muted-foreground leading-tight">
+              {item.inflation_adjusted ? t("amountHintReal") : t("amountHintNominal")}
+            </p>
             <CfNumberInput
               value={Math.abs(item.amount)}
               onChange={(abs) => {
@@ -715,7 +718,7 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
               const isMultiPhase = vindices.length > 1;
               return (
                 <div
-                  key={`variant-${vname}`}
+                  key={`variant-${vindices[0]}`}
                   className={
                     isMultiPhase
                       ? "border-l-2 border-primary/20 pl-2 space-y-2"

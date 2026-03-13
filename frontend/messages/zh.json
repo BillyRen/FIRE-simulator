@@ -122,6 +122,8 @@
     "income": "收入",
     "expense": "支出",
     "amountLabel": "金额 ($)",
+    "amountHintReal": "按今天购买力计价（已通胀调整）",
+    "amountHintNominal": "固定名义金额（不随通胀调整）",
     "startYear": "起始年",
     "duration": "持续年",
     "probability": "概率 (%)",
