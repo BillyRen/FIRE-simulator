@@ -177,30 +177,28 @@ def main() -> None:
         # Uses the FILLED _housing_rent_yd series (including median-yd
         # fallback rows) so Rent_Growth is consistent with Housing_Rent_YD.
         #
-        # However, pct_change() at imputed→observed boundaries produces
-        # artifacts: the first observed year's growth is measured against
-        # a synthetic prior rent level, so it reflects the yield jump
-        # rather than actual rent dynamics. We NaN only these rows so
-        # they fall back to the inflation proxy.
-        #
-        # We do NOT NaN observed→imputed boundaries: the first imputed
-        # year's rent level is the best synthetic estimate we have, and
-        # its growth from the prior observed level is a reasonable
-        # transition into the gap.
+        # However, pct_change() at any boundary where imputation status
+        # changes produces artifacts: the growth rate includes a yield
+        # discontinuity (observed↔median) that is not real rent dynamics.
+        #   - imputed→observed: growth reflects jump from median yield
+        #     back to observed yield
+        #   - observed→imputed: growth bakes in the level jump from
+        #     observed yield to country median
+        # Both directions fall back to the inflation proxy.
         # ----------------------------------------------------------
         yd_was_imputed = need_median_fill.copy() if n_recon_b > 0 else pd.Series(False, index=df.index)
         if "hpnom" in df.columns:
             rent_level = df["_housing_rent_yd"] * df["hpnom"]
             df["_rent_growth"] = rent_level.pct_change()
-            # NaN only imputed→observed transitions (not observed→imputed)
+            # NaN out rows at any imputation boundary (both directions)
             if yd_was_imputed.any():
                 prev_imputed = yd_was_imputed.shift(1, fill_value=False)
-                transition = prev_imputed & ~yd_was_imputed & df["_rent_growth"].notna()
+                transition = (yd_was_imputed != prev_imputed) & df["_rent_growth"].notna()
                 n_transition = int(transition.sum())
                 if n_transition > 0:
                     df.loc[transition, "_rent_growth"] = np.nan
                     years_t = sorted(df.loc[transition, "year"].astype(int).tolist())
-                    print(f"  {iso}: NaN'd Rent_Growth at {n_transition} imputed->observed transition(s): {years_t}")
+                    print(f"  {iso}: NaN'd Rent_Growth at {n_transition} imputation boundary(ies): {years_t}")
         else:
             df["_rent_growth"] = np.nan
 
