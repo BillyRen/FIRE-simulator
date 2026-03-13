@@ -36,10 +36,11 @@ Design decisions:
     without housing data (CAN, IRL have no housing returns in JST R6).
   - Housing_TR sourcing priority:
     1. JST R6 housing_tr (exact = housing_capgain + housing_rent_rtn)
-    2. Reconstructed from housing_capgain + housing_rent_yd (for extension data
-       2021-2025 where housing_rent_rtn is unavailable; median error ~0.27%)
-    3. housing_capgain + country-median housing_rent_yd (for early years where
-       rent_yd is missing but capgain exists; ~136 rows across 8 countries)
+    2. Reconstructed as (1+capgain)*(1+rent_yd)-1 (for extension data 2021-2025
+       where housing_rent_rtn is unavailable; matches JST definition where
+       rent_rtn ≈ rent_yd*(1+capgain))
+    3. (1+capgain)*(1+country_median_rent_yd)-1 (for early years where rent_yd
+       is missing but capgain exists; ~136 rows across 8 countries)
 """
 
 from __future__ import annotations
@@ -134,8 +135,14 @@ def main() -> None:
         # Priority: use JST housing_tr directly; fall back to reconstruction
         df["_housing_tr"] = df.get("housing_tr", np.nan)
 
-        # For rows with capgain but no housing_tr: reconstruct
-        # Case A: housing_rent_yd available → capgain + rent_yd
+        # For rows with capgain but no housing_tr: reconstruct using
+        # multiplicative formula: (1+capgain)*(1+rent_yd) - 1
+        # This matches JST's definition: housing_tr = capgain + rent_rtn,
+        # where rent_rtn ≈ rent_yd*(1+capgain). The multiplicative form
+        # is more accurate than simple addition (97% of rows closer to
+        # actual housing_tr; additive can err by ~5% in extreme years).
+        #
+        # Case A: housing_rent_yd available → multiplicative reconstruction
         can_reconstruct = (
             df["_housing_tr"].isna()
             & df["_housing_capgain"].notna()
@@ -143,12 +150,11 @@ def main() -> None:
         )
         n_recon_a = int(can_reconstruct.sum())
         if n_recon_a > 0:
-            df.loc[can_reconstruct, "_housing_tr"] = (
-                df.loc[can_reconstruct, "_housing_capgain"]
-                + df.loc[can_reconstruct, "_housing_rent_yd"]
-            )
+            cg = df.loc[can_reconstruct, "_housing_capgain"]
+            yd = df.loc[can_reconstruct, "_housing_rent_yd"]
+            df.loc[can_reconstruct, "_housing_tr"] = (1 + cg) * (1 + yd) - 1
             years_a = sorted(df.loc[can_reconstruct, "year"].astype(int).tolist())
-            print(f"  {iso}: reconstructed Housing_TR = capgain + rent_yd for {n_recon_a} rows: {years_a}")
+            print(f"  {iso}: reconstructed Housing_TR = (1+cg)*(1+yd)-1 for {n_recon_a} rows: {years_a}")
 
         # Case B: no rent_yd → use country-median rent_yd
         median_yd = df["_housing_rent_yd"].median()  # NaN if no data at all
@@ -159,17 +165,20 @@ def main() -> None:
         )
         n_recon_b = int(need_median_fill.sum())
         if n_recon_b > 0:
-            df.loc[need_median_fill, "_housing_tr"] = (
-                df.loc[need_median_fill, "_housing_capgain"] + median_yd
-            )
+            cg = df.loc[need_median_fill, "_housing_capgain"]
+            df.loc[need_median_fill, "_housing_tr"] = (1 + cg) * (1 + median_yd) - 1
             # Also fill rent_yd for these rows so it's consistent
             df.loc[need_median_fill, "_housing_rent_yd"] = median_yd
             years_b = sorted(df.loc[need_median_fill, "year"].astype(int).tolist())
-            print(f"  {iso}: filled Housing_TR = capgain + median_yd ({median_yd:.4f}) for {n_recon_b} rows: {years_b}")
+            print(f"  {iso}: filled Housing_TR = (1+cg)*(1+median_yd({median_yd:.4f}))-1 for {n_recon_b} rows: {years_b}")
 
+        # ----------------------------------------------------------
         # Rent growth: derived from nominal rent level = rent_yd * hpnom
-        if "housing_rent_yd" in df.columns and "hpnom" in df.columns:
-            rent_level = df["housing_rent_yd"] * df["hpnom"]
+        # Uses the FILLED _housing_rent_yd series (including median-yd
+        # fallback rows) so Rent_Growth is consistent with Housing_Rent_YD.
+        # ----------------------------------------------------------
+        if "hpnom" in df.columns:
+            rent_level = df["_housing_rent_yd"] * df["hpnom"]
             df["_rent_growth"] = rent_level.pct_change()
         else:
             df["_rent_growth"] = np.nan
