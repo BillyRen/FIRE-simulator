@@ -304,6 +304,7 @@ def run_guardrail_batch_backtest(
     cf_ref: float = 0.0,
     last_cf_year: int = -1,
     consumption_floor: float = 0.50,
+    consumption_floor_amount: float = 0.0,
 ) -> dict:
     """遍历所有有效 (国家, 起始年) 运行 guardrail 历史回测。
 
@@ -369,7 +370,7 @@ def run_guardrail_batch_backtest(
             year_labels = years_arr[i:i + n_years].tolist()
 
             # 逐条路径的消费地板判定
-            _path_floor = consumption_floor * annual_withdrawal
+            _path_floor = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
             _path_below_floor = any(w < _path_floor for w in result["g_withdrawals"])
             _g_survived = (
                 float(result["g_portfolio"][-1]) > 0
@@ -418,6 +419,7 @@ def run_guardrail_batch_backtest(
         g_wd, annual_withdrawal, retirement_years,
         consumption_floor=consumption_floor,
         trajectories=g_traj,
+        consumption_floor_amount=consumption_floor_amount,
     )
     b_success = float(np.mean(b_traj[:, -1] > 0))
     b_fr = compute_funded_ratio(b_traj, retirement_years)

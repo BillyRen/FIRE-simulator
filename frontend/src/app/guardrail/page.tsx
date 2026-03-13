@@ -58,6 +58,7 @@ export default function GuardrailPage() {
     guardrailMinRemainingYears: minRemainingYears, setGuardrailMinRemainingYears: setMinRemainingYears,
     guardrailBaselineRate: baselineRate, setGuardrailBaselineRate: setBaselineRate,
     guardrailConsumptionFloor: consumptionFloor, setGuardrailConsumptionFloor: setConsumptionFloor,
+    guardrailConsumptionFloorAmount: consumptionFloorAmount, setGuardrailConsumptionFloorAmount: setConsumptionFloorAmount,
     histStartYear, setHistStartYear,
     singleCountry, setSingleCountry,
   } = useSharedParams();
@@ -133,6 +134,7 @@ export default function GuardrailPage() {
     min_remaining_years: minRemainingYears,
     baseline_rate: baselineRate,
     consumption_floor: consumptionFloor,
+    consumption_floor_amount: consumptionFloorAmount,
     leverage: params.leverage,
     borrowing_spread: params.borrowing_spread,
     cash_flows: params.cash_flows,
@@ -450,6 +452,14 @@ export default function GuardrailPage() {
                     min={1}
                     max={99}
                     help={t("consumptionFloorHelp")}
+                  />
+                  <NumberField
+                    label={t("consumptionFloorAmount")}
+                    value={consumptionFloorAmount}
+                    onChange={setConsumptionFloorAmount}
+                    min={0}
+                    step={1000}
+                    help={t("consumptionFloorAmountHelp")}
                   />
                 </div>
               </div>

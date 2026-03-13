@@ -185,6 +185,7 @@ class GuardrailRequest(BaseSimulationParams):
     min_remaining_years: int = Field(5, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     consumption_floor: float = Field(0.50, gt=0, le=1)
+    consumption_floor_amount: float = Field(0.0, ge=0)
 
 
 class GuardrailResponse(BaseModel):
@@ -336,6 +337,7 @@ class GuardrailBatchBacktestRequest(BaseSimulationParams):
     min_remaining_years: int = Field(5, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     consumption_floor: float = Field(0.50, gt=0, le=1)
+    consumption_floor_amount: float = Field(0.0, ge=0)
 
 
 class GuardrailBatchPathSummary(BaseModel):

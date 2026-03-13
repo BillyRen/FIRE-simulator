@@ -131,6 +131,52 @@ class TestComputeEffectiveFundedRatio:
         assert funded == pytest.approx(expected_funded)
         assert success == pytest.approx(0.5)
 
+    def test_floor_amount_overrides_percentage(self):
+        """Fixed amount > percentage floor -> uses fixed amount."""
+        n_sims, years = 50, 20
+        withdrawals = np.full((n_sims, years), 25_000.0)
+        initial_wd = 40_000.0
+        # Percentage floor = 40000 * 0.5 = 20000 -> 25000 > 20000, no breach
+        funded_pct, success_pct = compute_effective_funded_ratio(
+            withdrawals, initial_wd, years, consumption_floor=0.5
+        )
+        assert success_pct == pytest.approx(1.0)
+        # Fixed amount = 30000 > 20000 -> overrides; 25000 < 30000 -> breach
+        funded_amt, success_amt = compute_effective_funded_ratio(
+            withdrawals, initial_wd, years, consumption_floor=0.5,
+            consumption_floor_amount=30_000.0,
+        )
+        assert success_amt == pytest.approx(0.0)
+
+    def test_floor_amount_below_percentage(self):
+        """Fixed amount < percentage floor -> percentage still governs."""
+        n_sims, years = 50, 20
+        withdrawals = np.full((n_sims, years), 15_000.0)  # below 50% of 40k=20k
+        initial_wd = 40_000.0
+        # Percentage floor = 20000, amount = 10000 -> max(20000,10000) = 20000
+        funded, success = compute_effective_funded_ratio(
+            withdrawals, initial_wd, years, consumption_floor=0.5,
+            consumption_floor_amount=10_000.0,
+        )
+        assert success == pytest.approx(0.0)
+        assert funded == pytest.approx(0.0)
+
+    def test_floor_amount_zero_backward_compat(self):
+        """consumption_floor_amount=0 behaves identically to old code."""
+        n_sims, years = 100, 20
+        withdrawals = np.full((n_sims, years), 40_000.0)
+        withdrawals[:50, 10:] = 10_000.0
+        initial_wd = 40_000.0
+        funded_old, success_old = compute_effective_funded_ratio(
+            withdrawals, initial_wd, years, consumption_floor=0.5,
+        )
+        funded_new, success_new = compute_effective_funded_ratio(
+            withdrawals, initial_wd, years, consumption_floor=0.5,
+            consumption_floor_amount=0.0,
+        )
+        assert funded_new == pytest.approx(funded_old)
+        assert success_new == pytest.approx(success_old)
+
 
 class TestComputeStatistics:
     """Tests for compute_statistics result structure."""

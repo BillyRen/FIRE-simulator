@@ -287,6 +287,8 @@
     "minRemainingYears": "最少剩余计算年限",
     "consumptionFloor": "消费地板 %",
     "consumptionFloorHelp": "若年消费降至初始提取额的该比例以下，则该路径视为失败",
+    "consumptionFloorAmount": "消费地板金额",
+    "consumptionFloorAmountHelp": "年消费的固定金额地板。实际地板 = max(百分比地板, 此金额)。设为 0 则仅使用百分比。",
     "mcTab": "Monte Carlo 分析",
     "backtestTab": "历史回测",
     "inputMode": "输入模式",

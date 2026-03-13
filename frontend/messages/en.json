@@ -287,6 +287,8 @@
     "minRemainingYears": "Min Remaining Years",
     "consumptionFloor": "Consumption Floor %",
     "consumptionFloorHelp": "If annual spending drops below this % of the initial withdrawal, the path is considered failed",
+    "consumptionFloorAmount": "Consumption Floor Amount",
+    "consumptionFloorAmountHelp": "Fixed dollar floor for annual spending. Actual floor = max(percentage floor, this amount). Set 0 to use percentage only.",
     "mcTab": "Monte Carlo Analysis",
     "backtestTab": "Historical Backtest",
     "inputMode": "Input Mode",

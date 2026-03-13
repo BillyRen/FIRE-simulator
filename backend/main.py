@@ -734,7 +734,8 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
             country_weights=country_weights,
         )
 
-        yield {"type": "progress", "stage": "scenario_run", "pct": 20}
+        total = 1 + len(cf_scenarios)
+        yield {"type": "progress", "stage": "scenario_run", "pct": 20, "current": 0, "total": total}
 
         def _run_scenario(
             scenario_cfs: list[CashFlowItem] | None,
@@ -772,7 +773,6 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
                 initial_portfolio=req.initial_portfolio,
             )
 
-        total = 1 + len(cf_scenarios)
         completed = 0
         max_workers = 1 if is_low_memory() else max(1, os.cpu_count() or 1)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -1081,6 +1081,7 @@ def _run_guardrail_and_build_result(
     g_fr, g_success = compute_effective_funded_ratio(
         wd_g, annual_wd, req.retirement_years,
         consumption_floor=req.consumption_floor, trajectories=traj_g,
+        consumption_floor_amount=req.consumption_floor_amount,
     )
     b_success = float(np.mean(traj_b[:, -1] > 0))
     b_fr = compute_funded_ratio(traj_b, req.retirement_years)
@@ -1363,6 +1364,7 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
                 wd, aw, req.retirement_years,
                 consumption_floor=req.consumption_floor,
                 trajectories=traj,
+                consumption_floor_amount=req.consumption_floor_amount,
             )
             g_total = np.sum(wd, axis=1)
             return ScenarioResult(
@@ -1506,6 +1508,7 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
                 r_wd, r_aw, years,
                 consumption_floor=req.consumption_floor,
                 trajectories=r_traj,
+                consumption_floor_amount=req.consumption_floor_amount,
             )
             r_fr = compute_funded_ratio(r_traj, years)
             return r_ip, r_aw, r_sr, r_fr
@@ -1799,6 +1802,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         cf_ref=_batch_cf_ref,
         last_cf_year=_batch_last_cf_y,
         consumption_floor=req.consumption_floor,
+        consumption_floor_amount=req.consumption_floor_amount,
     )
 
     # 构建路径摘要

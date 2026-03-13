@@ -84,19 +84,20 @@ def compute_effective_funded_ratio(
     retirement_years: int,
     consumption_floor: float = CONSUMPTION_FLOOR,
     trajectories: np.ndarray | None = None,
+    consumption_floor_amount: float = 0.0,
 ) -> tuple[float, float]:
     """消费地板调整后的 funded_ratio 和 success_rate。
 
     护栏策略通过削减消费避免资产归零，导致传统 funded_ratio 虚高。
-    本函数将"年消费低于 initial_withdrawal * consumption_floor"视为等效耗尽，
-    与传统资产归零耗尽取较早者。
+    本函数将"年消费低于 max(initial_withdrawal * consumption_floor,
+    consumption_floor_amount)"视为等效耗尽，与传统资产归零耗尽取较早者。
 
     Returns (effective_funded_ratio, effective_success_rate).
     """
     num_sims = withdrawals.shape[0]
     n_years = withdrawals.shape[1]
 
-    floor_val = initial_withdrawal * consumption_floor
+    floor_val = max(initial_withdrawal * consumption_floor, consumption_floor_amount)
     below_floor = withdrawals < floor_val  # (num_sims, n_years)
 
     any_below = below_floor.any(axis=1)

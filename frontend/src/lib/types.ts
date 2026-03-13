@@ -153,6 +153,7 @@ export interface GuardrailRequest {
   min_remaining_years: number;
   baseline_rate: number;
   consumption_floor: number;
+  consumption_floor_amount: number;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
