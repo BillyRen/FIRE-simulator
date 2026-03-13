@@ -8,6 +8,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 155,
+    "housing_tr_years": 155,
     "extended": true
   },
   {
@@ -19,6 +20,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 147,
+    "housing_tr_years": 147,
     "extended": true
   },
   {
@@ -30,6 +32,7 @@
     "n_years": 126,
     "has_housing": true,
     "housing_years": 124,
+    "housing_tr_years": 124,
     "extended": true
   },
   {
@@ -41,6 +44,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 129,
+    "housing_tr_years": 129,
     "extended": true
   },
   {
@@ -52,6 +56,7 @@
     "n_years": 153,
     "has_housing": true,
     "housing_years": 150,
+    "housing_tr_years": 150,
     "extended": true
   },
   {
@@ -63,6 +68,7 @@
     "n_years": 126,
     "has_housing": true,
     "housing_years": 125,
+    "housing_tr_years": 125,
     "extended": true
   },
   {
@@ -74,6 +80,7 @@
     "n_years": 130,
     "has_housing": true,
     "housing_years": 118,
+    "housing_tr_years": 118,
     "extended": true
   },
   {
@@ -85,6 +92,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 155,
+    "housing_tr_years": 155,
     "extended": true
   },
   {
@@ -96,6 +104,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 123,
+    "housing_tr_years": 123,
     "extended": true
   },
   {
@@ -107,6 +116,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 98,
+    "housing_tr_years": 98,
     "extended": true
   },
   {
@@ -118,6 +128,7 @@
     "n_years": 140,
     "has_housing": true,
     "housing_years": 112,
+    "housing_tr_years": 112,
     "extended": true
   },
   {
@@ -129,6 +140,7 @@
     "n_years": 126,
     "has_housing": true,
     "housing_years": 126,
+    "housing_tr_years": 126,
     "extended": true
   },
   {
@@ -140,6 +152,7 @@
     "n_years": 145,
     "has_housing": true,
     "housing_years": 145,
+    "housing_tr_years": 145,
     "extended": true
   },
   {
@@ -151,6 +164,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 94,
+    "housing_tr_years": 94,
     "extended": true
   },
   {
@@ -162,6 +176,7 @@
     "n_years": 155,
     "has_housing": true,
     "housing_years": 150,
+    "housing_tr_years": 150,
     "extended": true
   },
   {
@@ -173,6 +188,7 @@
     "n_years": 154,
     "has_housing": true,
     "housing_years": 135,
+    "housing_tr_years": 135,
     "extended": true
   }
 ]

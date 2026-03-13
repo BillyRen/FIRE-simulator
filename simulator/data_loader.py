@@ -30,6 +30,7 @@ EXPECTED_COLUMNS = [
 RETURN_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
 
 HOUSING_COLS = ["Housing_CapGain", "Rent_Growth", "Long_Rate"]
+HOUSING_RETURN_COLS = ["Housing_TR", "Housing_Rent_YD"]
 
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

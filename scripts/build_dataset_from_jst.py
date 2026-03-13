@@ -16,6 +16,8 @@ Output columns (all NOMINAL — engine computes real values internally):
     Year, Country, Domestic_Stock, Global_Stock, Domestic_Bond, Inflation
   Housing (NaN for countries/years without data):
     Housing_CapGain  — nominal house price capital gain rate
+    Housing_TR       — nominal total housing return (capital gain + rental income)
+    Housing_Rent_YD  — rental yield (annual rent / house price, decimal)
     Rent_Growth      — nominal rent growth rate (derived from rent_yd * hpnom)
     Long_Rate        — long-term government bond yield (decimal, e.g. 0.05)
 
@@ -32,6 +34,12 @@ Design decisions:
   - FX conversion: eq_tr_F_in_X = (1 + eq_tr_F) * (fx_change_X / fx_change_F) - 1
   - Housing columns are optional: NaN values are preserved for countries/years
     without housing data (CAN, IRL have no housing returns in JST R6).
+  - Housing_TR sourcing priority:
+    1. JST R6 housing_tr (exact = housing_capgain + housing_rent_rtn)
+    2. Reconstructed from housing_capgain + housing_rent_yd (for extension data
+       2021-2025 where housing_rent_rtn is unavailable; median error ~0.27%)
+    3. housing_capgain + country-median housing_rent_yd (for early years where
+       rent_yd is missing but capgain exists; ~136 rows across 8 countries)
 """
 
 from __future__ import annotations
@@ -118,6 +126,46 @@ def main() -> None:
         # ----------------------------------------------------------
         # housing_capgain: nominal house price capital gain (already a rate)
         df["_housing_capgain"] = df.get("housing_capgain", np.nan)
+
+        # housing_rent_yd: rental yield (rent / price ratio)
+        df["_housing_rent_yd"] = df.get("housing_rent_yd", np.nan)
+
+        # housing_tr: total nominal housing return (capgain + rental income)
+        # Priority: use JST housing_tr directly; fall back to reconstruction
+        df["_housing_tr"] = df.get("housing_tr", np.nan)
+
+        # For rows with capgain but no housing_tr: reconstruct
+        # Case A: housing_rent_yd available → capgain + rent_yd
+        can_reconstruct = (
+            df["_housing_tr"].isna()
+            & df["_housing_capgain"].notna()
+            & df["_housing_rent_yd"].notna()
+        )
+        n_recon_a = int(can_reconstruct.sum())
+        if n_recon_a > 0:
+            df.loc[can_reconstruct, "_housing_tr"] = (
+                df.loc[can_reconstruct, "_housing_capgain"]
+                + df.loc[can_reconstruct, "_housing_rent_yd"]
+            )
+            years_a = sorted(df.loc[can_reconstruct, "year"].astype(int).tolist())
+            print(f"  {iso}: reconstructed Housing_TR = capgain + rent_yd for {n_recon_a} rows: {years_a}")
+
+        # Case B: no rent_yd → use country-median rent_yd
+        median_yd = df["_housing_rent_yd"].median()  # NaN if no data at all
+        need_median_fill = (
+            df["_housing_tr"].isna()
+            & df["_housing_capgain"].notna()
+            & pd.notna(median_yd)
+        )
+        n_recon_b = int(need_median_fill.sum())
+        if n_recon_b > 0:
+            df.loc[need_median_fill, "_housing_tr"] = (
+                df.loc[need_median_fill, "_housing_capgain"] + median_yd
+            )
+            # Also fill rent_yd for these rows so it's consistent
+            df.loc[need_median_fill, "_housing_rent_yd"] = median_yd
+            years_b = sorted(df.loc[need_median_fill, "year"].astype(int).tolist())
+            print(f"  {iso}: filled Housing_TR = capgain + median_yd ({median_yd:.4f}) for {n_recon_b} rows: {years_b}")
 
         # Rent growth: derived from nominal rent level = rent_yd * hpnom
         if "housing_rent_yd" in df.columns and "hpnom" in df.columns:
@@ -235,6 +283,8 @@ def main() -> None:
 
             # Housing columns for this row (may be NaN)
             housing_capgain = row_x.get("_housing_capgain", np.nan)
+            housing_tr = row_x.get("_housing_tr", np.nan)
+            housing_rent_yd = row_x.get("_housing_rent_yd", np.nan)
             rent_growth = row_x.get("_rent_growth", np.nan)
             long_rate = row_x.get("_long_rate", np.nan)
 
@@ -250,6 +300,8 @@ def main() -> None:
                     "Domestic_Bond": row_x["bond_tr"],
                     "Inflation": row_x["inflation"],
                     "Housing_CapGain": housing_capgain,
+                    "Housing_TR": housing_tr,
+                    "Housing_Rent_YD": housing_rent_yd,
                     "Rent_Growth": rent_growth,
                     "Long_Rate": long_rate,
                 })
@@ -285,6 +337,8 @@ def main() -> None:
                 "Domestic_Bond": row_x["bond_tr"],
                 "Inflation": row_x["inflation"],
                 "Housing_CapGain": housing_capgain,
+                "Housing_TR": housing_tr,
+                "Housing_Rent_YD": housing_rent_yd,
                 "Rent_Growth": rent_growth,
                 "Long_Rate": long_rate,
             })
@@ -315,6 +369,7 @@ def main() -> None:
         sub = result[result["Country"] == iso]
         en_name, zh_name = COUNTRY_NAMES.get(iso, (iso, iso))
         housing_years = int(sub["Housing_CapGain"].notna().sum())
+        housing_tr_years = int(sub["Housing_TR"].notna().sum())
         max_year = int(sub["Year"].max())
         jst_max = 2020  # JST R6 official data ends in 2020
         countries_meta.append({
@@ -326,6 +381,7 @@ def main() -> None:
             "n_years": len(sub),
             "has_housing": housing_years > 0,
             "housing_years": housing_years,
+            "housing_tr_years": housing_tr_years,
             "extended": max_year > jst_max,
         })
 
@@ -344,12 +400,18 @@ def main() -> None:
         db = sub["Domestic_Bond"].mean() * 100
         inf = sub["Inflation"].mean() * 100
         hcg = sub["Housing_CapGain"].dropna()
+        htr = sub["Housing_TR"].dropna()
+        hyd = sub["Housing_Rent_YD"].dropna()
         rg = sub["Rent_Growth"].dropna()
         lr = sub["Long_Rate"].dropna()
         housing_str = ""
         if len(hcg) > 0:
-            housing_str = (f" HousCG={hcg.mean()*100:+.2f}% RentGr={rg.mean()*100:+.2f}%"
-                           f" LongRate={lr.mean()*100:.2f}% (n_housing={len(hcg)})")
+            htr_str = f" HousTR={htr.mean()*100:+.2f}%" if len(htr) > 0 else ""
+            hyd_str = f" RentYD={hyd.mean()*100:.2f}%" if len(hyd) > 0 else ""
+            housing_str = (f" HousCG={hcg.mean()*100:+.2f}%{htr_str}{hyd_str}"
+                           f" RentGr={rg.mean()*100:+.2f}%"
+                           f" LongRate={lr.mean()*100:.2f}%"
+                           f" (n_cg={len(hcg)}, n_tr={len(htr)})")
         else:
             housing_str = " (no housing data)"
         print(f"  {iso}: DomStock={ds:+.2f}% GlobStock={gs:+.2f}% DomBond={db:+.2f}% Infl={inf:+.2f}%{housing_str}")
