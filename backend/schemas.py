@@ -61,6 +61,7 @@ class BaseSimulationParams(BaseModel):
         pattern="^(equal|gdp_sqrt)$",
         description="池化采样权重方式: 'equal'=等概率 1/N, 'gdp_sqrt'=sqrt(GDP) 加权",
     )
+    seed: int | None = Field(None, ge=0, description="Random seed for reproducibility")
     data_source: str = Field(
         "jst",
         pattern="^(jst|fire_dataset)$",
@@ -81,6 +82,19 @@ class BaseSimulationParams(BaseModel):
     glide_path_enabled: bool = Field(False, description="Enable linear glide path for allocation")
     glide_path_end_allocation: AllocationSchema = AllocationSchema(domestic_stock=0.2, global_stock=0.1, domestic_bond=0.7)
     glide_path_years: int = Field(20, ge=1, le=100, description="Years to complete glide path transition")
+
+    @model_validator(mode="after")
+    def check_block_range(self) -> "BaseSimulationParams":
+        if self.min_block > self.max_block:
+            raise ValueError(
+                f"min_block ({self.min_block}) must be <= max_block ({self.max_block})"
+            )
+        if self.glide_path_enabled and self.glide_path_years > self.retirement_years:
+            raise ValueError(
+                f"glide_path_years ({self.glide_path_years}) must be <= "
+                f"retirement_years ({self.retirement_years})"
+            )
+        return self
 
     @model_validator(mode="after")
     def check_group_probabilities(self) -> "BaseSimulationParams":
@@ -187,6 +201,15 @@ class GuardrailRequest(BaseSimulationParams):
     consumption_floor: float = Field(0.50, gt=0, le=1)
     consumption_floor_amount: float = Field(0.0, ge=0)
 
+    @model_validator(mode="after")
+    def check_guardrails(self) -> "GuardrailRequest":
+        if self.lower_guardrail >= self.upper_guardrail:
+            raise ValueError(
+                f"lower_guardrail ({self.lower_guardrail}) must be < "
+                f"upper_guardrail ({self.upper_guardrail})"
+            )
+        return self
+
 
 class GuardrailResponse(BaseModel):
     initial_portfolio: float
@@ -231,6 +254,15 @@ class BacktestRequest(BaseSimulationParams):
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     hist_start_year: int = Field(1990, ge=1871, le=2100)
     backtest_country: str | None = Field(None, description="回测用的具体国家 ISO（当 country=ALL 时必填）")
+
+    @model_validator(mode="after")
+    def check_guardrails(self) -> "BacktestRequest":
+        if self.lower_guardrail >= self.upper_guardrail:
+            raise ValueError(
+                f"lower_guardrail ({self.lower_guardrail}) must be < "
+                f"upper_guardrail ({self.upper_guardrail})"
+            )
+        return self
 
 
 class AdjustmentEvent(BaseModel):
@@ -338,6 +370,15 @@ class GuardrailBatchBacktestRequest(BaseSimulationParams):
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     consumption_floor: float = Field(0.50, gt=0, le=1)
     consumption_floor_amount: float = Field(0.0, ge=0)
+
+    @model_validator(mode="after")
+    def check_guardrails(self) -> "GuardrailBatchBacktestRequest":
+        if self.lower_guardrail >= self.upper_guardrail:
+            raise ValueError(
+                f"lower_guardrail ({self.lower_guardrail}) must be < "
+                f"upper_guardrail ({self.upper_guardrail})"
+            )
+        return self
 
 
 class GuardrailBatchPathSummary(BaseModel):

@@ -159,12 +159,18 @@ def pregenerate_return_scenarios(
 
     if num_simulations > 100 and MAX_WORKERS > 1:
         chunksize = max(1, num_simulations // (MAX_WORKERS * 4))
-        with ProcessPoolExecutor(
-            max_workers=MAX_WORKERS,
-            initializer=_init_worker,
-            initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
-        ) as executor:
-            results = list(executor.map(_bootstrap_single_scenario, tasks, chunksize=chunksize))
+        try:
+            with ProcessPoolExecutor(
+                max_workers=MAX_WORKERS,
+                initializer=_init_worker,
+                initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
+            ) as executor:
+                results = list(executor.map(_bootstrap_single_scenario, tasks, chunksize=chunksize))
+        except (OSError, RuntimeError, PermissionError):
+            _worker_shared["returns_df"] = returns_df
+            _worker_shared["country_dfs"] = country_dfs
+            _worker_shared["country_weights"] = country_weights
+            results = [_bootstrap_single_scenario(task) for task in tasks]
     else:
         # 顺序执行：设置 _worker_shared 使 worker 函数可复用
         _worker_shared["returns_df"] = returns_df
@@ -313,13 +319,18 @@ def _simulate_success_and_funded(
             actual_wd = min(wd, max(value_after_growth, 0.0))
             value = value_after_growth - actual_wd
 
-            if cf_schedule is not None:
+            # Apply negative CFs (expenses) before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
                 value += cf_schedule[year]
 
             if value <= 0:
                 depletion_years[i] = float(year + 1)
                 failed = True
                 break
+
+            # Apply positive CFs (income) after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
 
         if not failed:
             survived += 1
@@ -467,7 +478,8 @@ def _sweep_single_allocation(args):
                 actual_wd = min(wd, max(value_after_growth, 0.0))
                 value = value_after_growth - actual_wd
 
-                if cf_schedule is not None:
+                # Apply negative CFs (expenses) before depletion check
+                if cf_schedule is not None and cf_schedule[year] < 0:
                     value += cf_schedule[year]
 
                 if value <= 0:
@@ -475,6 +487,10 @@ def _sweep_single_allocation(args):
                     value = 0.0
                     failed = True
                     break
+
+                # Apply positive CFs (income) after depletion check
+                if cf_schedule is not None and cf_schedule[year] > 0:
+                    value += cf_schedule[year]
 
             final_values[i] = value
 
@@ -654,12 +670,18 @@ def pregenerate_raw_scenarios(
 
     if num_simulations > 100 and MAX_WORKERS > 1:
         chunksize = max(1, num_simulations // (MAX_WORKERS * 4))
-        with ProcessPoolExecutor(
-            max_workers=MAX_WORKERS,
-            initializer=_init_worker,
-            initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
-        ) as executor:
-            results = list(executor.map(_bootstrap_single_raw, tasks, chunksize=chunksize))
+        try:
+            with ProcessPoolExecutor(
+                max_workers=MAX_WORKERS,
+                initializer=_init_worker,
+                initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
+            ) as executor:
+                results = list(executor.map(_bootstrap_single_raw, tasks, chunksize=chunksize))
+        except (OSError, RuntimeError, PermissionError):
+            _worker_shared["returns_df"] = returns_df
+            _worker_shared["country_dfs"] = country_dfs
+            _worker_shared["country_weights"] = country_weights
+            results = [_bootstrap_single_raw(task) for task in tasks]
     else:
         _worker_shared["returns_df"] = returns_df
         _worker_shared["country_dfs"] = country_dfs

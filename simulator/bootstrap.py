@@ -1,4 +1,15 @@
-"""Block Bootstrap 循环采样模块。"""
+"""Block Bootstrap 循环采样模块。
+
+Design note — Circular wrap-around:
+When a sampled block extends past the end of the historical dataset, indices
+wrap around to the beginning (modular arithmetic).  This is a deliberate design
+choice that preserves inter-variable correlations within each block while
+maximising the number of distinct starting points.  The alternative — truncating
+at the boundary — would bias sampling toward earlier years and waste data near
+the end of the series.  The trade-off is that a wrap-around block may contain a
+one-period structural break at the seam, but the random block length mitigates
+this by spreading seam positions across the dataset.
+"""
 
 from __future__ import annotations
 

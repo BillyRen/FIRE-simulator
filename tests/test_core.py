@@ -777,3 +777,173 @@ class TestSimulateSuccessFundedStrategies:
         )
         # More decline + no late-life increase => better survival
         assert fr2 >= fr1
+
+
+# ---------------------------------------------------------------------------
+# Cross-module CF timing consistency tests
+# ---------------------------------------------------------------------------
+
+class TestCFTimingConsistency:
+    """Verify that sweep._simulate_success_and_funded and monte_carlo.run_simulation_from_matrix
+    produce consistent success rates when using positive cash flows."""
+
+    def test_positive_cf_consistency(self):
+        """Same returns + positive CF → sweep and MC should agree on success rate."""
+        n_sims, n_years = 200, 20
+        rng = np.random.default_rng(42)
+        ret_mat = rng.normal(0.02, 0.15, (n_sims, n_years))
+        infl_mat = np.zeros((n_sims, n_years))
+
+        pension = CashFlowItem(
+            name="pension", amount=20_000, start_year=1,
+            duration=n_years, inflation_adjusted=True,
+        )
+
+        # MC path
+        traj, _, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=ret_mat,
+            inflation_matrix=infl_mat,
+            initial_portfolio=500_000,
+            annual_withdrawal=40_000,
+            retirement_years=n_years,
+            withdrawal_strategy="fixed",
+            cash_flows=[pension],
+        )
+        mc_sr = float(np.mean(traj[:, -1] > 0))
+
+        # Sweep path
+        sweep_sr, _ = _simulate_success_and_funded(
+            ret_mat, 500_000, 40_000,
+            "fixed", 0.05, 0.025,
+            cash_flows=[pension],
+            inflation_matrix=infl_mat,
+        )
+
+        assert abs(mc_sr - sweep_sr) < 0.05, (
+            f"MC success_rate={mc_sr:.3f} vs sweep={sweep_sr:.3f} differ too much"
+        )
+
+    def test_negative_cf_consistency(self):
+        """Same returns + negative CF → sweep and MC should agree."""
+        n_sims, n_years = 200, 20
+        rng = np.random.default_rng(99)
+        ret_mat = rng.normal(0.05, 0.12, (n_sims, n_years))
+        infl_mat = np.zeros((n_sims, n_years))
+
+        expense = CashFlowItem(
+            name="extra_expense", amount=-15_000, start_year=1,
+            duration=n_years, inflation_adjusted=True,
+        )
+
+        traj, _, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=ret_mat,
+            inflation_matrix=infl_mat,
+            initial_portfolio=500_000,
+            annual_withdrawal=30_000,
+            retirement_years=n_years,
+            withdrawal_strategy="fixed",
+            cash_flows=[expense],
+        )
+        mc_sr = float(np.mean(traj[:, -1] > 0))
+
+        sweep_sr, _ = _simulate_success_and_funded(
+            ret_mat, 500_000, 30_000,
+            "fixed", 0.05, 0.025,
+            cash_flows=[expense],
+            inflation_matrix=infl_mat,
+        )
+
+        assert abs(mc_sr - sweep_sr) < 0.05, (
+            f"MC success_rate={mc_sr:.3f} vs sweep={sweep_sr:.3f} differ too much"
+        )
+
+
+# ---------------------------------------------------------------------------
+# ProcessPoolExecutor fallback test
+# ---------------------------------------------------------------------------
+
+class TestProcessPoolFallback:
+    """Verify that pregenerate_return_scenarios falls back gracefully."""
+
+    def test_fallback_on_pool_failure(self, sample_returns_df, default_allocation, default_expenses):
+        """When ProcessPoolExecutor fails, fallback to sequential execution."""
+        from unittest.mock import patch
+        from simulator.sweep import pregenerate_return_scenarios
+
+        def raise_permission_error(*args, **kwargs):
+            raise PermissionError("pool creation blocked")
+
+        with patch("simulator.sweep.ProcessPoolExecutor", side_effect=raise_permission_error):
+            with patch("simulator.sweep.MAX_WORKERS", 4):
+                scenarios, inflation = pregenerate_return_scenarios(
+                    allocation=default_allocation,
+                    expense_ratios=default_expenses,
+                    retirement_years=10,
+                    min_block=3,
+                    max_block=5,
+                    num_simulations=200,  # > 100 to trigger pool path
+                    returns_df=sample_returns_df,
+                    seed=42,
+                )
+
+        assert scenarios.shape == (200, 10)
+        assert inflation.shape == (200, 10)
+        assert not np.all(scenarios == 0)
+
+
+# ---------------------------------------------------------------------------
+# Funded ratio cross-module consistency test
+# ---------------------------------------------------------------------------
+
+class TestFundedRatioConsistency:
+    """Verify funded_ratio alignment between statistics.py and sweep.py."""
+
+    def test_funded_ratio_year_one_depletion(self):
+        """All paths deplete at year 1 → funded_ratio = 1/N, not 0."""
+        from simulator.statistics import compute_funded_ratio
+
+        n_sims, n_years = 50, 20
+        trajectories = np.zeros((n_sims, n_years + 1))
+        trajectories[:, 0] = 100_000
+        result = compute_funded_ratio(trajectories, n_years)
+        assert result == pytest.approx(1.0 / n_years)
+
+    def test_funded_ratio_last_year_depletion(self):
+        """Paths deplete at exactly the final year → fully funded."""
+        from simulator.statistics import compute_funded_ratio
+
+        n_sims, n_years = 50, 10
+        trajectories = np.full((n_sims, n_years + 1), 50_000.0)
+        trajectories[:, -1] = 0.0
+        result = compute_funded_ratio(trajectories, n_years)
+        assert result == pytest.approx(1.0)
+
+    def test_sweep_and_statistics_agree(self):
+        """sweep depletion_years uses year+1, should match statistics funded_ratio."""
+        n_sims, n_years = 100, 15
+        rng = np.random.default_rng(42)
+        ret_mat = rng.normal(0.03, 0.18, (n_sims, n_years))
+        infl_mat = np.zeros((n_sims, n_years))
+
+        # Get MC trajectories
+        traj, _, _, _ = run_simulation_from_matrix(
+            real_returns_matrix=ret_mat,
+            inflation_matrix=infl_mat,
+            initial_portfolio=500_000,
+            annual_withdrawal=50_000,
+            retirement_years=n_years,
+            withdrawal_strategy="fixed",
+        )
+
+        from simulator.statistics import compute_funded_ratio
+        stats_fr = compute_funded_ratio(traj, n_years)
+
+        # Sweep path (same returns, no CF, fixed strategy)
+        _, sweep_fr = _simulate_success_and_funded(
+            ret_mat, 500_000, 50_000,
+            "fixed", 0.05, 0.025,
+        )
+
+        assert abs(stats_fr - sweep_fr) < 0.05, (
+            f"statistics funded_ratio={stats_fr:.3f} vs sweep={sweep_fr:.3f}"
+        )

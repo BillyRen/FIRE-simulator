@@ -26,7 +26,7 @@ class TestComputeFundedRatio:
         trajectories[:, 0] = 100_000  # initial value
         # years 1..20 are all 0
         result = compute_funded_ratio(trajectories, 20)
-        assert result == pytest.approx(0.0)  # argmax finds index 0 -> 0/20 = 0
+        assert result == pytest.approx(1.0 / 20.0)  # argmax=0 +1 → 1/20
 
     def test_half_deplete_midway(self):
         """Half paths deplete at midpoint, half survive."""
@@ -36,9 +36,8 @@ class TestComputeFundedRatio:
         for i in range(50):
             trajectories[i, 11:] = 0.0
         result = compute_funded_ratio(trajectories, years)
-        # 50 paths: 10/20=0.5, 50 paths: 20/20=1.0 -> mean = 0.75
-        # But argmax finds first 0 at index 10 (col 11 - 1 offset = index 10)
-        expected = (50 * (10 / 20) + 50 * 1.0) / 100
+        # 50 paths: argmax=10 +1 → 11/20=0.55, 50 paths: 20/20=1.0
+        expected = (50 * (11 / 20) + 50 * 1.0) / 100
         assert result == pytest.approx(expected, abs=0.01)
 
     def test_negative_values_count_as_depleted(self):
@@ -46,8 +45,8 @@ class TestComputeFundedRatio:
         trajectories = np.full((10, 11), 100_000.0)
         trajectories[:, 5:] = -1000.0  # negative from year 5
         result = compute_funded_ratio(trajectories, 10)
-        # First depletion at index 4 (col 5, but depleted array is cols 1..10, so index 4)
-        expected = 4.0 / 10.0
+        # First depletion at index 4 + 1 = 5 funded years
+        expected = 5.0 / 10.0
         assert result == pytest.approx(expected)
 
     def test_zero_at_boundary(self):
@@ -55,8 +54,8 @@ class TestComputeFundedRatio:
         trajectories = np.full((10, 11), 100_000.0)
         trajectories[:, -1] = 0.0  # zero only at last year
         result = compute_funded_ratio(trajectories, 10)
-        # Depleted array index 9 -> 9/10 = 0.9
-        expected = 9.0 / 10.0
+        # Depleted at exactly final year: index 9 + 1 = 10 → fully funded
+        expected = 10.0 / 10.0
         assert result == pytest.approx(expected)
 
     def test_invalid_retirement_years(self):
@@ -86,7 +85,7 @@ class TestComputeEffectiveFundedRatio:
         funded, success = compute_effective_funded_ratio(
             withdrawals, initial_wd, years, consumption_floor=0.5
         )
-        assert funded == pytest.approx(0.0)
+        assert funded == pytest.approx(1.0 / 20.0)  # argmax=0 +1 → 1/20
         assert success == pytest.approx(0.0)
 
     def test_breach_midway(self):
@@ -98,7 +97,7 @@ class TestComputeEffectiveFundedRatio:
         funded, success = compute_effective_funded_ratio(
             withdrawals, initial_wd, years, consumption_floor=0.5
         )
-        expected_funded = 10.0 / 20.0
+        expected_funded = 11.0 / 20.0  # argmax=10, +1=11
         assert funded == pytest.approx(expected_funded)
         assert success == pytest.approx(0.0)
 
@@ -113,7 +112,7 @@ class TestComputeEffectiveFundedRatio:
             withdrawals, initial_wd, years, consumption_floor=0.5,
             trajectories=trajectories,
         )
-        expected_funded = 5.0 / 20.0
+        expected_funded = 6.0 / 20.0  # argmax=5, +1=6
         assert funded == pytest.approx(expected_funded)
         assert success == pytest.approx(0.0)
 
@@ -127,7 +126,7 @@ class TestComputeEffectiveFundedRatio:
         funded, success = compute_effective_funded_ratio(
             withdrawals, initial_wd, years, consumption_floor=0.5
         )
-        expected_funded = (50 * (10.0 / 20.0) + 50 * 1.0) / 100
+        expected_funded = (50 * (11.0 / 20.0) + 50 * 1.0) / 100  # argmax=10, +1=11
         assert funded == pytest.approx(expected_funded)
         assert success == pytest.approx(0.5)
 
@@ -159,7 +158,7 @@ class TestComputeEffectiveFundedRatio:
             consumption_floor_amount=10_000.0,
         )
         assert success == pytest.approx(0.0)
-        assert funded == pytest.approx(0.0)
+        assert funded == pytest.approx(1.0 / 20.0)  # argmax=0, +1=1
 
     def test_floor_amount_zero_backward_compat(self):
         """consumption_floor_amount=0 behaves identically to old code."""

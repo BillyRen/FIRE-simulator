@@ -270,3 +270,79 @@ class TestBuyVsRent:
         assert "buy_net_worth_real" in data
         assert "rent_net_worth_real" in data
         assert "breakeven_year" in data
+
+
+# ---------------------------------------------------------------------------
+# Schema cross-validation tests
+# ---------------------------------------------------------------------------
+
+class TestSchemaValidation:
+
+    def test_min_block_gt_max_block_rejected(self, client):
+        """min_block > max_block should return 422."""
+        r = client.post("/api/simulate", json={
+            "initial_portfolio": 1_000_000,
+            "annual_withdrawal": 40_000,
+            "min_block": 20,
+            "max_block": 5,
+            "num_simulations": 100,
+        })
+        assert r.status_code == 422
+
+    def test_glide_path_years_gt_retirement_rejected(self, client):
+        """glide_path_years > retirement_years should return 422 when enabled."""
+        r = client.post("/api/simulate", json={
+            "initial_portfolio": 1_000_000,
+            "annual_withdrawal": 40_000,
+            "retirement_years": 30,
+            "glide_path_enabled": True,
+            "glide_path_years": 50,
+            "num_simulations": 100,
+        })
+        assert r.status_code == 422
+
+    def test_lower_guardrail_gte_upper_rejected(self, client):
+        """lower_guardrail >= upper_guardrail should return 422."""
+        r = client.post("/api/guardrail", json={
+            "initial_portfolio": 1_000_000,
+            "annual_withdrawal": 40_000,
+            "upper_guardrail": 0.80,
+            "lower_guardrail": 0.90,
+            "num_simulations": 100,
+        })
+        assert r.status_code == 422
+
+    def test_seed_reproducibility(self, client):
+        """Same seed should produce identical results."""
+        params = {
+            "initial_portfolio": 1_000_000,
+            "annual_withdrawal": 40_000,
+            "num_simulations": 100,
+            "seed": 42,
+        }
+        r1 = client.post("/api/simulate", json=params)
+        r2 = client.post("/api/simulate", json=params)
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        d1 = parse_ndjson(r1)
+        d2 = parse_ndjson(r2)
+        assert d1["success_rate"] == d2["success_rate"]
+        assert d1["final_median"] == d2["final_median"]
+
+    def test_different_seeds_differ(self, client):
+        """Different seeds should produce different results."""
+        r1 = client.post("/api/simulate", json={
+            "initial_portfolio": 1_000_000,
+            "annual_withdrawal": 40_000,
+            "num_simulations": 200,
+            "seed": 42,
+        })
+        r2 = client.post("/api/simulate", json={
+            "initial_portfolio": 1_000_000,
+            "annual_withdrawal": 40_000,
+            "num_simulations": 200,
+            "seed": 99,
+        })
+        d1 = parse_ndjson(r1)
+        d2 = parse_ndjson(r2)
+        assert d1["success_rate"] != d2["success_rate"] or d1["final_median"] != d2["final_median"]

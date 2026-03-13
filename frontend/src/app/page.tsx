@@ -302,7 +302,7 @@ export default function SimulatorPage() {
               />
             </div>
 
-            <SidebarForm params={params} onChange={setParams} />
+            <SidebarForm params={params} onChange={setParams} countries={countries} />
 
           </CardContent>
           <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t space-y-1.5">

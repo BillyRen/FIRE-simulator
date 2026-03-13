@@ -790,5 +790,5 @@ def batch_backtest_fixed_vectorized(
         portfolios[:, yr + 1] = new_val
         wd_out[:, yr] = actual_wd
 
-    survived = portfolios[:, -1] > 0
+    survived = alive
     return portfolios, wd_out, survived

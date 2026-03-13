@@ -576,10 +576,17 @@ def _find_portfolio_for_success(
         for year in range(n_years):
             values *= (1.0 + scenarios[:, year])
             values -= annual_withdrawal
+            # Apply negative CFs (expenses) before depletion check
             if cf_2d is not None:
-                values += cf_2d[:, year]
+                cf_year = cf_2d[:, year]
+                neg = cf_year < 0
+                values[neg] += cf_year[neg]
             values[~alive] = 0.0  # prevent zombie resurrection
             alive &= (values > 0)
+            # Apply positive CFs (income) after depletion check
+            if cf_2d is not None:
+                pos = cf_year > 0
+                values[pos & alive] += cf_year[pos & alive]
         return float(np.mean(alive))
 
     # 设定搜索区间
@@ -662,10 +669,17 @@ def _find_withdrawal_for_success(
         for year in range(n_years):
             values *= (1.0 + scenarios[:, year])
             values -= wd
+            # Apply negative CFs (expenses) before depletion check
             if cf_2d is not None:
-                values += cf_2d[:, year]
+                cf_year = cf_2d[:, year]
+                neg = cf_year < 0
+                values[neg] += cf_year[neg]
             values[~alive] = 0.0  # prevent zombie resurrection
             alive &= (values > 0)
+            # Apply positive CFs (income) after depletion check
+            if cf_2d is not None:
+                pos = cf_year > 0
+                values[pos & alive] += cf_year[pos & alive]
         return float(np.mean(alive))
 
     lo = max(initial_guess * 0.1, 1.0)

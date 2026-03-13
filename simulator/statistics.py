@@ -68,7 +68,7 @@ def compute_funded_ratio(
     any_depleted = depleted.any(axis=1)
     depletion_years = np.where(
         any_depleted,
-        np.argmax(depleted, axis=1).astype(float),
+        np.argmax(depleted, axis=1).astype(float) + 1.0,
         float(retirement_years),
     )
 
@@ -103,7 +103,7 @@ def compute_effective_funded_ratio(
     any_below = below_floor.any(axis=1)
     eff_depletion = np.where(
         any_below,
-        np.argmax(below_floor, axis=1).astype(float),
+        np.argmax(below_floor, axis=1).astype(float) + 1.0,
         float(n_years),
     )
 
@@ -112,7 +112,7 @@ def compute_effective_funded_ratio(
         any_depleted = depleted.any(axis=1)
         asset_depletion = np.where(
             any_depleted,
-            np.argmax(depleted, axis=1).astype(float),
+            np.argmax(depleted, axis=1).astype(float) + 1.0,
             float(n_years),
         )
         eff_depletion = np.minimum(eff_depletion, asset_depletion)

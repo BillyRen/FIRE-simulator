@@ -38,6 +38,7 @@ interface SidebarFormProps {
   showAllocation?: boolean;
   hideRetirementAge?: boolean;
   children?: React.ReactNode;
+  countries?: CountryInfo[];
 }
 
 function InfoTip({ text }: { text: string }) {
@@ -166,6 +167,7 @@ export const SidebarForm = memo(function SidebarForm({
   showAllocation = true,
   hideRetirementAge = false,
   children,
+  countries: countriesProp,
 }: SidebarFormProps) {
   const t = useTranslations("sidebar");
   const locale = useLocale();
@@ -174,10 +176,13 @@ export const SidebarForm = memo(function SidebarForm({
     onChange({ ...p, [key]: val });
 
   const [showLifeExpectancy, setShowLifeExpectancy] = useState(false);
-  const [countries, setCountries] = useState<CountryInfo[]>([]);
+  const [localCountries, setLocalCountries] = useState<CountryInfo[]>([]);
   useEffect(() => {
-    fetchCountries(p.data_source).then(setCountries).catch(() => { /* non-critical init data */ });
-  }, [p.data_source]);
+    if (!countriesProp) {
+      fetchCountries(p.data_source).then(setLocalCountries).catch(() => { /* non-critical init data */ });
+    }
+  }, [p.data_source, countriesProp]);
+  const countries = countriesProp ?? localCountries;
 
   const countryName = (c: CountryInfo) =>
     locale === "zh" ? c.name_zh : c.name_en;
