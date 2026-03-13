@@ -166,7 +166,7 @@ def pregenerate_return_scenarios(
                 initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
             ) as executor:
                 results = list(executor.map(_bootstrap_single_scenario, tasks, chunksize=chunksize))
-        except (OSError, RuntimeError, PermissionError):
+        except (OSError, RuntimeError, PermissionError, NotImplementedError):
             _worker_shared["returns_df"] = returns_df
             _worker_shared["country_dfs"] = country_dfs
             _worker_shared["country_weights"] = country_weights
@@ -494,7 +494,7 @@ def _sweep_single_allocation(args):
 
             final_values[i] = value
 
-    success_rate = float(np.mean(final_values > 0))
+    success_rate = float(np.mean(depletion_years >= retirement_years))
     median_final = float(np.median(final_values))
     mean_final = float(np.mean(final_values))
 
@@ -677,7 +677,7 @@ def pregenerate_raw_scenarios(
                 initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
             ) as executor:
                 results = list(executor.map(_bootstrap_single_raw, tasks, chunksize=chunksize))
-        except (OSError, RuntimeError, PermissionError):
+        except (OSError, RuntimeError, PermissionError, NotImplementedError):
             _worker_shared["returns_df"] = returns_df
             _worker_shared["country_dfs"] = country_dfs
             _worker_shared["country_weights"] = country_weights

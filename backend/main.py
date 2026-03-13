@@ -72,6 +72,7 @@ from simulator.statistics import (
     compute_portfolio_metrics,
     compute_single_path_metrics,
     compute_statistics,
+    compute_success_rate,
     final_values_summary_table,
 )
 from simulator.backtest_batch import (
@@ -761,7 +762,7 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
                 smile_min_age=req.smile_min_age,
                 smile_increase_rate=req.smile_increase_rate,
             )
-            sr = float(np.mean(traj[:, -1] > 0))
+            sr = compute_success_rate(traj, req.retirement_years)
             fr = compute_funded_ratio(traj, req.retirement_years)
             total = np.sum(wd, axis=1)
             return ScenarioResult(
@@ -878,7 +879,7 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
                 smile_min_age=req.smile_min_age,
                 smile_increase_rate=req.smile_increase_rate,
             )
-            sr = float(np.mean(traj[:, -1] > 0))
+            sr = compute_success_rate(traj, yrs)
             fr = compute_funded_ratio(traj, yrs)
             return sr, fr
 
@@ -1087,7 +1088,7 @@ def _run_guardrail_and_build_result(
         consumption_floor=req.consumption_floor, trajectories=traj_g,
         consumption_floor_amount=req.consumption_floor_amount,
     )
-    b_success = float(np.mean(traj_b[:, -1] > 0))
+    b_success = compute_success_rate(traj_b, req.retirement_years)
     b_fr = compute_funded_ratio(traj_b, req.retirement_years)
     initial_rate = annual_wd / init_portfolio if init_portfolio > 0 else 0
     baseline_wd = init_portfolio * req.baseline_rate

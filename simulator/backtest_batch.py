@@ -15,6 +15,7 @@ from .statistics import (
     compute_portfolio_metrics,
     compute_single_path_metrics,
     compute_statistics,
+    compute_success_rate,
     final_values_summary_table,
     PERCENTILES,
 )
@@ -373,7 +374,8 @@ def run_guardrail_batch_backtest(
             _path_floor = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
             _path_below_floor = any(w < _path_floor for w in result["g_withdrawals"])
             _g_survived = (
-                float(result["g_portfolio"][-1]) > 0
+                n_years >= retirement_years
+                and float(result["g_portfolio"][-1]) >= 0
                 and not _path_below_floor
             )
 
@@ -383,7 +385,7 @@ def run_guardrail_batch_backtest(
                 "years_simulated": result["years_simulated"],
                 "is_complete": n_years >= retirement_years,
                 "g_survived": _g_survived,
-                "b_survived": float(result["b_portfolio"][-1]) > 0,
+                "b_survived": n_years >= retirement_years and float(result["b_portfolio"][-1]) >= 0,
                 "g_final_portfolio": float(result["g_portfolio"][-1]),
                 "b_final_portfolio": float(result["b_portfolio"][-1]),
                 "g_total_consumption": result["g_total_consumption"],
@@ -421,7 +423,7 @@ def run_guardrail_batch_backtest(
         trajectories=g_traj,
         consumption_floor_amount=consumption_floor_amount,
     )
-    b_success = float(np.mean(b_traj[:, -1] > 0))
+    b_success = compute_success_rate(b_traj, retirement_years)
     b_fr = compute_funded_ratio(b_traj, retirement_years)
 
     band_pcts = [10, 25, 50, 75, 90]

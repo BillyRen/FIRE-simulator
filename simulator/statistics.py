@@ -75,6 +75,36 @@ def compute_funded_ratio(
     return float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
 
 
+def compute_success_rate(
+    trajectories: np.ndarray,
+    retirement_years: int,
+) -> float:
+    """计算成功率，与 funded_ratio 语义一致。
+
+    成功 = 资金覆盖了全部退休年限（最后一年恰好归零仍算成功）。
+
+    Parameters
+    ----------
+    trajectories : np.ndarray
+        shape (num_simulations, retirement_years + 1) 的资产轨迹矩阵。
+    retirement_years : int
+        退休年限。
+
+    Returns
+    -------
+    float
+        成功率，范围 [0, 1]。
+    """
+    depleted = trajectories[:, 1:] <= 0
+    any_depleted = depleted.any(axis=1)
+    dep_years = np.where(
+        any_depleted,
+        np.argmax(depleted, axis=1) + 1,
+        retirement_years,
+    )
+    return float(np.mean(dep_years >= retirement_years))
+
+
 CONSUMPTION_FLOOR = 0.50
 
 
@@ -148,8 +178,8 @@ def compute_statistics(
     # 最终资产值
     final_values = trajectories[:, -1]
 
-    # 成功率：最终资产 > 0
-    success_rate = float(np.mean(final_values > 0))
+    # 成功率（与 funded_ratio 语义一致）
+    success_rate = compute_success_rate(trajectories, retirement_years)
 
     # Funded Ratio
     funded_ratio = compute_funded_ratio(trajectories, retirement_years)

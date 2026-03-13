@@ -7,6 +7,7 @@ from simulator.statistics import (
     compute_funded_ratio,
     compute_effective_funded_ratio,
     compute_statistics,
+    compute_success_rate,
     compute_portfolio_metrics,
     compute_single_path_metrics,
 )
@@ -61,6 +62,39 @@ class TestComputeFundedRatio:
     def test_invalid_retirement_years(self):
         with pytest.raises(ValueError):
             compute_funded_ratio(np.ones((5, 5)), 0)
+
+
+class TestComputeSuccessRate:
+    """Tests for compute_success_rate aligned with funded_ratio semantics."""
+
+    def test_all_survive(self):
+        """No path depletes → success_rate = 1.0."""
+        trajectories = np.full((50, 31), 100_000.0)
+        assert compute_success_rate(trajectories, 30) == 1.0
+
+    def test_all_fail_year_one(self):
+        """All paths deplete at year 1 → success_rate = 0.0."""
+        trajectories = np.zeros((50, 21))
+        trajectories[:, 0] = 100_000
+        assert compute_success_rate(trajectories, 20) == 0.0
+
+    def test_last_year_zero_is_success(self):
+        """Portfolio=0 at exactly the last year → success (aligned with funded_ratio=1.0)."""
+        n_sims, n_years = 50, 10
+        trajectories = np.full((n_sims, n_years + 1), 50_000.0)
+        trajectories[:, -1] = 0.0
+        sr = compute_success_rate(trajectories, n_years)
+        fr = compute_funded_ratio(trajectories, n_years)
+        assert sr == 1.0
+        assert fr == pytest.approx(1.0)
+
+    def test_one_year_early_is_failure(self):
+        """Portfolio=0 one year before end → failure."""
+        n_sims, n_years = 50, 10
+        trajectories = np.full((n_sims, n_years + 1), 50_000.0)
+        trajectories[:, -2] = 0.0
+        trajectories[:, -1] = 0.0
+        assert compute_success_rate(trajectories, n_years) == 0.0
 
 
 class TestComputeEffectiveFundedRatio:
@@ -224,11 +258,13 @@ class TestComputeStatistics:
         assert result.withdrawal_mean_trajectory is None
 
     def test_all_zero_final(self):
-        """All paths end at 0 -> success_rate = 0."""
+        """All paths end at 0 at exactly last year → success (fully funded)."""
         trajectories = np.full((20, 11), 100_000.0)
         trajectories[:, -1] = 0.0
         result = compute_statistics(trajectories, 10)
-        assert result.success_rate == 0.0
+        # Last-year depletion = fully funded = success
+        assert result.success_rate == 1.0
+        assert result.funded_ratio == pytest.approx(1.0)
 
 
 class TestPortfolioMetrics:

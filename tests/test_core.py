@@ -947,3 +947,17 @@ class TestFundedRatioConsistency:
         assert abs(stats_fr - sweep_fr) < 0.05, (
             f"statistics funded_ratio={stats_fr:.3f} vs sweep={sweep_fr:.3f}"
         )
+
+    def test_success_rate_matches_funded_ratio(self):
+        """success_rate and funded_ratio should agree on last-year depletion."""
+        from simulator.statistics import compute_funded_ratio, compute_success_rate
+
+        n_sims, n_years = 100, 20
+        # Half paths survive, half deplete at last year (still success)
+        trajectories = np.full((n_sims, n_years + 1), 50_000.0)
+        trajectories[50:, -1] = 0.0  # last-year depletion
+
+        sr = compute_success_rate(trajectories, n_years)
+        fr = compute_funded_ratio(trajectories, n_years)
+        assert sr == 1.0
+        assert fr == pytest.approx(1.0)

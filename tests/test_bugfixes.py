@@ -442,9 +442,8 @@ class TestEffectiveFundedRatio:
         # trajectories[:, 5]=0 → depleted index 4 in [:, 1:] + 1 → 5/10=0.5
         assert abs(fr - 0.5) < 0.01
 
-    def test_portfolio_zero_last_year_wd_positive_is_failure(self):
-        """Portfolio=0 at end of retirement → asset depletion → failure,
-        even if withdrawals were above floor throughout."""
+    def test_portfolio_zero_last_year_wd_positive_is_success(self):
+        """Portfolio=0 at exactly the last year → fully funded → success."""
         n_sims = 10
         n_years = 40
         initial_wd = 40000.0
