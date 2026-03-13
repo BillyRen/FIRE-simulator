@@ -5,9 +5,17 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .bootstrap import block_bootstrap, block_bootstrap_pooled
+from .bootstrap import (
+    IDX_INF,
+    RETURN_COLS,
+    block_bootstrap,
+    block_bootstrap_np,
+    block_bootstrap_pooled,
+    block_bootstrap_pooled_np,
+    _prepare_pooled_arrays,
+)
 from .cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
-from .portfolio import compute_real_portfolio_returns
+from .portfolio import compute_real_portfolio_returns, compute_real_portfolio_returns_np
 
 
 def compute_withdrawal(
@@ -277,30 +285,41 @@ def run_simulation_vectorized_fixed(
     real_returns_matrix = np.zeros((num_simulations, retirement_years))
     inflation_matrix = np.zeros((num_simulations, retirement_years))
 
+    # Pre-extract numpy arrays from DataFrames (avoid per-iteration overhead)
+    if country_dfs is not None:
+        _, c_arrays, c_lens, c_probs = _prepare_pooled_arrays(
+            country_dfs, country_weights, RETURN_COLS,
+        )
+        src_data, src_n = None, 0
+    else:
+        src_data = returns_df[RETURN_COLS].values
+        src_n = len(src_data)
+        c_arrays, c_lens, c_probs = None, None, None
+
     for i in range(num_simulations):
-        if country_dfs is not None:
-            sampled = block_bootstrap_pooled(
-                country_dfs, retirement_years, min_block, max_block, rng=rng,
-                country_weights=country_weights,
+        if c_arrays is not None:
+            sampled_np = block_bootstrap_pooled_np(
+                c_arrays, c_lens, c_probs,
+                retirement_years, min_block, max_block, rng=rng,
             )
         else:
-            sampled = block_bootstrap(
-                returns_df, retirement_years, min_block, max_block, rng=rng
+            sampled_np = block_bootstrap_np(
+                src_data, src_n, retirement_years, min_block, max_block, rng=rng,
             )
 
         if glide_path_end_allocation is not None:
-            real_returns = _compute_glide_path_returns(
-                sampled, allocation, glide_path_end_allocation,
+            real_returns = _compute_glide_path_returns_np(
+                sampled_np, allocation, glide_path_end_allocation,
                 glide_path_years, expense_ratios, leverage, borrowing_spread,
             )
         else:
-            real_returns = compute_real_portfolio_returns(
-                sampled, allocation, expense_ratios,
+            real_returns = compute_real_portfolio_returns_np(
+                sampled_np, allocation, expense_ratios,
                 leverage=leverage, borrowing_spread=borrowing_spread,
             )
 
         real_returns_matrix[i] = real_returns
-        inflation_matrix[i] = sampled["Inflation"].values
+        inflation_matrix[i] = sampled_np[:, IDX_INF]
 
     # Step 2: 向量化模拟所有路径
     # 资产轨迹：(num_simulations, retirement_years + 1)
@@ -478,31 +497,43 @@ def run_simulation(
         nominal_cfs = []
         has_nominal = False
 
+    # Pre-extract numpy arrays from DataFrames (avoid per-iteration overhead)
+    if country_dfs is not None:
+        _, c_arrays, c_lens, c_probs = _prepare_pooled_arrays(
+            country_dfs, country_weights, RETURN_COLS,
+        )
+        src_data, src_n = None, 0
+    else:
+        src_data = returns_df[RETURN_COLS].values
+        src_n = len(src_data)
+        c_arrays, c_lens, c_probs = None, None, None
+
     for i in range(num_simulations):
-        # 1. 生成 bootstrap 回报序列
-        if country_dfs is not None:
-            sampled = block_bootstrap_pooled(
-                country_dfs, retirement_years, min_block, max_block, rng=rng,
-                country_weights=country_weights,
+        # 1. 生成 bootstrap 回报序列 (numpy, no DataFrame)
+        if c_arrays is not None:
+            sampled_np = block_bootstrap_pooled_np(
+                c_arrays, c_lens, c_probs,
+                retirement_years, min_block, max_block, rng=rng,
             )
         else:
-            sampled = block_bootstrap(
-                returns_df, retirement_years, min_block, max_block, rng=rng
+            sampled_np = block_bootstrap_np(
+                src_data, src_n, retirement_years, min_block, max_block, rng=rng,
             )
 
         # 2. 计算组合实际回报
         if glide_path_end_allocation is not None:
-            real_returns = _compute_glide_path_returns(
-                sampled, allocation, glide_path_end_allocation,
+            real_returns = _compute_glide_path_returns_np(
+                sampled_np, allocation, glide_path_end_allocation,
                 glide_path_years, expense_ratios, leverage, borrowing_spread,
             )
         else:
-            real_returns = compute_real_portfolio_returns(
-                sampled, allocation, expense_ratios,
+            real_returns = compute_real_portfolio_returns_np(
+                sampled_np, allocation, expense_ratios,
                 leverage=leverage, borrowing_spread=borrowing_spread,
             )
         real_returns_matrix[i] = real_returns
-        inflation_matrix[i] = sampled["Inflation"].values
+        inflation_series = sampled_np[:, IDX_INF]
+        inflation_matrix[i] = inflation_series
 
         # 3. 计算该路径的现金流 schedule
         if has_groups:
@@ -512,7 +543,7 @@ def run_simulation(
                 _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
                 _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
                 if _nom:
-                    _nom_sched = build_cf_schedule(_nom, retirement_years, sampled["Inflation"].values)
+                    _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_series)
                     cf_schedule = _adj_sched + _nom_sched
                 else:
                     cf_schedule = _adj_sched
@@ -520,7 +551,6 @@ def run_simulation(
                 cf_schedule = None
         elif has_cf:
             if has_nominal:
-                inflation_series = sampled["Inflation"].values
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_series
                 )
@@ -570,6 +600,47 @@ def run_simulation(
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
 
 
+def _compute_glide_path_returns_np(
+    data: np.ndarray,
+    start_alloc: dict[str, float],
+    end_alloc: dict[str, float],
+    glide_years: int,
+    expense_ratios: dict[str, float],
+    leverage: float,
+    borrowing_spread: float,
+) -> np.ndarray:
+    """Per-year portfolio returns with linearly interpolated allocation (numpy input).
+
+    Parameters
+    ----------
+    data : np.ndarray
+        shape (n, 4+) with columns in RETURN_COLS order.
+    """
+    n = len(data)
+    asset_keys = ["domestic_stock", "global_stock", "domestic_bond"]
+    col_indices = [IDX_DS, IDX_GS, IDX_DB]
+
+    years = np.arange(n)
+    t_values = np.minimum(years / max(glide_years, 1), 1.0)
+
+    weights = np.zeros((n, 3))
+    for i, key in enumerate(asset_keys):
+        w_start = start_alloc.get(key, 0.0)
+        w_end = end_alloc.get(key, 0.0)
+        weights[:, i] = w_start * (1.0 - t_values) + w_end * t_values
+
+    returns_matrix = data[:, col_indices]
+    expense_array = np.array([expense_ratios.get(key, 0.0) for key in asset_keys])
+
+    nominal_returns = np.sum(weights * (returns_matrix - expense_array), axis=1)
+
+    inflation = data[:, IDX_INF]
+    if leverage != 1.0:
+        nominal_returns = leverage * nominal_returns - (leverage - 1.0) * (inflation + borrowing_spread)
+
+    return (1.0 + nominal_returns) / (1.0 + inflation) - 1.0
+
+
 def _compute_glide_path_returns(
     sampled: pd.DataFrame,
     start_alloc: dict[str, float],
@@ -579,47 +650,12 @@ def _compute_glide_path_returns(
     leverage: float,
     borrowing_spread: float,
 ) -> np.ndarray:
-    """Per-year portfolio returns with linearly interpolated allocation.
-
-    优化版本：预计算所有年份的配置权重，使用向量化计算。
-    """
-    n = len(sampled)
-    asset_map = {
-        "domestic_stock": "Domestic_Stock",
-        "global_stock": "Global_Stock",
-        "domestic_bond": "Domestic_Bond",
-    }
-
-    # 预计算所有年份的插值比例 t
-    years = np.arange(n)
-    t_values = np.minimum(years / max(glide_years, 1), 1.0)
-
-    # 预计算所有资产的权重矩阵 (n_years, n_assets)
-    weights = np.zeros((n, len(asset_map)))
-    asset_keys = list(asset_map.keys())
-    for i, key in enumerate(asset_keys):
-        w_start = start_alloc.get(key, 0.0)
-        w_end = end_alloc.get(key, 0.0)
-        weights[:, i] = w_start * (1.0 - t_values) + w_end * t_values
-
-    # 获取资产回报和费用率（向量化）
-    returns_matrix = np.column_stack([
-        sampled[asset_map[key]].values for key in asset_keys
-    ])
-    expense_array = np.array([expense_ratios.get(key, 0.0) for key in asset_keys])
-
-    # 向量化计算名义回报：sum(weight * (return - expense)) for each year
-    nominal_returns = np.sum(weights * (returns_matrix - expense_array), axis=1)
-
-    # 考虑杠杆
-    inflation = sampled["Inflation"].values
-    if leverage != 1.0:
-        nominal_returns = leverage * nominal_returns - (leverage - 1.0) * (inflation + borrowing_spread)
-
-    # 计算实际回报
-    real_returns = (1.0 + nominal_returns) / (1.0 + inflation) - 1.0
-
-    return real_returns
+    """Per-year portfolio returns with linearly interpolated allocation (DataFrame input)."""
+    from .bootstrap import RETURN_COLS as _RC
+    return _compute_glide_path_returns_np(
+        sampled[_RC].values, start_alloc, end_alloc,
+        glide_years, expense_ratios, leverage, borrowing_spread,
+    )
 
 
 def run_simple_historical_backtest(

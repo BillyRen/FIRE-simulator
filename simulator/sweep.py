@@ -15,11 +15,17 @@ from multiprocessing import cpu_count
 import numpy as np
 import pandas as pd
 
-from .bootstrap import block_bootstrap, block_bootstrap_pooled
+from .bootstrap import (
+    IDX_DS, IDX_GS, IDX_DB, IDX_INF,
+    RETURN_COLS,
+    block_bootstrap_np,
+    block_bootstrap_pooled_np,
+    _prepare_pooled_arrays,
+)
 from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from .config import is_low_memory
 from .monte_carlo import compute_withdrawal
-from .portfolio import compute_real_portfolio_returns
+from .portfolio import compute_real_portfolio_returns_np
 
 # 并行化配置：使用CPU核心数，但限制最大值避免资源耗尽
 # 在低核心环境（如 Render 0.5 CPU）中，进程池 fork 开销反而拖慢性能
@@ -45,16 +51,17 @@ def _init_worker(shared_data: dict):
 # Bootstrap 并行化辅助函数（必须在模块级别以支持pickle）
 # ============================================================================
 
-def _do_bootstrap(retirement_years, min_block, max_block, rng,
-                   returns_df=None, country_dfs=None, country_weights=None):
-    """执行单次 bootstrap 采样（共用逻辑）。"""
-    if country_dfs is not None:
-        return block_bootstrap_pooled(
-            country_dfs, retirement_years, min_block, max_block, rng=rng,
-            country_weights=country_weights,
+def _do_bootstrap_np(retirement_years, min_block, max_block, rng):
+    """执行单次 bootstrap 采样（numpy, 从 _worker_shared 读取缓存数组）。"""
+    c_arrays = _worker_shared.get("c_arrays")
+    if c_arrays is not None:
+        return block_bootstrap_pooled_np(
+            c_arrays, _worker_shared["c_lens"], _worker_shared["c_probs"],
+            retirement_years, min_block, max_block, rng=rng,
         )
-    return block_bootstrap(
-        returns_df, retirement_years, min_block, max_block, rng=rng
+    return block_bootstrap_np(
+        _worker_shared["src_data"], _worker_shared["src_n"],
+        retirement_years, min_block, max_block, rng=rng,
     )
 
 
@@ -65,18 +72,13 @@ def _bootstrap_single_scenario(args):
 
     rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
 
-    sampled = _do_bootstrap(
-        retirement_years, min_block, max_block, rng,
-        returns_df=_worker_shared["returns_df"],
-        country_dfs=_worker_shared["country_dfs"],
-        country_weights=_worker_shared["country_weights"],
-    )
+    data = _do_bootstrap_np(retirement_years, min_block, max_block, rng)
 
-    real_returns = compute_real_portfolio_returns(
-        sampled, allocation, expense_ratios,
+    real_returns = compute_real_portfolio_returns_np(
+        data, allocation, expense_ratios,
         leverage=leverage, borrowing_spread=borrowing_spread,
     )
-    return sim_index, real_returns, sampled["Inflation"].values
+    return sim_index, real_returns, data[:, IDX_INF].copy()
 
 
 def _bootstrap_single_raw(args):
@@ -86,18 +88,13 @@ def _bootstrap_single_raw(args):
 
     rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
 
-    sampled = _do_bootstrap(
-        retirement_years, min_block, max_block, rng,
-        returns_df=_worker_shared["returns_df"],
-        country_dfs=_worker_shared["country_dfs"],
-        country_weights=_worker_shared["country_weights"],
-    )
+    data = _do_bootstrap_np(retirement_years, min_block, max_block, rng)
 
     return sim_index, {
-        "domestic_stock": sampled["Domestic_Stock"].values - expense_ratios.get("domestic_stock", 0.0),
-        "global_stock": sampled["Global_Stock"].values - expense_ratios.get("global_stock", 0.0),
-        "domestic_bond": sampled["Domestic_Bond"].values - expense_ratios.get("domestic_bond", 0.0),
-        "inflation": sampled["Inflation"].values,
+        "domestic_stock": data[:, IDX_DS] - expense_ratios.get("domestic_stock", 0.0),
+        "global_stock": data[:, IDX_GS] - expense_ratios.get("global_stock", 0.0),
+        "domestic_bond": data[:, IDX_DB] - expense_ratios.get("domestic_bond", 0.0),
+        "inflation": data[:, IDX_INF].copy(),
     }
 
 
@@ -150,6 +147,16 @@ def pregenerate_return_scenarios(
     scenarios = np.zeros((num_simulations, retirement_years))
     inflation_matrix = np.zeros((num_simulations, retirement_years))
 
+    # Pre-extract numpy arrays from DataFrames
+    if country_dfs is not None:
+        _, c_arrays, c_lens, c_probs = _prepare_pooled_arrays(
+            country_dfs, country_weights, RETURN_COLS,
+        )
+        shared = {"c_arrays": c_arrays, "c_lens": c_lens, "c_probs": c_probs, "src_data": None, "src_n": 0}
+    else:
+        src_data = returns_df[RETURN_COLS].values
+        shared = {"c_arrays": None, "c_lens": None, "c_probs": None, "src_data": src_data, "src_n": len(src_data)}
+
     # 统一使用 per-index seed 保证并行/顺序路径结果一致
     tasks = [
         (i, allocation, expense_ratios, retirement_years,
@@ -163,19 +170,15 @@ def pregenerate_return_scenarios(
             with ProcessPoolExecutor(
                 max_workers=MAX_WORKERS,
                 initializer=_init_worker,
-                initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
+                initargs=(shared,),
             ) as executor:
                 results = list(executor.map(_bootstrap_single_scenario, tasks, chunksize=chunksize))
         except (OSError, RuntimeError, PermissionError, NotImplementedError):
-            _worker_shared["returns_df"] = returns_df
-            _worker_shared["country_dfs"] = country_dfs
-            _worker_shared["country_weights"] = country_weights
+            _worker_shared.update(shared)
             results = [_bootstrap_single_scenario(task) for task in tasks]
     else:
         # 顺序执行：设置 _worker_shared 使 worker 函数可复用
-        _worker_shared["returns_df"] = returns_df
-        _worker_shared["country_dfs"] = country_dfs
-        _worker_shared["country_weights"] = country_weights
+        _worker_shared.update(shared)
         results = [_bootstrap_single_scenario(task) for task in tasks]
 
     for sim_index, real_returns, inflation in results:
@@ -661,6 +664,16 @@ def pregenerate_raw_scenarios(
     domestic_bond = np.zeros((num_simulations, retirement_years))
     inflation = np.zeros((num_simulations, retirement_years))
 
+    # Pre-extract numpy arrays from DataFrames
+    if country_dfs is not None:
+        _, c_arrays, c_lens, c_probs = _prepare_pooled_arrays(
+            country_dfs, country_weights, RETURN_COLS,
+        )
+        shared = {"c_arrays": c_arrays, "c_lens": c_lens, "c_probs": c_probs, "src_data": None, "src_n": 0}
+    else:
+        src_data = returns_df[RETURN_COLS].values
+        shared = {"c_arrays": None, "c_lens": None, "c_probs": None, "src_data": src_data, "src_n": len(src_data)}
+
     # 统一使用 per-index seed 保证并行/顺序路径结果一致
     tasks = [
         (i, expense_ratios, retirement_years,
@@ -674,18 +687,14 @@ def pregenerate_raw_scenarios(
             with ProcessPoolExecutor(
                 max_workers=MAX_WORKERS,
                 initializer=_init_worker,
-                initargs=({"returns_df": returns_df, "country_dfs": country_dfs, "country_weights": country_weights},),
+                initargs=(shared,),
             ) as executor:
                 results = list(executor.map(_bootstrap_single_raw, tasks, chunksize=chunksize))
         except (OSError, RuntimeError, PermissionError, NotImplementedError):
-            _worker_shared["returns_df"] = returns_df
-            _worker_shared["country_dfs"] = country_dfs
-            _worker_shared["country_weights"] = country_weights
+            _worker_shared.update(shared)
             results = [_bootstrap_single_raw(task) for task in tasks]
     else:
-        _worker_shared["returns_df"] = returns_df
-        _worker_shared["country_dfs"] = country_dfs
-        _worker_shared["country_weights"] = country_weights
+        _worker_shared.update(shared)
         results = [_bootstrap_single_raw(task) for task in tasks]
 
     for sim_index, data in results:

@@ -20,6 +20,77 @@ import pandas as pd
 RETURN_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond", "Inflation"]
 HOUSING_COLS = ["Housing_CapGain", "Rent_Growth", "Long_Rate"]
 
+# Column indices for RETURN_COLS (used by numpy-returning variants)
+IDX_DS = 0   # Domestic_Stock
+IDX_GS = 1   # Global_Stock
+IDX_DB = 2   # Domestic_Bond
+IDX_INF = 3  # Inflation
+
+
+def _block_bootstrap_core(
+    data: np.ndarray,
+    n: int,
+    retirement_years: int,
+    min_block: int,
+    max_block: int,
+    rng: np.random.Generator,
+    n_cols: int,
+) -> np.ndarray:
+    """Core block bootstrap loop operating on numpy arrays."""
+    output = np.empty((retirement_years, n_cols), dtype=np.float64)
+    pos = 0
+
+    while pos < retirement_years:
+        block_size = min(rng.integers(min_block, max_block + 1), retirement_years - pos)
+        start = rng.integers(0, n)
+        indices = np.arange(start, start + block_size) % n
+        output[pos:pos + block_size] = data[indices]
+        pos += block_size
+
+    return output
+
+
+def _validate_bootstrap_args(min_block: int, max_block: int, retirement_years: int):
+    if min_block < 1:
+        raise ValueError(f"min_block must be >= 1, got {min_block}")
+    if min_block > max_block:
+        raise ValueError(f"min_block ({min_block}) must be <= max_block ({max_block})")
+    if retirement_years <= 0:
+        raise ValueError(f"retirement_years must be > 0, got {retirement_years}")
+
+
+def block_bootstrap_np(
+    data: np.ndarray,
+    n: int,
+    retirement_years: int,
+    min_block: int,
+    max_block: int,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """Block bootstrap returning a numpy array (no DataFrame overhead).
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Pre-extracted numpy array from returns_df[cols].values.
+        Caller should cache this to avoid repeated DataFrame column access.
+    n : int
+        Number of rows in data (len(data)).
+    retirement_years, min_block, max_block : int
+        Same as block_bootstrap().
+    rng : np.random.Generator or None
+        Random number generator.
+
+    Returns
+    -------
+    np.ndarray
+        shape (retirement_years, data.shape[1]).
+    """
+    _validate_bootstrap_args(min_block, max_block, retirement_years)
+    if rng is None:
+        rng = np.random.default_rng()
+    return _block_bootstrap_core(data, n, retirement_years, min_block, max_block, rng, data.shape[1])
+
 
 def block_bootstrap(
     returns_df: pd.DataFrame,
@@ -59,13 +130,7 @@ def block_bootstrap(
     pd.DataFrame
         shape 为 (retirement_years, len(columns)) 的 DataFrame。
     """
-    if min_block < 1:
-        raise ValueError(f"min_block must be >= 1, got {min_block}")
-    if min_block > max_block:
-        raise ValueError(f"min_block ({min_block}) must be <= max_block ({max_block})")
-    if retirement_years <= 0:
-        raise ValueError(f"retirement_years must be > 0, got {retirement_years}")
-
+    _validate_bootstrap_args(min_block, max_block, retirement_years)
     if rng is None:
         rng = np.random.default_rng()
 
@@ -73,19 +138,107 @@ def block_bootstrap(
     data = returns_df[cols].values
     n = len(data)
 
-    output = np.empty((retirement_years, len(cols)), dtype=np.float64)
+    output = _block_bootstrap_core(data, n, retirement_years, min_block, max_block, rng, len(cols))
+    return pd.DataFrame(output, columns=cols)
+
+
+def _prepare_pooled_arrays(
+    country_dfs: dict[str, pd.DataFrame],
+    country_weights: dict[str, float] | None,
+    cols: list[str],
+) -> tuple[list[str], list[np.ndarray], list[int], np.ndarray | None]:
+    """Pre-convert country DataFrames to numpy arrays and build probability array.
+
+    Returns (country_list, country_arrays, country_lens, probs).
+    """
+    country_list = list(country_dfs.keys())
+    country_arrays = [country_dfs[iso][cols].values for iso in country_list]
+    country_lens = [len(a) for a in country_arrays]
+    n_countries = len(country_list)
+
+    if country_weights is not None:
+        probs = np.array([country_weights.get(iso, 0.0) for iso in country_list])
+        prob_sum = probs.sum()
+        if prob_sum > 0:
+            probs = probs / prob_sum
+        else:
+            probs = np.ones(n_countries) / n_countries
+    else:
+        probs = None
+
+    return country_list, country_arrays, country_lens, probs
+
+
+def _block_bootstrap_pooled_core(
+    country_arrays: list[np.ndarray],
+    country_lens: list[int],
+    n_countries: int,
+    probs: np.ndarray | None,
+    retirement_years: int,
+    min_block: int,
+    max_block: int,
+    rng: np.random.Generator,
+    n_cols: int,
+) -> np.ndarray:
+    """Core pooled block bootstrap loop operating on numpy arrays."""
+    output = np.empty((retirement_years, n_cols), dtype=np.float64)
     pos = 0
 
     while pos < retirement_years:
-        # 计算本次block大小，确保不超出剩余空间
+        if probs is not None:
+            country_idx = rng.choice(n_countries, p=probs)
+        else:
+            country_idx = rng.integers(0, n_countries)
+        data = country_arrays[country_idx]
+        n = country_lens[country_idx]
+
         block_size = min(rng.integers(min_block, max_block + 1), retirement_years - pos)
         start = rng.integers(0, n)
         indices = np.arange(start, start + block_size) % n
-        # 直接写入预分配数组
         output[pos:pos + block_size] = data[indices]
         pos += block_size
 
-    return pd.DataFrame(output, columns=cols)
+    return output
+
+
+def block_bootstrap_pooled_np(
+    country_arrays: list[np.ndarray],
+    country_lens: list[int],
+    probs: np.ndarray | None,
+    retirement_years: int,
+    min_block: int,
+    max_block: int,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """Pooled multi-country block bootstrap returning numpy array.
+
+    Parameters
+    ----------
+    country_arrays : list[np.ndarray]
+        Pre-extracted numpy arrays, one per country.
+    country_lens : list[int]
+        Number of rows in each country array.
+    probs : np.ndarray or None
+        Sampling probabilities per country.
+    retirement_years, min_block, max_block : int
+        Same as block_bootstrap_pooled().
+    rng : np.random.Generator or None
+        Random number generator.
+
+    Returns
+    -------
+    np.ndarray
+        shape (retirement_years, n_cols).
+    """
+    _validate_bootstrap_args(min_block, max_block, retirement_years)
+    if rng is None:
+        rng = np.random.default_rng()
+    n_countries = len(country_arrays)
+    n_cols = country_arrays[0].shape[1]
+    return _block_bootstrap_pooled_core(
+        country_arrays, country_lens, n_countries, probs,
+        retirement_years, min_block, max_block, rng, n_cols,
+    )
 
 
 def block_bootstrap_pooled(
@@ -124,59 +277,17 @@ def block_bootstrap_pooled(
     pd.DataFrame
         shape (retirement_years, len(columns)) 的 DataFrame。
     """
-    if min_block < 1:
-        raise ValueError(f"min_block must be >= 1, got {min_block}")
-    if min_block > max_block:
-        raise ValueError(f"min_block ({min_block}) must be <= max_block ({max_block})")
-    if retirement_years <= 0:
-        raise ValueError(f"retirement_years must be > 0, got {retirement_years}")
-
+    _validate_bootstrap_args(min_block, max_block, retirement_years)
     if rng is None:
         rng = np.random.default_rng()
 
     cols = columns if columns is not None else RETURN_COLS
+    _, country_arrays, country_lens, probs = _prepare_pooled_arrays(
+        country_dfs, country_weights, cols,
+    )
 
-    # 预转换为 numpy 数组
-    # NOTE: 这个转换可以在调用端缓存以进一步提升性能
-    country_list = list(country_dfs.keys())
-    country_arrays = {
-        iso: df[cols].values for iso, df in country_dfs.items()
-    }
-    n_countries = len(country_list)
-
-    # 构建采样概率数组
-    if country_weights is not None:
-        probs = np.array([country_weights.get(iso, 0.0) for iso in country_list])
-        prob_sum = probs.sum()
-        if prob_sum > 0:
-            probs = probs / prob_sum  # 安全归一化
-        else:
-            probs = np.ones(n_countries) / n_countries
-    else:
-        probs = None  # 等概率
-
-    # 预分配输出数组，避免动态list增长和concatenate
-    output = np.empty((retirement_years, len(cols)), dtype=np.float64)
-    pos = 0
-
-    while pos < retirement_years:
-        # 1. 随机选国家
-        if probs is not None:
-            country_idx = rng.choice(n_countries, p=probs)
-        else:
-            country_idx = rng.integers(0, n_countries)
-        iso = country_list[country_idx]
-        data = country_arrays[iso]
-        n = len(data)
-
-        # 2. 该国内环形采样
-        # 计算本次block大小，确保不超出剩余空间
-        block_size = min(rng.integers(min_block, max_block + 1), retirement_years - pos)
-        start = rng.integers(0, n)
-        indices = np.arange(start, start + block_size) % n
-
-        # 直接写入预分配数组
-        output[pos:pos + block_size] = data[indices]
-        pos += block_size
-
+    output = _block_bootstrap_pooled_core(
+        country_arrays, country_lens, len(country_arrays), probs,
+        retirement_years, min_block, max_block, rng, len(cols),
+    )
     return pd.DataFrame(output, columns=cols)

@@ -3,6 +3,50 @@
 import numpy as np
 import pandas as pd
 
+from .bootstrap import IDX_DS, IDX_GS, IDX_DB, IDX_INF
+
+
+def compute_real_portfolio_returns_np(
+    data: np.ndarray,
+    allocation: dict[str, float],
+    expense_ratios: dict[str, float],
+    leverage: float = 1.0,
+    borrowing_spread: float = 0.0,
+) -> np.ndarray:
+    """Fast portfolio return calculation from numpy array (no DataFrame overhead).
+
+    Parameters
+    ----------
+    data : np.ndarray
+        shape (n, 4+) array with columns in RETURN_COLS order:
+        [Domestic_Stock, Global_Stock, Domestic_Bond, Inflation, ...].
+    allocation, expense_ratios, leverage, borrowing_spread :
+        Same as compute_real_portfolio_returns().
+
+    Returns
+    -------
+    np.ndarray
+        Real portfolio returns, length n.
+    """
+    w_ds = allocation.get("domestic_stock", 0.0)
+    w_gs = allocation.get("global_stock", 0.0)
+    w_db = allocation.get("domestic_bond", 0.0)
+    e_ds = expense_ratios.get("domestic_stock", 0.0)
+    e_gs = expense_ratios.get("global_stock", 0.0)
+    e_db = expense_ratios.get("domestic_bond", 0.0)
+
+    nominal_return = (
+        w_ds * (data[:, IDX_DS] - e_ds)
+        + w_gs * (data[:, IDX_GS] - e_gs)
+        + w_db * (data[:, IDX_DB] - e_db)
+    )
+
+    inflation = data[:, IDX_INF]
+    if leverage != 1.0:
+        nominal_return = leverage * nominal_return - (leverage - 1.0) * (inflation + borrowing_spread)
+
+    return (1.0 + nominal_return) / (1.0 + inflation) - 1.0
+
 
 def compute_real_portfolio_returns(
     sampled_returns: pd.DataFrame,

@@ -19,9 +19,11 @@ import pandas as pd
 
 from simulator.bootstrap import (
     HOUSING_COLS,
+    IDX_DS, IDX_GS, IDX_DB, IDX_INF,
     RETURN_COLS,
-    block_bootstrap,
-    block_bootstrap_pooled,
+    block_bootstrap_np,
+    block_bootstrap_pooled_np,
+    _prepare_pooled_arrays,
 )
 
 def _mortgage_annual_payment(balance: float, annual_rate: float, remaining_years: int) -> float:
@@ -313,42 +315,61 @@ def _sample_mc_paths(
     N, T = num_simulations, analysis_years
     all_cols = RETURN_COLS + HOUSING_COLS
 
+    # Column indices for the extended (7-col) array
+    _IDX_HC = 4  # Housing_CapGain
+    _IDX_RG = 5  # Rent_Growth
+    _IDX_LR = 6  # Long_Rate
+
     all_home = np.zeros((N, T))
     all_rent = np.zeros((N, T))
     all_mort = np.zeros((N, T))
     all_inv = np.zeros((N, T))
     all_infl = np.zeros((N, T))
 
+    # Pre-extract numpy arrays (use extended column set for housing data)
+    if country_dfs is not None:
+        _, c_arrays, c_lens, c_probs = _prepare_pooled_arrays(
+            country_dfs, country_weights, all_cols,
+        )
+        src_data, src_n = None, 0
+    else:
+        src_data = returns_df[all_cols].values
+        src_n = len(src_data)
+        c_arrays, c_lens, c_probs = None, None, None
+
+    w_ds = allocation.get("domestic_stock", 0.0)
+    w_gs = allocation.get("global_stock", 0.0)
+    w_db = allocation.get("domestic_bond", 0.0)
+    e_ds = expense_ratios.get("domestic_stock", 0.0)
+    e_gs = expense_ratios.get("global_stock", 0.0)
+    e_db = expense_ratios.get("domestic_bond", 0.0)
+
     for sim in range(N):
-        if country_dfs is not None:
-            sampled = block_bootstrap_pooled(
-                country_dfs, T, min_block, max_block,
-                rng=rng, country_weights=country_weights, columns=all_cols,
+        if c_arrays is not None:
+            data = block_bootstrap_pooled_np(
+                c_arrays, c_lens, c_probs,
+                T, min_block, max_block, rng=rng,
             )
         else:
-            sampled = block_bootstrap(
-                returns_df, T, min_block, max_block,
-                rng=rng, columns=all_cols,
+            data = block_bootstrap_np(
+                src_data, src_n, T, min_block, max_block, rng=rng,
             )
 
-        infl = sampled["Inflation"].values
+        infl = data[:, IDX_INF]
 
-        # Investment return
-        nom_ret = np.zeros(T)
-        asset_map = {"domestic_stock": "Domestic_Stock",
-                     "global_stock": "Global_Stock",
-                     "domestic_bond": "Domestic_Bond"}
-        for ak, col in asset_map.items():
-            w = allocation.get(ak, 0.0)
-            e = expense_ratios.get(ak, 0.0)
-            nom_ret += w * (sampled[col].values - e)
+        # Investment return (nominal)
+        nom_ret = (
+            w_ds * (data[:, IDX_DS] - e_ds)
+            + w_gs * (data[:, IDX_GS] - e_gs)
+            + w_db * (data[:, IDX_DB] - e_db)
+        )
         if leverage != 1.0:
             nom_ret = leverage * nom_ret - (leverage - 1.0) * (infl + borrowing_spread)
 
         # Housing
-        ha = np.full(T, override_home_appreciation) if override_home_appreciation is not None else sampled["Housing_CapGain"].values
-        rg = np.full(T, override_rent_growth) if override_rent_growth is not None else sampled["Rent_Growth"].values
-        mr = np.full(T, override_mortgage_rate) if override_mortgage_rate is not None else np.maximum(sampled["Long_Rate"].values + mortgage_rate_spread, 0.001)
+        ha = np.full(T, override_home_appreciation) if override_home_appreciation is not None else data[:, _IDX_HC]
+        rg = np.full(T, override_rent_growth) if override_rent_growth is not None else data[:, _IDX_RG]
+        mr = np.full(T, override_mortgage_rate) if override_mortgage_rate is not None else np.maximum(data[:, _IDX_LR] + mortgage_rate_spread, 0.001)
 
         # NaN safety
         ha = np.nan_to_num(ha, nan=float(np.nanmedian(ha)) if not np.all(np.isnan(ha)) else 0.0)
