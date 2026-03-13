@@ -134,12 +134,20 @@ def run_sim_batch_backtest(
                 pm = compute_single_path_metrics(rr, inf)
                 year_labels = years[start_idx:start_idx + n_years].tolist()
 
+                # Derive survived from actual n_years horizon, not the
+                # zero-padded max_n matrix.  Check whether any year-end
+                # portfolio value within [1, n_years] hit zero *before*
+                # the last year (early depletion).
+                actual_port = portfolios[bi, 1:n_years + 1]
+                early_depleted = bool(np.any(actual_port[:n_years - 1] <= 0)) if n_years > 1 else False
+                path_survived = not early_depleted
+
                 paths.append({
                     "country": iso,
                     "start_year": start_year,
                     "years_simulated": n_years,
                     "is_complete": is_complete,
-                    "survived": bool(survived_arr[bi]),
+                    "survived": path_survived,
                     "final_portfolio": port_list[-1],
                     "total_consumption": sum(wd_list),
                     "year_labels": year_labels,

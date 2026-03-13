@@ -270,3 +270,64 @@ class TestRunSimBatchBacktest:
         assert result["num_paths"] > 0
         for p in result["paths"]:
             assert "_real_returns" not in p
+
+
+# ---------------------------------------------------------------------------
+# Test 4: Truncated path survival correctness (regression for zero-pad bug)
+# ---------------------------------------------------------------------------
+
+class TestTruncatedPathSurvival:
+    def test_short_path_survived_not_affected_by_zero_padding(self):
+        """Paths shorter than max_n should derive survived from their own horizon,
+        not from the zero-padded tail that batch_backtest_fixed_vectorized sees.
+
+        Regression: previously, zero-padded years caused annual_withdrawal to
+        deplete the portfolio even though those years were not real data, making
+        short paths appear as 'failed' when they actually survived.
+        """
+        # Create data where short paths easily survive but zero-padding kills them
+        rng = np.random.default_rng(99)
+        n_short = 10
+        n_long = 25
+        initial = 1_000_000
+        withdrawal = 30_000  # low withdrawal rate -> survives easily
+
+        # Build a country df where short paths (late start years) have good returns
+        df = pd.DataFrame({
+            "Year": np.arange(2000, 2000 + n_long),
+            "Country": ["TST"] * n_long,
+            "Domestic_Stock": np.full(n_long, 0.08),
+            "Global_Stock": np.full(n_long, 0.06),
+            "Domestic_Bond": np.full(n_long, 0.03),
+            "Inflation": np.full(n_long, 0.02),
+        })
+        alloc = {"domestic_stock": 0.5, "global_stock": 0.3, "domestic_bond": 0.2}
+        expenses = {"domestic_stock": 0.001, "global_stock": 0.001, "domestic_bond": 0.001}
+
+        result = run_sim_batch_backtest(
+            country_dfs=None,
+            filtered_df=df,
+            allocation=alloc,
+            expense_ratios=expenses,
+            initial_portfolio=initial,
+            annual_withdrawal=withdrawal,
+            retirement_years=n_long,  # longer than most paths
+            withdrawal_strategy="fixed",
+        )
+
+        # Find paths shorter than retirement_years (truncated)
+        truncated = [p for p in result["paths"] if not p["is_complete"]]
+        assert len(truncated) > 0, "Should have some truncated paths"
+
+        for p in truncated:
+            # With 8% stock returns and 3% withdrawal rate, no path should fail
+            port = p["portfolio"]
+            # Check no early depletion within the actual simulated years
+            actual_years = p["years_simulated"]
+            inner_values = port[1:actual_years]  # exclude last year (depletion ok)
+            all_positive = all(v > 0 for v in inner_values)
+            assert p["survived"] == all_positive, (
+                f"Start {p['start_year']}: survived={p['survived']} but "
+                f"all inner values positive={all_positive}, "
+                f"years_simulated={actual_years}"
+            )
