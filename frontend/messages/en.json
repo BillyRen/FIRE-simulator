@@ -469,6 +469,7 @@
       "baseline": "Running baseline simulation…",
       "statistics": "Computing statistics…",
       "sensitivity_base": "Running base analysis…",
+      "sensitivity_combine": "Combining base results…",
       "sensitivity_param": "Sensitivity analysis {current}/{total}…",
       "scenario_run": "Running scenario {current}/{total}…",
       "refining": "Refining results…",

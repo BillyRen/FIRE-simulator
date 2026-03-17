@@ -469,6 +469,7 @@
       "baseline": "运行基准模拟…",
       "statistics": "计算统计指标…",
       "sensitivity_base": "运行基准分析…",
+      "sensitivity_combine": "合并基准结果…",
       "sensitivity_param": "敏感性分析 {current}/{total}…",
       "scenario_run": "运行情景 {current}/{total}…",
       "refining": "正在精确计算…",
