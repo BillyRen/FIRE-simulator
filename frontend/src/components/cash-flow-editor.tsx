@@ -2,11 +2,17 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslations } from "next-intl";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -313,10 +319,19 @@ function CashFlowCard({
           className={`grid ${showProbability ? "grid-cols-2" : "grid-cols-3"} gap-2 mt-2`}
         >
           <div>
-            <Label className="text-xs">{t("amountLabel")}</Label>
-            <p className="text-[10px] text-muted-foreground leading-tight">
-              {item.inflation_adjusted ? t("amountHintReal") : t("amountHintNominal")}
-            </p>
+            <Label className="text-xs">
+              {t("amountLabel")}{" "}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="inline h-3 w-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <p>{item.inflation_adjusted ? t("amountHintReal") : t("amountHintNominal")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </Label>
             <CfNumberInput
               value={Math.abs(item.amount)}
               onChange={(abs) => {
