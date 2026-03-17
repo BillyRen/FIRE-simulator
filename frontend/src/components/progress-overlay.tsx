@@ -16,7 +16,7 @@ export function ProgressOverlay({ message, progress }: ProgressOverlayProps) {
   if (progress) {
     try {
       displayMessage =
-        progress.current && progress.total
+        progress.current != null && progress.total != null
           ? t("stages." + progress.stage, {
               current: progress.current,
               total: progress.total,
