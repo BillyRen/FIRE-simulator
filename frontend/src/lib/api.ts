@@ -170,8 +170,8 @@ export async function runSimBatchBacktest(params: FormParams): Promise<SimBatchB
 }
 
 // 批量历史回测：Guardrail 页
-export async function runGuardrailBatchBacktest(req: Record<string, unknown>): Promise<GuardrailBatchBacktestResponse> {
-  return post<Record<string, unknown>, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req, HEAVY_API_TIMEOUT_MS);
+export async function runGuardrailBatchBacktest(req: GuardrailRequest & { backtest_country?: string }): Promise<GuardrailBatchBacktestResponse> {
+  return post<GuardrailRequest & { backtest_country?: string }, GuardrailBatchBacktestResponse>("/api/guardrail/backtest-batch", req, HEAVY_API_TIMEOUT_MS);
 }
 
 // 情景分析：现金流情景分解（护栏页）

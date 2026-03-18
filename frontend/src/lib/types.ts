@@ -98,6 +98,7 @@ export interface SweepRequest {
   min_block: number;
   max_block: number;
   num_simulations: number;
+  seed?: number;
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
@@ -106,6 +107,12 @@ export interface SweepRequest {
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
+  declining_rate: number;
+  declining_start_age: number;
+  smile_decline_rate: number;
+  smile_decline_start_age: number;
+  smile_min_age: number;
+  smile_increase_rate: number;
   rate_max: number;
   rate_step: number;
   leverage: number;
@@ -252,6 +259,12 @@ export interface SimBacktestRequest {
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
+  declining_rate: number;
+  declining_start_age: number;
+  smile_decline_rate: number;
+  smile_decline_start_age: number;
+  smile_min_age: number;
+  smile_increase_rate: number;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
@@ -351,6 +364,7 @@ export interface AllocationSweepRequest {
   min_block: number;
   max_block: number;
   num_simulations: number;
+  seed?: number;
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
@@ -359,6 +373,12 @@ export interface AllocationSweepRequest {
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
+  declining_rate: number;
+  declining_start_age: number;
+  smile_decline_rate: number;
+  smile_decline_start_age: number;
+  smile_min_age: number;
+  smile_increase_rate: number;
   leverage: number;
   borrowing_spread: number;
   allocation_step: number;

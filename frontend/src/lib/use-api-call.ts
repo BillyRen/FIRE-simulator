@@ -54,5 +54,5 @@ export function useApiCall<TReq, TRes>(
     setError(null);
   }, []);
 
-  return { data, loading, error, progress, run, reset, setData, setError } as const;
+  return { data, loading, error, progress, run, reset, setData, setError, isInflight: inflight } as const;
 }
