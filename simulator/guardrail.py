@@ -1297,6 +1297,9 @@ def run_historical_backtest(
 
             if value <= 0:
                 value = 0.0
+                b_portfolio[year + 1:] = 0.0
+                b_withdrawals[year + 1:] = 0.0
+                break
 
             # Apply income after depletion check
             if cf_schedule is not None and cf_schedule[year] > 0:
