@@ -49,6 +49,11 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     alternates: {
       canonical: "https://fire.rens.ai",
+      languages: {
+        "x-default": "https://fire.rens.ai",
+        en: "https://fire.rens.ai",
+        "zh-CN": "https://fire.rens.ai",
+      },
     },
   };
 }
