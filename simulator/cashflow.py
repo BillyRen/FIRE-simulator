@@ -115,11 +115,15 @@ def sample_cash_flows(
         n = len(variant_names)
         if total < 1.0:
             weights = probs + [1.0 - total]
-            idx = int(rng.choice(n + 1, p=weights))
+            weights_arr = np.array(weights)
+            weights_arr /= weights_arr.sum()
+            idx = int(rng.choice(n + 1, p=weights_arr))
             if idx < n:
                 result.extend(variants[variant_names[idx]])
         else:
-            idx = int(rng.choice(n, p=probs))
+            probs_arr = np.array(probs)
+            probs_arr /= probs_arr.sum()
+            idx = int(rng.choice(n, p=probs_arr))
             result.extend(variants[variant_names[idx]])
 
     return result
@@ -434,7 +438,7 @@ def build_cf_split_schedules(
         income_schedule: positive values representing yearly income.
     """
     expense_items = [cf for cf in cash_flows if cf.amount < 0]
-    income_items = [cf for cf in cash_flows if cf.amount >= 0]
+    income_items = [cf for cf in cash_flows if cf.amount > 0]
 
     if expense_items:
         # build_cf_schedule returns negative values for expenses; negate to positive

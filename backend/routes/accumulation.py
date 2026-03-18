@@ -55,6 +55,7 @@ def api_accumulation(request: Request, req: AccumulationRequest):
         country_weights=country_weights,
         expense_growth_rate=req.expense_growth_rate,
         auto_retirement_spending=req.auto_retirement_spending,
+        seed=req.seed,
     )
 
     return AccumulationResponse(**result)

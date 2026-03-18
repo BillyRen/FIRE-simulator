@@ -174,13 +174,14 @@ def run_accumulation(
     swr_sample_interval: int = 5,
     expense_growth_rate: float = 0.0,
     auto_retirement_spending: bool = False,
+    seed: int | None = None,
 ) -> dict:
     """运行 FIRE 积累阶段蒙特卡洛模拟。"""
     min_retirement_years = 5
     max_working_years = max(1, life_expectancy - current_age - min_retirement_years)
     max_retirement_years = life_expectancy - current_age
 
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     cfs = cash_flows or []
 
     # ── 1. 预生成积累阶段 MC 回报场景 ──
