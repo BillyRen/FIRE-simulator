@@ -420,6 +420,12 @@ def api_sweep(request: Request, req: SweepRequest):
             retirement_age=req.retirement_age,
             cash_flows=cash_flows,
             inflation_matrix=inflation_matrix,
+            declining_rate=req.declining_rate,
+            declining_start_age=req.declining_start_age,
+            smile_decline_rate=req.smile_decline_rate,
+            smile_decline_start_age=req.smile_decline_start_age,
+            smile_min_age=req.smile_min_age,
+            smile_increase_rate=req.smile_increase_rate,
         )
 
         yield {"type": "progress", "stage": "statistics", "pct": 85}

@@ -8,6 +8,7 @@ Phase 2.3优化：使用multiprocessing并行化sweep循环，充分利用多核
 
 from __future__ import annotations
 
+import functools
 import os
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import cpu_count
@@ -51,28 +52,29 @@ def _init_worker(shared_data: dict):
 # Bootstrap 并行化辅助函数（必须在模块级别以支持pickle）
 # ============================================================================
 
-def _do_bootstrap_np(retirement_years, min_block, max_block, rng):
-    """执行单次 bootstrap 采样（numpy, 从 _worker_shared 读取缓存数组）。"""
-    c_arrays = _worker_shared.get("c_arrays")
+def _do_bootstrap_np(retirement_years, min_block, max_block, rng, _shared=None):
+    """执行单次 bootstrap 采样（numpy, 从 shared dict 读取缓存数组）。"""
+    s = _shared if _shared is not None else _worker_shared
+    c_arrays = s.get("c_arrays")
     if c_arrays is not None:
         return block_bootstrap_pooled_np(
-            c_arrays, _worker_shared["c_lens"], _worker_shared["c_probs"],
+            c_arrays, s["c_lens"], s["c_probs"],
             retirement_years, min_block, max_block, rng=rng,
         )
     return block_bootstrap_np(
-        _worker_shared["src_data"], _worker_shared["src_n"],
+        s["src_data"], s["src_n"],
         retirement_years, min_block, max_block, rng=rng,
     )
 
 
-def _bootstrap_single_scenario(args):
-    """单个 bootstrap 采样任务（从 _worker_shared 读取共享数据）。"""
+def _bootstrap_single_scenario(args, _shared=None):
+    """单个 bootstrap 采样任务（从 shared dict 读取共享数据）。"""
     (sim_index, allocation, expense_ratios, retirement_years,
      min_block, max_block, leverage, borrowing_spread, seed_base) = args
 
     rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
 
-    data = _do_bootstrap_np(retirement_years, min_block, max_block, rng)
+    data = _do_bootstrap_np(retirement_years, min_block, max_block, rng, _shared=_shared)
 
     real_returns = compute_real_portfolio_returns_np(
         data, allocation, expense_ratios,
@@ -81,14 +83,14 @@ def _bootstrap_single_scenario(args):
     return sim_index, real_returns, data[:, IDX_INF].copy()
 
 
-def _bootstrap_single_raw(args):
-    """单个 bootstrap 采样任务（raw scenarios，从 _worker_shared 读取共享数据）。"""
+def _bootstrap_single_raw(args, _shared=None):
+    """单个 bootstrap 采样任务（raw scenarios，从 shared dict 读取共享数据）。"""
     (sim_index, expense_ratios, retirement_years,
      min_block, max_block, seed_base) = args
 
     rng = np.random.default_rng(seed_base + sim_index if seed_base is not None else None)
 
-    data = _do_bootstrap_np(retirement_years, min_block, max_block, rng)
+    data = _do_bootstrap_np(retirement_years, min_block, max_block, rng, _shared=_shared)
 
     return sim_index, {
         "domestic_stock": data[:, IDX_DS] - expense_ratios.get("domestic_stock", 0.0),
@@ -174,12 +176,11 @@ def pregenerate_return_scenarios(
             ) as executor:
                 results = list(executor.map(_bootstrap_single_scenario, tasks, chunksize=chunksize))
         except (OSError, RuntimeError, PermissionError, NotImplementedError):
-            _worker_shared.update(shared)
-            results = [_bootstrap_single_scenario(task) for task in tasks]
+            worker = functools.partial(_bootstrap_single_scenario, _shared=shared)
+            results = [worker(task) for task in tasks]
     else:
-        # 顺序执行：设置 _worker_shared 使 worker 函数可复用
-        _worker_shared.update(shared)
-        results = [_bootstrap_single_scenario(task) for task in tasks]
+        worker = functools.partial(_bootstrap_single_scenario, _shared=shared)
+        results = [worker(task) for task in tasks]
 
     for sim_index, real_returns, inflation in results:
         scenarios[sim_index] = real_returns
@@ -258,7 +259,7 @@ def _simulate_success_and_funded(
             if not np.any(alive):
                 break
 
-        success_rate = float(np.mean(alive))
+        success_rate = float(np.mean(depletion_years >= retirement_years))
         funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
         return success_rate, funded_ratio
 
@@ -276,13 +277,11 @@ def _simulate_success_and_funded(
 
     rng = np.random.default_rng() if has_groups else None
 
-    survived = 0
     depletion_years = np.full(num_sims, float(retirement_years))
 
     for i in range(num_sims):
         value = initial_portfolio
         prev_wd = annual_withdrawal
-        failed = False
 
         # 计算该路径的现金流 schedule
         if has_groups:
@@ -338,17 +337,13 @@ def _simulate_success_and_funded(
 
             if value <= 0:
                 depletion_years[i] = float(year + 1)
-                failed = True
                 break
 
             # Apply income after depletion check (net schedule for portfolio)
             if cf_schedule is not None and cf_schedule[year] > 0:
                 value += cf_schedule[year]
 
-        if not failed:
-            survived += 1
-
-    success_rate = survived / num_sims
+    success_rate = float(np.mean(depletion_years >= retirement_years))
     funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
     return success_rate, funded_ratio
 
@@ -357,14 +352,15 @@ def _simulate_success_and_funded(
 # 并行化辅助函数（必须在模块级别以支持pickle）
 # ============================================================================
 
-def _sweep_single_rate(args):
-    """单个提取率的模拟任务（从 _worker_shared 读取共享矩阵数据）。"""
+def _sweep_single_rate(args, _shared=None):
+    """单个提取率的模拟任务（从 shared dict 读取共享矩阵数据）。"""
     (rate, initial_portfolio, withdrawal_strategy,
      dynamic_ceiling, dynamic_floor, retirement_age, cash_flows) = args
 
+    s = _shared if _shared is not None else _worker_shared
     annual_wd = initial_portfolio * rate
     sr, fr = _simulate_success_and_funded(
-        _worker_shared["real_returns_matrix"],
+        s["real_returns_matrix"],
         initial_portfolio,
         annual_wd,
         withdrawal_strategy,
@@ -372,13 +368,13 @@ def _sweep_single_rate(args):
         dynamic_floor,
         retirement_age=retirement_age,
         cash_flows=cash_flows,
-        inflation_matrix=_worker_shared.get("inflation_matrix"),
+        inflation_matrix=s.get("inflation_matrix"),
     )
     return sr, fr
 
 
-def _sweep_single_allocation(args):
-    """单个资产配置的模拟任务（从 _worker_shared 读取共享矩阵数据）。"""
+def _sweep_single_allocation(args, _shared=None):
+    """单个资产配置的模拟任务（从 shared dict 读取共享矩阵数据）。"""
     (w_us, w_intl, w_bond,
      initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
      withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
@@ -387,10 +383,11 @@ def _sweep_single_allocation(args):
      smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
      ) = args
 
-    us_stock = _worker_shared["us_stock"]
-    intl_stock = _worker_shared["intl_stock"]
-    us_bond = _worker_shared["us_bond"]
-    inflation = _worker_shared["inflation"]
+    s = _shared if _shared is not None else _worker_shared
+    us_stock = s["us_stock"]
+    intl_stock = s["intl_stock"]
+    us_bond = s["us_bond"]
+    inflation = s["inflation"]
 
     num_sims, retirement_years = us_stock.shape
 
@@ -599,6 +596,12 @@ def sweep_withdrawal_rates(
     retirement_age: int = 45,
     cash_flows: list[CashFlowItem] | None = None,
     inflation_matrix: np.ndarray | None = None,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
+    smile_increase_rate: float = 0.01,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """扫描提取率范围，计算每个提取率对应的成功率和资金覆盖率。
 
@@ -642,6 +645,12 @@ def sweep_withdrawal_rates(
             retirement_age=retirement_age,
             cash_flows=cash_flows,
             inflation_matrix=inflation_matrix,
+            declining_rate=declining_rate,
+            declining_start_age=declining_start_age,
+            smile_decline_rate=smile_decline_rate,
+            smile_decline_start_age=smile_decline_start_age,
+            smile_min_age=smile_min_age,
+            smile_increase_rate=smile_increase_rate,
         )
         success_list.append(sr)
         funded_list.append(fr)
@@ -711,11 +720,11 @@ def pregenerate_raw_scenarios(
             ) as executor:
                 results = list(executor.map(_bootstrap_single_raw, tasks, chunksize=chunksize))
         except (OSError, RuntimeError, PermissionError, NotImplementedError):
-            _worker_shared.update(shared)
-            results = [_bootstrap_single_raw(task) for task in tasks]
+            worker = functools.partial(_bootstrap_single_raw, _shared=shared)
+            results = [worker(task) for task in tasks]
     else:
-        _worker_shared.update(shared)
-        results = [_bootstrap_single_raw(task) for task in tasks]
+        worker = functools.partial(_bootstrap_single_raw, _shared=shared)
+        results = [worker(task) for task in tasks]
 
     for sim_index, data in results:
         domestic_stock[sim_index] = data["domestic_stock"]
@@ -795,13 +804,16 @@ def sweep_allocations(
 
     # 每个配置的模拟任务太轻量（~20ms），进程池 overhead 反而拖慢
     # 并行化收益在 bootstrap 层（pregenerate_raw_scenarios），此处顺序执行更快
-    _worker_shared["us_stock"] = us_stock
-    _worker_shared["intl_stock"] = intl_stock
-    _worker_shared["us_bond"] = us_bond
-    _worker_shared["inflation"] = inflation
+    local_shared = {
+        "us_stock": us_stock,
+        "intl_stock": intl_stock,
+        "us_bond": us_bond,
+        "inflation": inflation,
+    }
+    worker = functools.partial(_sweep_single_allocation, _shared=local_shared)
 
     results = [
-        _sweep_single_allocation((
+        worker((
             w_us, w_intl, w_bond,
             initial_portfolio, annual_withdrawal, leverage, borrowing_spread,
             withdrawal_strategy, dynamic_ceiling, dynamic_floor, retirement_age,
