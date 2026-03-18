@@ -355,7 +355,7 @@ function CashFlowCard({
             </div>
           )}
           <div>
-            <Label className="text-xs">{t("startYear")}</Label>
+            <Label className="text-xs">{t("cfStartYear")}</Label>
             <CfNumberInput
               value={item.start_year}
               onChange={(v) => onUpdate({ start_year: Math.round(v) })}

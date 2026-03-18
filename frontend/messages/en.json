@@ -125,6 +125,7 @@
     "amountHintReal": "In today's dollars (inflation-adjusted)",
     "amountHintNominal": "Fixed nominal amount (not inflation-adjusted)",
     "startYear": "Start Year",
+    "cfStartYear": "Start Year (1 = first)",
     "duration": "Duration",
     "probability": "Prob (%)",
     "inflationAdjusted": "Inflation Adjusted",

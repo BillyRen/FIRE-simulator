@@ -739,7 +739,8 @@ def api_backtest(request: Request, req: BacktestRequest):
     )
 
     n = result["years_simulated"]
-    year_labels = [int(req.hist_start_year + i) for i in range(n + 1)]
+    actual_start = int(hist_df["Year"].iloc[0])
+    year_labels = [actual_start - 1 + i for i in range(n + 1)]
 
     path_metrics = compute_single_path_metrics(
         hist_returns[:n], hist_inflation[:n],

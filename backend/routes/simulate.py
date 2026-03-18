@@ -167,7 +167,7 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
 
     n_years = min(req.retirement_years, n_avail)
     sampled = filtered.iloc[:n_years]
-    year_labels = sampled["Year"].tolist()
+    year_labels = [int(sampled["Year"].iloc[0] - 1)] + sampled["Year"].tolist()
 
     real_returns = compute_real_portfolio_returns(
         sampled, alloc_dict(req.allocation), expense_dict(req.expense_ratios),

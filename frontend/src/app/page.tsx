@@ -168,7 +168,7 @@ export default function SimulatorPage() {
       // Convert SimBacktestResponse -> SimBatchPathSummary for detail view
       setSelectedPath({
         country: btCountry,
-        start_year: histStartYear,
+        start_year: res.year_labels.length > 1 ? res.year_labels[1] : histStartYear,
         years_simulated: res.years_simulated,
         is_complete: res.years_simulated >= params.retirement_years,
         survived: res.survived,
@@ -763,11 +763,7 @@ export default function SimulatorPage() {
                       return (
                         <PlotlyChart
                           data={[{
-                            x: selectedPath.year_labels.concat(
-                              selectedPath.portfolio.length > selectedPath.years_simulated
-                                ? [selectedPath.year_labels[selectedPath.years_simulated - 1] + 1]
-                                : []
-                            ),
+                            x: selectedPath.year_labels,
                             y: selectedPath.portfolio,
                             type: "scatter", mode: "lines",
                             name: t("portfolioHistory"),
@@ -810,7 +806,7 @@ export default function SimulatorPage() {
                     </div>
                     <PlotlyChart
                       data={[{
-                        x: selectedPath.year_labels,
+                        x: selectedPath.year_labels.slice(1),
                         y: selectedPath.withdrawals,
                         type: "bar",
                         name: t("withdrawalHistory"),

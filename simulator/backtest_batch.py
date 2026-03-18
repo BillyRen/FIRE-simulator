@@ -132,7 +132,7 @@ def run_sim_batch_backtest(
                 rr = real_returns_full[start_idx:start_idx + n_years]
                 inf = inflation_full[start_idx:start_idx + n_years]
                 pm = compute_single_path_metrics(rr, inf)
-                year_labels = years[start_idx:start_idx + n_years].tolist()
+                year_labels = [int(years[start_idx] - 1)] + years[start_idx:start_idx + n_years].tolist()
 
                 # Derive survived from actual n_years horizon, not the
                 # zero-padded max_n matrix.  Check whether any year-end
@@ -190,7 +190,7 @@ def run_sim_batch_backtest(
                 )
 
                 pm = compute_single_path_metrics(real_returns, inflation_series)
-                year_labels = years[i:i + n_years].tolist()
+                year_labels = [int(start_year - 1)] + years[i:i + n_years].tolist()
 
                 paths.append({
                     "country": iso,
@@ -376,7 +376,7 @@ def run_guardrail_batch_backtest(
             )
 
             pm = compute_single_path_metrics(real_returns, inflation_series)
-            year_labels = years_arr[i:i + n_years].tolist()
+            year_labels = [int(start_year - 1)] + years_arr[i:i + n_years].tolist()
 
             # 逐条路径的消费地板判定
             _path_floor = max(consumption_floor * annual_withdrawal, consumption_floor_amount)

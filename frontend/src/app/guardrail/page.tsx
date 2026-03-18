@@ -207,7 +207,7 @@ export default function GuardrailPage() {
       const n = res.years_simulated;
       setSelectedPath({
         country: btCountry,
-        start_year: histStartYear,
+        start_year: res.year_labels.length > 1 ? res.year_labels[1] : histStartYear,
         years_simulated: n,
         is_complete: n >= params.retirement_years,
         g_survived: n >= params.retirement_years && !res.g_portfolio.slice(1, -1).some((v: number) => v <= 0),
@@ -1086,7 +1086,7 @@ export default function GuardrailPage() {
                       <PlotlyChart
                         data={[
                           {
-                            x: selectedPath.year_labels.slice(0, selectedPath.years_simulated),
+                            x: selectedPath.year_labels.slice(1),
                             y: selectedPath.g_withdrawals,
                             type: "scatter", mode: "lines",
                             name: t("guardrailWithdrawal"),
@@ -1094,7 +1094,7 @@ export default function GuardrailPage() {
                             yaxis: "y",
                           },
                           {
-                            x: selectedPath.year_labels.slice(0, selectedPath.years_simulated),
+                            x: selectedPath.year_labels.slice(1),
                             y: selectedPath.b_withdrawals,
                             type: "scatter", mode: "lines",
                             name: t("baselineWithdrawal"),
@@ -1102,7 +1102,7 @@ export default function GuardrailPage() {
                             yaxis: "y",
                           },
                           {
-                            x: selectedPath.year_labels.slice(0, selectedPath.years_simulated),
+                            x: selectedPath.year_labels.slice(1),
                             y: selectedPath.g_success_rates.map((s) => s * 100),
                             type: "scatter", mode: "lines",
                             name: t("successRateLine"),
@@ -1111,7 +1111,7 @@ export default function GuardrailPage() {
                             yaxis: "y2",
                           },
                           {
-                            x: selectedPath.year_labels.slice(0, selectedPath.years_simulated),
+                            x: selectedPath.year_labels.slice(1),
                             y: Array(selectedPath.years_simulated).fill(upperGuardrail * 100),
                             type: "scatter", mode: "lines",
                             name: t("upperGuardrailLine", { pct: (upperGuardrail * 100).toFixed(0) }),
@@ -1119,7 +1119,7 @@ export default function GuardrailPage() {
                             yaxis: "y2",
                           },
                           {
-                            x: selectedPath.year_labels.slice(0, selectedPath.years_simulated),
+                            x: selectedPath.year_labels.slice(1),
                             y: Array(selectedPath.years_simulated).fill(lowerGuardrail * 100),
                             type: "scatter", mode: "lines",
                             name: t("lowerGuardrailLine", { pct: (lowerGuardrail * 100).toFixed(0) }),
@@ -1197,7 +1197,7 @@ export default function GuardrailPage() {
                                 const isUp = change > 0;
                                 return (
                                   <tr key={i} className="border-b hover:bg-accent/50">
-                                    <td className="px-2 py-1">{selectedPath.year_labels[e.year]}</td>
+                                    <td className="px-2 py-1">{selectedPath.year_labels[e.year + 1]}</td>
                                     <td className="text-right px-2 py-1">{fmt(e.old_wd)}</td>
                                     <td className="text-right px-2 py-1">{fmt(e.new_wd)}</td>
                                     <td className={`text-right px-2 py-1 font-medium ${isUp ? "text-green-600" : "text-red-600"}`}>
