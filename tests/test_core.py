@@ -141,7 +141,7 @@ class TestPooledBootstrap:
         all_vals = set(result["Domestic_Stock"].values)
         a_vals = set(df_a["Domestic_Stock"].values)
         b_vals = set(df_b["Domestic_Stock"].values)
-        assert all_vals.intersection(a_vals) or all_vals.intersection(b_vals)
+        assert all_vals.intersection(a_vals) and all_vals.intersection(b_vals)
 
 
 # ---------------------------------------------------------------------------
@@ -851,7 +851,8 @@ class TestCFTimingConsistency:
             withdrawal_strategy="fixed",
             cash_flows=[pension],
         )
-        mc_sr = float(np.mean(traj[:, -1] > 0))
+        from simulator.statistics import compute_success_rate as csr
+        mc_sr = csr(traj, n_years)
 
         # Sweep path
         sweep_sr, _ = _simulate_success_and_funded(
@@ -877,6 +878,8 @@ class TestCFTimingConsistency:
             duration=n_years, inflation_adjusted=True,
         )
 
+        from simulator.statistics import compute_success_rate as csr
+
         traj, _, _, _ = run_simulation_from_matrix(
             real_returns_matrix=ret_mat,
             inflation_matrix=infl_mat,
@@ -886,7 +889,7 @@ class TestCFTimingConsistency:
             withdrawal_strategy="fixed",
             cash_flows=[expense],
         )
-        mc_sr = float(np.mean(traj[:, -1] > 0))
+        mc_sr = csr(traj, n_years)
 
         sweep_sr, _ = _simulate_success_and_funded(
             ret_mat, 500_000, 30_000,

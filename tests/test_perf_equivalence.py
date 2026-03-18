@@ -50,7 +50,7 @@ def _simulate_scalar(real_returns_matrix, initial_portfolio, annual_withdrawal):
         if not failed:
             survived += 1
 
-    success_rate = survived / num_sims
+    success_rate = float(np.mean(depletion_years >= retirement_years))
     funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
     return success_rate, funded_ratio
 
