@@ -714,7 +714,7 @@
     "fundedTitle": "Funded Ratio",
     "fundedP1": "The average fraction of the retirement horizon that is funded across all paths. A path depleting at year 15 of a 30-year retirement contributes 0.5. Unlike success rate, funded ratio captures partial outcomes — a plan with 80% success rate but early depletion in failed paths scores lower than one where failures occur late.",
     "guardrailTitle": "Guardrail Withdrawal Strategy",
-    "guardrailP1": "The guardrail strategy dynamically adjusts withdrawals based on the current probability of portfolio survival, without running nested simulations at each step.",
+    "guardrailP1": "FIRE Lab implements risk-based guardrails (as described by Kitces and Hatchet), which dynamically adjust withdrawals based on the current probability of portfolio survival. Unlike withdrawal-rate guardrails such as Guyton-Klinger, risk-based guardrails use Monte Carlo probability-of-success as the trigger, making them more robust to changing income needs and the retirement distribution hatchet.",
     "guardrailP2": "Before simulation, a lookup table maps (withdrawal rate, remaining years) to survival probability. During simulation, the current success rate is checked each year. If it drops below the lower guardrail, spending is cut. If it rises above the upper guardrail, spending is increased. Between the bounds, no change is made.",
     "guardrailP3": "This approach allows real-time spending adjustments that respond to market conditions while maintaining a target success probability throughout retirement.",
     "dataTitle": "Data Sources",
@@ -739,8 +739,8 @@
     "a2": "Monte Carlo simulation generates thousands of possible retirement scenarios by randomly sampling from historical market returns. Unlike a single projection using average returns, it shows the full range of possible outcomes and the probability of your plan succeeding under different market conditions.",
     "q3": "What is Block Bootstrap, and how is it different from random sampling?",
     "a3": "Block Bootstrap samples contiguous blocks of historical returns (e.g., 3-7 consecutive years at a time) rather than individual years. This preserves the year-to-year momentum, volatility clustering, and cross-asset correlations that exist in real markets. Pure random sampling would destroy these patterns and underestimate the risk of prolonged downturns.",
-    "q4": "What is a guardrail withdrawal strategy?",
-    "a4": "A guardrail strategy sets upper and lower bounds on your portfolio's estimated success rate. When markets perform well and success rises above the upper guardrail, you increase spending. When markets decline and success falls below the lower guardrail, you cut spending. This dynamic approach typically allows 15-25% higher initial withdrawals compared to a fixed strategy at the same risk level.",
+    "q4": "What is a risk-based guardrail withdrawal strategy?",
+    "a4": "A risk-based guardrail strategy sets upper and lower bounds on your portfolio's estimated survival probability. When markets perform well and the success rate rises above the upper guardrail, you increase spending. When markets decline and success falls below the lower guardrail, you cut spending. This dynamic approach typically allows 15-25% higher initial withdrawals compared to a fixed strategy at the same risk level. FIRE Lab provides this as a free, open tool — similar functionality to advisor-only platforms like IncomeLab, but accessible to individual investors.",
     "q5": "What is funded ratio, and how is it different from success rate?",
     "a5": "Success rate is binary — did the portfolio last the full retirement, yes or no. Funded ratio is the average fraction of retirement years that were funded. A plan with 80% success rate could have failed paths depleting at year 5 or year 28 — funded ratio captures this difference. A higher funded ratio means failures, when they occur, happen later.",
     "q6": "Should I use US-only data or global pooled data?",
@@ -766,8 +766,8 @@
       "intro": "Find the withdrawal rate that matches your target success rate or funded ratio. Visualize how changing your annual withdrawal affects retirement outcomes across thousands of Monte Carlo simulations."
     },
     "guardrail": {
-      "h1": "Guardrail Withdrawal Strategy Simulator",
-      "intro": "Simulate dynamic spending rules that automatically adjust withdrawals based on portfolio performance. Compare guardrail strategies against fixed withdrawal baselines with Monte Carlo analysis and historical backtesting across 150+ years of data."
+      "h1": "Risk-Based Guardrail Retirement Calculator",
+      "intro": "A free, probability-of-success guardrail calculator that dynamically adjusts retirement withdrawals based on real-time portfolio survival probability — not withdrawal-rate guardrails like Guyton-Klinger. Compare risk-based guardrail strategies against fixed withdrawal baselines using Monte Carlo simulation with 150+ years of historical data from 16 countries. An open alternative to advisor-only tools like IncomeLab."
     },
     "allocation": {
       "h1": "Retirement Asset Allocation Optimizer",

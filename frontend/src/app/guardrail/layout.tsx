@@ -5,14 +5,14 @@ import { PageHero } from "@/components/page-hero";
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getOgLocale();
   return {
-    title: "Guardrail Withdrawal Strategy Simulator",
+    title: "Risk-Based Guardrail Retirement Calculator (Free)",
     description:
-      "Simulate dynamic guardrail spending rules that adjust withdrawals based on portfolio performance. Monte Carlo analysis and historical backtesting with 150+ years of data. 护栏提取策略模拟器 — 基于投资组合表现动态调整提取金额。",
+      "Free risk-based guardrail calculator using probability-of-success Monte Carlo guardrails — not Guyton-Klinger. Dynamically adjust retirement withdrawals based on real-time survival probability. 150+ years of data, 16 countries. Open alternative to IncomeLab. 基于成功概率的风险护栏退休计算器。",
     alternates: { canonical: "https://fire.rens.ai/guardrail" },
     openGraph: {
-      title: "Guardrail Withdrawal Strategy Simulator | FIRE Lab",
+      title: "Risk-Based Guardrail Retirement Calculator | FIRE Lab",
       description:
-        "Simulate dynamic spending rules with automatic withdrawal adjustments. Compare guardrail vs fixed strategies with Monte Carlo and historical backtesting.",
+        "Free probability-of-success guardrail calculator. Dynamically adjust retirement withdrawals — an open alternative to IncomeLab. Monte Carlo with 150+ years of data.",
       url: "https://fire.rens.ai/guardrail",
       siteName: "FIRE Lab",
       locale,
@@ -20,9 +20,9 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     twitter: {
       card: "summary",
-      title: "Guardrail Withdrawal Strategy Simulator | FIRE Lab",
+      title: "Risk-Based Guardrail Strategy | FIRE Lab",
       description:
-        "Simulate dynamic spending rules with automatic withdrawal adjustments based on portfolio performance.",
+        "Free risk-based guardrail calculator — dynamically adjust retirement withdrawals based on survival probability.",
     },
   };
 }
