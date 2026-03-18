@@ -86,10 +86,14 @@ def streaming(gen):
             for item in gen:
                 yield json.dumps(item, default=_json_default) + "\n"
         except HTTPException as exc:
-            yield json.dumps({"type": "error", "message": exc.detail if isinstance(exc.detail, str) else str(exc.detail)}) + "\n"
+            detail = exc.detail
+            if isinstance(detail, str):
+                yield json.dumps({"type": "error", "code": exc.status_code, "message": detail}) + "\n"
+            else:
+                yield json.dumps({"type": "error", "code": exc.status_code, "message": str(detail), "detail": detail}) + "\n"
         except Exception as exc:
             logger.exception("Streaming endpoint error")
-            yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
+            yield json.dumps({"type": "error", "code": 500, "message": str(exc)}) + "\n"
 
     return StreamingResponse(
         _iter(),

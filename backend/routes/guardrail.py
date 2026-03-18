@@ -619,11 +619,6 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
                         dom_new = new_stock / 2.0
                         glb_new = new_stock / 2.0
                     bond_new = max(0.0, 1.0 - dom_new - glb_new)
-                    if bond_new < 0:
-                        total_s = dom_new + glb_new
-                        dom_new /= total_s
-                        glb_new /= total_s
-                        bond_new = 0.0
                     r_ip, r_aw, sr, fr = _build_and_run(
                         {"domestic_stock": dom_new, "global_stock": glb_new, "domestic_bond": bond_new},
                         base_years,

@@ -148,7 +148,7 @@ def compute_effective_funded_ratio(
         eff_depletion = np.minimum(eff_depletion, asset_depletion)
 
     funded = float(np.mean(np.minimum(eff_depletion / retirement_years, 1.0)))
-    success = float(np.mean(eff_depletion >= n_years))
+    success = float(np.mean(eff_depletion >= retirement_years))
     return funded, success
 
 
