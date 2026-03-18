@@ -254,18 +254,20 @@ def _simulate_general_from_matrix(
             actual_wd = min(withdrawal, max(value_after_growth, 0.0))
             value = value_after_growth - actual_wd
             withdrawals[i, year] = actual_wd
-            # Apply expenses before depletion check
-            if cf_expense is not None and cf_expense[year] > 0:
-                value -= cf_expense[year]
+            # Apply net negative CF to portfolio before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
+                value += cf_schedule[year]
+            # Always show all expenses in withdrawal display
+            if cf_expense is not None:
                 withdrawals[i, year] += cf_expense[year]
             if value <= 0:
                 value = 0.0
                 trajectories[i, year + 1:] = 0.0
                 withdrawals[i, year + 1:] = 0.0
                 break
-            # Apply income after depletion check
-            if cf_income is not None and cf_income[year] > 0:
-                value += cf_income[year]
+            # Apply net positive CF to portfolio after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
@@ -630,9 +632,11 @@ def run_simulation(
 
             withdrawals[i, year] = actual_wd
 
-            # Apply expenses before depletion check
-            if cf_expense is not None and cf_expense[year] > 0:
-                value -= cf_expense[year]
+            # Apply net negative CF to portfolio before depletion check
+            if cf_schedule is not None and cf_schedule[year] < 0:
+                value += cf_schedule[year]
+            # Always show all expenses in withdrawal display
+            if cf_expense is not None:
                 withdrawals[i, year] += cf_expense[year]
 
             if value <= 0:
@@ -641,9 +645,9 @@ def run_simulation(
                 withdrawals[i, year + 1 :] = 0.0
                 break
 
-            # Apply income after depletion check
-            if cf_income is not None and cf_income[year] > 0:
-                value += cf_income[year]
+            # Apply net positive CF to portfolio after depletion check
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
@@ -809,9 +813,11 @@ def run_simple_historical_backtest(
         value = value_after_growth - actual_wd
         withdrawals_out.append(actual_wd)
 
-        # Apply expenses before depletion check
-        if cf_expense is not None and cf_expense[year] > 0:
-            value -= cf_expense[year]
+        # Apply net negative CF to portfolio before depletion check
+        if cf_schedule is not None and cf_schedule[year] < 0:
+            value += cf_schedule[year]
+        # Always show all expenses in withdrawal display
+        if cf_expense is not None:
             withdrawals_out[-1] += cf_expense[year]
 
         if value <= 0:
@@ -825,9 +831,9 @@ def run_simple_historical_backtest(
                 withdrawals_out.append(0.0)
             break
 
-        # Apply income after depletion check
-        if cf_income is not None and cf_income[year] > 0:
-            value += cf_income[year]
+        # Apply net positive CF to portfolio after depletion check
+        if cf_schedule is not None and cf_schedule[year] > 0:
+            value += cf_schedule[year]
         portfolio.append(value)
 
     return {

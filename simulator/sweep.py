@@ -332,18 +332,18 @@ def _simulate_success_and_funded(
             actual_wd = min(wd, max(value_after_growth, 0.0))
             value = value_after_growth - actual_wd
 
-            # Apply expenses before depletion check
-            if cf_expense is not None and cf_expense[year] > 0:
-                value -= cf_expense[year]
+            # Apply expenses before depletion check (net schedule for portfolio)
+            if cf_schedule is not None and cf_schedule[year] < 0:
+                value += cf_schedule[year]
 
             if value <= 0:
                 depletion_years[i] = float(year + 1)
                 failed = True
                 break
 
-            # Apply income after depletion check
-            if cf_income is not None and cf_income[year] > 0:
-                value += cf_income[year]
+            # Apply income after depletion check (net schedule for portfolio)
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
 
         if not failed:
             survived += 1
@@ -501,9 +501,9 @@ def _sweep_single_allocation(args):
                 actual_wd = min(wd, max(value_after_growth, 0.0))
                 value = value_after_growth - actual_wd
 
-                # Apply expenses before depletion check
-                if cf_expense is not None and cf_expense[year] > 0:
-                    value -= cf_expense[year]
+                # Apply expenses before depletion check (net schedule for portfolio)
+                if cf_schedule is not None and cf_schedule[year] < 0:
+                    value += cf_schedule[year]
 
                 if value <= 0:
                     depletion_years[i] = year + 1
@@ -511,9 +511,9 @@ def _sweep_single_allocation(args):
                     failed = True
                     break
 
-                # Apply income after depletion check
-                if cf_income is not None and cf_income[year] > 0:
-                    value += cf_income[year]
+                # Apply income after depletion check (net schedule for portfolio)
+                if cf_schedule is not None and cf_schedule[year] > 0:
+                    value += cf_schedule[year]
 
             final_values[i] = value
 
