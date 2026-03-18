@@ -17,7 +17,7 @@ from .bootstrap import (
     block_bootstrap_pooled_np,
     _prepare_pooled_arrays,
 )
-from .cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
+from .cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, build_expected_cf_schedule, build_expected_cf_split_schedules, has_probabilistic_cf, sample_cash_flows
 from .portfolio import compute_real_portfolio_returns, compute_real_portfolio_returns_np
 
 
@@ -761,12 +761,9 @@ def run_simple_historical_backtest(
     has_cf = cash_flows is not None and len(cash_flows) > 0
     if has_cf:
         if has_probabilistic_cf(cash_flows):
-            cf_schedule = build_expected_cf_schedule(
-                cash_flows, n_years, inflation_series[:n_years] if inflation_series is not None else None
-            )
-            # For probabilistic CFs, split the expected schedule by sign
-            cf_expense = np.maximum(-cf_schedule, 0.0)
-            cf_income = np.maximum(cf_schedule, 0.0)
+            infl_slice = inflation_series[:n_years] if inflation_series is not None else None
+            cf_schedule = build_expected_cf_schedule(cash_flows, n_years, infl_slice)
+            cf_expense, cf_income = build_expected_cf_split_schedules(cash_flows, n_years, infl_slice)
         else:
             adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
             nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]

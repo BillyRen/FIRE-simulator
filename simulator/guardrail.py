@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
-from simulator.cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
+from simulator.cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, build_expected_cf_schedule, build_expected_cf_split_schedules, has_probabilistic_cf, sample_cash_flows
 from simulator.config import (
     GUARDRAIL_RATE_MIN,
     GUARDRAIL_RATE_SEGMENTS, GUARDRAIL_CF_RATE_SEGMENTS,
@@ -1151,9 +1151,7 @@ def run_historical_backtest(
         infl = inflation_series[:n_years] if inflation_series is not None else None
         if has_probabilistic_cf(cash_flows):
             cf_schedule = build_expected_cf_schedule(cash_flows, n_years, infl)
-            # For probabilistic CFs, split the expected schedule by sign
-            cf_expense = np.maximum(-cf_schedule, 0.0)
-            cf_income = np.maximum(cf_schedule, 0.0)
+            cf_expense, cf_income = build_expected_cf_split_schedules(cash_flows, n_years, infl)
         else:
             if any(not cf.inflation_adjusted for cf in cash_flows):
                 if inflation_series is None:

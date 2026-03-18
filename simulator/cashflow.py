@@ -161,6 +161,43 @@ def build_expected_cf_schedule(
     return schedule
 
 
+def build_expected_cf_split_schedules(
+    cash_flows: list[CashFlowItem],
+    retirement_years: int,
+    inflation_series: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build probability-weighted expected expense and income schedules.
+
+    Unlike splitting build_expected_cf_schedule by sign (which loses
+    same-year expense/income pairs), this splits each CF item by its
+    amount sign BEFORE aggregation.
+
+    Returns
+    -------
+    (expense_schedule, income_schedule)
+        expense_schedule: positive values representing yearly expected expenses.
+        income_schedule: positive values representing yearly expected income.
+    """
+    expense = np.zeros(retirement_years)
+    income = np.zeros(retirement_years)
+
+    ungrouped, groups = _group_variants(cash_flows)
+
+    if ungrouped:
+        e, i = build_cf_split_schedules(ungrouped, retirement_years, inflation_series)
+        expense += e
+        income += i
+
+    for variants in groups.values():
+        for variant_items in variants.values():
+            prob = variant_items[0].probability
+            e, i = build_cf_split_schedules(variant_items, retirement_years, inflation_series)
+            expense += prob * e
+            income += prob * i
+
+    return expense, income
+
+
 def enumerate_cf_scenarios(
     cash_flows: list[CashFlowItem],
     max_combinations: int = 64,
