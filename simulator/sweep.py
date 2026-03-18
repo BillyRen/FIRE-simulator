@@ -22,7 +22,7 @@ from .bootstrap import (
     block_bootstrap_pooled_np,
     _prepare_pooled_arrays,
 )
-from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
+from .cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, has_probabilistic_cf, sample_cash_flows
 from .config import is_low_memory
 from .monte_carlo import compute_withdrawal
 from .portfolio import compute_real_portfolio_returns_np
@@ -296,8 +296,13 @@ def _simulate_success_and_funded(
                     cf_schedule = _adj_sched + _nom_sched
                 else:
                     cf_schedule = _adj_sched
+                cf_expense, cf_income = build_cf_split_schedules(
+                    active_cfs, retirement_years,
+                    inflation_matrix[i] if inflation_matrix is not None else None,
+                )
             else:
                 cf_schedule = None
+                cf_expense = cf_income = None
         elif has_cf:
             if has_nominal and inflation_matrix is not None:
                 nominal_schedule = build_cf_schedule(
@@ -306,8 +311,13 @@ def _simulate_success_and_funded(
                 cf_schedule = fixed_schedule + nominal_schedule
             else:
                 cf_schedule = fixed_schedule
+            cf_expense, cf_income = build_cf_split_schedules(
+                cash_flows, retirement_years,
+                inflation_matrix[i] if (has_nominal and inflation_matrix is not None) else None,
+            )
         else:
             cf_schedule = None
+            cf_expense = cf_income = None
 
         for year in range(retirement_years):
             wd = compute_withdrawal(
@@ -322,18 +332,18 @@ def _simulate_success_and_funded(
             actual_wd = min(wd, max(value_after_growth, 0.0))
             value = value_after_growth - actual_wd
 
-            # Apply negative CFs (expenses) before depletion check
-            if cf_schedule is not None and cf_schedule[year] < 0:
-                value += cf_schedule[year]
+            # Apply expenses before depletion check
+            if cf_expense is not None and cf_expense[year] > 0:
+                value -= cf_expense[year]
 
             if value <= 0:
                 depletion_years[i] = float(year + 1)
                 failed = True
                 break
 
-            # Apply positive CFs (income) after depletion check
-            if cf_schedule is not None and cf_schedule[year] > 0:
-                value += cf_schedule[year]
+            # Apply income after depletion check
+            if cf_income is not None and cf_income[year] > 0:
+                value += cf_income[year]
 
         if not failed:
             survived += 1
@@ -455,8 +465,13 @@ def _sweep_single_allocation(args):
                         cf_schedule = _adj_sched + _nom_sched
                     else:
                         cf_schedule = _adj_sched
+                    cf_expense, cf_income = build_cf_split_schedules(
+                        active_cfs, retirement_years,
+                        inflation[i] if inflation is not None else None,
+                    )
                 else:
                     cf_schedule = None
+                    cf_expense = cf_income = None
             elif has_cf:
                 if has_nominal and inflation is not None:
                     nominal_schedule = build_cf_schedule(
@@ -465,8 +480,13 @@ def _sweep_single_allocation(args):
                     cf_schedule = fixed_schedule + nominal_schedule
                 else:
                     cf_schedule = fixed_schedule
+                cf_expense, cf_income = build_cf_split_schedules(
+                    cash_flows, retirement_years,
+                    inflation[i] if (has_nominal and inflation is not None) else None,
+                )
             else:
                 cf_schedule = None
+                cf_expense = cf_income = None
 
             for year in range(retirement_years):
                 wd = compute_withdrawal(
@@ -481,9 +501,9 @@ def _sweep_single_allocation(args):
                 actual_wd = min(wd, max(value_after_growth, 0.0))
                 value = value_after_growth - actual_wd
 
-                # Apply negative CFs (expenses) before depletion check
-                if cf_schedule is not None and cf_schedule[year] < 0:
-                    value += cf_schedule[year]
+                # Apply expenses before depletion check
+                if cf_expense is not None and cf_expense[year] > 0:
+                    value -= cf_expense[year]
 
                 if value <= 0:
                     depletion_years[i] = year + 1
@@ -491,9 +511,9 @@ def _sweep_single_allocation(args):
                     failed = True
                     break
 
-                # Apply positive CFs (income) after depletion check
-                if cf_schedule is not None and cf_schedule[year] > 0:
-                    value += cf_schedule[year]
+                # Apply income after depletion check
+                if cf_income is not None and cf_income[year] > 0:
+                    value += cf_income[year]
 
             final_values[i] = value
 

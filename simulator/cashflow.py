@@ -381,3 +381,33 @@ def build_cf_schedule(
                 schedule[t] += nominal / cumulative_inflation[t]
 
     return schedule
+
+
+def build_cf_split_schedules(
+    cash_flows: list[CashFlowItem],
+    retirement_years: int,
+    inflation_series: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build separate expense and income schedules from cash flows.
+
+    Returns
+    -------
+    (expense_schedule, income_schedule)
+        expense_schedule: positive values representing yearly expenses.
+        income_schedule: positive values representing yearly income.
+    """
+    expense_items = [cf for cf in cash_flows if cf.amount < 0]
+    income_items = [cf for cf in cash_flows if cf.amount >= 0]
+
+    if expense_items:
+        # build_cf_schedule returns negative values for expenses; negate to positive
+        expense = -build_cf_schedule(expense_items, retirement_years, inflation_series)
+    else:
+        expense = np.zeros(retirement_years)
+
+    if income_items:
+        income = build_cf_schedule(income_items, retirement_years, inflation_series)
+    else:
+        income = np.zeros(retirement_years)
+
+    return expense, income

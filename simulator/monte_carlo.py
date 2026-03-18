@@ -17,7 +17,7 @@ from .bootstrap import (
     block_bootstrap_pooled_np,
     _prepare_pooled_arrays,
 )
-from .cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
+from .cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from .portfolio import compute_real_portfolio_returns, compute_real_portfolio_returns_np
 
 
@@ -181,8 +181,14 @@ def _simulate_general_from_matrix(
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
         has_nominal = len(nominal_cfs) > 0
         fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
+        # Split schedules for expense/income tracking
+        fixed_cf_expense, fixed_cf_income = build_cf_split_schedules(
+            [cf for cf in cash_flows if cf.inflation_adjusted], retirement_years
+        )
     else:
         fixed_cf_schedule = None
+        fixed_cf_expense = None
+        fixed_cf_income = None
         nominal_cfs = []
         has_nominal = False
 
@@ -198,23 +204,40 @@ def _simulate_general_from_matrix(
                 _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
                 _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
                 _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                _adj_exp, _adj_inc = build_cf_split_schedules(_adj, retirement_years) if _adj else (np.zeros(retirement_years), np.zeros(retirement_years))
                 if _nom:
                     _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_matrix[i])
                     cf_schedule = _adj_sched + _nom_sched
+                    _nom_exp, _nom_inc = build_cf_split_schedules(_nom, retirement_years, inflation_matrix[i])
+                    cf_expense = _adj_exp + _nom_exp
+                    cf_income = _adj_inc + _nom_inc
                 else:
                     cf_schedule = _adj_sched
+                    cf_expense = _adj_exp
+                    cf_income = _adj_inc
             else:
                 cf_schedule = None
+                cf_expense = None
+                cf_income = None
         elif has_cf:
             if has_nominal:
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_matrix[i]
                 )
                 cf_schedule = fixed_cf_schedule + nominal_schedule
+                nom_exp, nom_inc = build_cf_split_schedules(
+                    nominal_cfs, retirement_years, inflation_matrix[i]
+                )
+                cf_expense = fixed_cf_expense + nom_exp
+                cf_income = fixed_cf_income + nom_inc
             else:
                 cf_schedule = fixed_cf_schedule
+                cf_expense = fixed_cf_expense
+                cf_income = fixed_cf_income
         else:
             cf_schedule = None
+            cf_expense = None
+            cf_income = None
 
         value = initial_portfolio
         prev_withdrawal = annual_withdrawal
@@ -231,18 +254,18 @@ def _simulate_general_from_matrix(
             actual_wd = min(withdrawal, max(value_after_growth, 0.0))
             value = value_after_growth - actual_wd
             withdrawals[i, year] = actual_wd
-            # Apply negative CFs (expenses) before depletion check
-            if cf_schedule is not None and cf_schedule[year] < 0:
-                value += cf_schedule[year]
-                withdrawals[i, year] -= cf_schedule[year]
+            # Apply expenses before depletion check
+            if cf_expense is not None and cf_expense[year] > 0:
+                value -= cf_expense[year]
+                withdrawals[i, year] += cf_expense[year]
             if value <= 0:
                 value = 0.0
                 trajectories[i, year + 1:] = 0.0
                 withdrawals[i, year + 1:] = 0.0
                 break
-            # Apply positive CFs (income) after depletion check
-            if cf_schedule is not None and cf_schedule[year] > 0:
-                value += cf_schedule[year]
+            # Apply income after depletion check
+            if cf_income is not None and cf_income[year] > 0:
+                value += cf_income[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
@@ -495,8 +518,14 @@ def run_simulation(
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
         has_nominal = len(nominal_cfs) > 0
         fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
+        # Split schedules for expense/income tracking
+        fixed_cf_expense, fixed_cf_income = build_cf_split_schedules(
+            [cf for cf in cash_flows if cf.inflation_adjusted], retirement_years
+        )
     else:
         fixed_cf_schedule = None
+        fixed_cf_expense = None
+        fixed_cf_income = None
         nominal_cfs = []
         has_nominal = False
 
@@ -545,23 +574,40 @@ def run_simulation(
                 _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
                 _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
                 _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                _adj_exp, _adj_inc = build_cf_split_schedules(_adj, retirement_years) if _adj else (np.zeros(retirement_years), np.zeros(retirement_years))
                 if _nom:
                     _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_series)
                     cf_schedule = _adj_sched + _nom_sched
+                    _nom_exp, _nom_inc = build_cf_split_schedules(_nom, retirement_years, inflation_series)
+                    cf_expense = _adj_exp + _nom_exp
+                    cf_income = _adj_inc + _nom_inc
                 else:
                     cf_schedule = _adj_sched
+                    cf_expense = _adj_exp
+                    cf_income = _adj_inc
             else:
                 cf_schedule = None
+                cf_expense = None
+                cf_income = None
         elif has_cf:
             if has_nominal:
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_series
                 )
                 cf_schedule = fixed_cf_schedule + nominal_schedule
+                nom_exp, nom_inc = build_cf_split_schedules(
+                    nominal_cfs, retirement_years, inflation_series
+                )
+                cf_expense = fixed_cf_expense + nom_exp
+                cf_income = fixed_cf_income + nom_inc
             else:
                 cf_schedule = fixed_cf_schedule
+                cf_expense = fixed_cf_expense
+                cf_income = fixed_cf_income
         else:
             cf_schedule = None
+            cf_expense = None
+            cf_income = None
 
         # 4. 逐年模拟
         value = initial_portfolio
@@ -584,10 +630,10 @@ def run_simulation(
 
             withdrawals[i, year] = actual_wd
 
-            # Apply negative CFs (expenses) before depletion check
-            if cf_schedule is not None and cf_schedule[year] < 0:
-                value += cf_schedule[year]
-                withdrawals[i, year] -= cf_schedule[year]
+            # Apply expenses before depletion check
+            if cf_expense is not None and cf_expense[year] > 0:
+                value -= cf_expense[year]
+                withdrawals[i, year] += cf_expense[year]
 
             if value <= 0:
                 value = 0.0
@@ -595,9 +641,9 @@ def run_simulation(
                 withdrawals[i, year + 1 :] = 0.0
                 break
 
-            # Apply positive CFs (income) after depletion check
-            if cf_schedule is not None and cf_schedule[year] > 0:
-                value += cf_schedule[year]
+            # Apply income after depletion check
+            if cf_income is not None and cf_income[year] > 0:
+                value += cf_income[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals, real_returns_matrix, inflation_matrix
@@ -718,17 +764,32 @@ def run_simple_historical_backtest(
             cf_schedule = build_expected_cf_schedule(
                 cash_flows, n_years, inflation_series[:n_years] if inflation_series is not None else None
             )
+            # For probabilistic CFs, split the expected schedule by sign
+            cf_expense = np.maximum(-cf_schedule, 0.0)
+            cf_income = np.maximum(cf_schedule, 0.0)
         else:
             adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
             nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
             fixed_cf_schedule = build_cf_schedule(adj_cfs, n_years)
+            fixed_exp, fixed_inc = build_cf_split_schedules(
+                [cf for cf in cash_flows if cf.inflation_adjusted], n_years
+            )
             if nominal_cfs and inflation_series is not None:
                 nominal_schedule = build_cf_schedule(nominal_cfs, n_years, inflation_series[:n_years])
                 cf_schedule = fixed_cf_schedule + nominal_schedule
+                nom_exp, nom_inc = build_cf_split_schedules(
+                    nominal_cfs, n_years, inflation_series[:n_years]
+                )
+                cf_expense = fixed_exp + nom_exp
+                cf_income = fixed_inc + nom_inc
             else:
                 cf_schedule = fixed_cf_schedule
+                cf_expense = fixed_exp
+                cf_income = fixed_inc
     else:
         cf_schedule = None
+        cf_expense = None
+        cf_income = None
 
     portfolio = [initial_portfolio]
     withdrawals_out: list[float] = []
@@ -751,11 +812,10 @@ def run_simple_historical_backtest(
         value = value_after_growth - actual_wd
         withdrawals_out.append(actual_wd)
 
-        # Treat negative custom cash flows as additional portfolio-funded spending,
-        # matching the MC engine and guardrail backtest series semantics.
-        if cf_schedule is not None and cf_schedule[year] < 0:
-            value += cf_schedule[year]
-            withdrawals_out[-1] -= cf_schedule[year]
+        # Apply expenses before depletion check
+        if cf_expense is not None and cf_expense[year] > 0:
+            value -= cf_expense[year]
+            withdrawals_out[-1] += cf_expense[year]
 
         if value <= 0:
             value = 0.0
@@ -768,9 +828,9 @@ def run_simple_historical_backtest(
                 withdrawals_out.append(0.0)
             break
 
-        # Apply positive CFs (income) after depletion check
-        if cf_schedule is not None and cf_schedule[year] > 0:
-            value += cf_schedule[year]
+        # Apply income after depletion check
+        if cf_income is not None and cf_income[year] > 0:
+            value += cf_income[year]
         portfolio.append(value)
 
     return {

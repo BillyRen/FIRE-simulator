@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
-from simulator.cashflow import CashFlowItem, build_cf_schedule, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
+from simulator.cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, build_expected_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from simulator.config import (
     GUARDRAIL_RATE_MIN,
     GUARDRAIL_RATE_SEGMENTS, GUARDRAIL_CF_RATE_SEGMENTS,
@@ -754,36 +754,56 @@ def run_guardrail_simulation(
 
     if has_groups:
         cf_matrix = np.zeros((num_sims, retirement_years))
+        cf_expense_matrix = np.zeros((num_sims, retirement_years))
+        cf_income_matrix = np.zeros((num_sims, retirement_years))
         for i in range(num_sims):
             active_cfs = sample_cash_flows(cash_flows, rng)
             if active_cfs:
                 _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
                 _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
                 _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                _adj_exp, _adj_inc = build_cf_split_schedules(_adj, retirement_years) if _adj else (np.zeros(retirement_years), np.zeros(retirement_years))
                 if _nom and inflation_matrix is not None:
                     _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_matrix[i])
+                    _nom_exp, _nom_inc = build_cf_split_schedules(_nom, retirement_years, inflation_matrix[i])
                     cf_matrix[i] = _adj_sched + _nom_sched
+                    cf_expense_matrix[i] = _adj_exp + _nom_exp
+                    cf_income_matrix[i] = _adj_inc + _nom_inc
                 else:
                     cf_matrix[i] = _adj_sched
+                    cf_expense_matrix[i] = _adj_exp
+                    cf_income_matrix[i] = _adj_inc
         fixed_cf_schedule = None
     elif has_cf:
         adj_cfs = [cf for cf in cash_flows if cf.inflation_adjusted]
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
         has_nominal = len(nominal_cfs) > 0
         fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
+        fixed_cf_expense, fixed_cf_income = build_cf_split_schedules(adj_cfs, retirement_years)
 
         if has_nominal and inflation_matrix is not None:
             cf_matrix = np.zeros((num_sims, retirement_years))
+            cf_expense_matrix = np.zeros((num_sims, retirement_years))
+            cf_income_matrix = np.zeros((num_sims, retirement_years))
             for i in range(num_sims):
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_matrix[i]
                 )
+                nom_exp, nom_inc = build_cf_split_schedules(
+                    nominal_cfs, retirement_years, inflation_matrix[i]
+                )
                 cf_matrix[i] = fixed_cf_schedule + nominal_schedule
+                cf_expense_matrix[i] = fixed_cf_expense + nom_exp
+                cf_income_matrix[i] = fixed_cf_income + nom_inc
         else:
             cf_matrix = np.tile(fixed_cf_schedule, (num_sims, 1))
+            cf_expense_matrix = np.tile(fixed_cf_expense, (num_sims, 1))
+            cf_income_matrix = np.tile(fixed_cf_income, (num_sims, 1))
     else:
         fixed_cf_schedule = None
         cf_matrix = None
+        cf_expense_matrix = None
+        cf_income_matrix = None
 
     # 2. 反算缺失的 initial_portfolio 或 annual_withdrawal
     #    如果两者都已提供，跳过反算（用于敏感性分析等固定双参数的场景）
@@ -830,6 +850,8 @@ def run_guardrail_simulation(
         wd = annual_withdrawal
 
         cf_schedule = cf_matrix[i] if cf_matrix is not None else None
+        cf_expense = cf_expense_matrix[i] if cf_expense_matrix is not None else None
+        cf_income = cf_income_matrix[i] if cf_income_matrix is not None else None
 
         for year in range(retirement_years):
             remaining = max(min_remaining_years, retirement_years - year)
@@ -888,10 +910,10 @@ def run_guardrail_simulation(
             withdrawals[i, year] = wd
             value = value * (1.0 + scenarios[i, year]) - wd
 
-            # Apply negative CFs (expenses) before depletion check
-            if cf_schedule is not None and cf_schedule[year] < 0:
-                value += cf_schedule[year]
-                withdrawals[i, year] -= cf_schedule[year]
+            # Apply expenses before depletion check
+            if cf_expense is not None and cf_expense[year] > 0:
+                value -= cf_expense[year]
+                withdrawals[i, year] += cf_expense[year]
 
             if value <= 0:
                 value = 0.0
@@ -899,9 +921,9 @@ def run_guardrail_simulation(
                 withdrawals[i, year + 1:] = 0.0
                 break
 
-            # Apply positive CFs (income) after depletion check
-            if cf_schedule is not None and cf_schedule[year] > 0:
-                value += cf_schedule[year]
+            # Apply income after depletion check
+            if cf_income is not None and cf_income[year] > 0:
+                value += cf_income[year]
             trajectories[i, year + 1] = value
 
     return initial_portfolio, annual_withdrawal, trajectories, withdrawals
@@ -974,8 +996,11 @@ def run_fixed_baseline(
         nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
         has_nominal = len(nominal_cfs) > 0
         fixed_cf_schedule = build_cf_schedule(adj_cfs, retirement_years)
+        fixed_cf_expense, fixed_cf_income = build_cf_split_schedules(adj_cfs, retirement_years)
     else:
         fixed_cf_schedule = None
+        fixed_cf_expense = None
+        fixed_cf_income = None
         nominal_cfs = []
         has_nominal = False
 
@@ -995,32 +1020,49 @@ def run_fixed_baseline(
                 _adj = [cf for cf in active_cfs if cf.inflation_adjusted]
                 _nom = [cf for cf in active_cfs if not cf.inflation_adjusted]
                 _adj_sched = build_cf_schedule(_adj, retirement_years) if _adj else np.zeros(retirement_years)
+                _adj_exp, _adj_inc = build_cf_split_schedules(_adj, retirement_years) if _adj else (np.zeros(retirement_years), np.zeros(retirement_years))
                 if _nom and inflation_matrix is not None:
                     _nom_sched = build_cf_schedule(_nom, retirement_years, inflation_matrix[i])
+                    _nom_exp, _nom_inc = build_cf_split_schedules(_nom, retirement_years, inflation_matrix[i])
                     cf_schedule = _adj_sched + _nom_sched
+                    cf_expense = _adj_exp + _nom_exp
+                    cf_income = _adj_inc + _nom_inc
                 else:
                     cf_schedule = _adj_sched
+                    cf_expense = _adj_exp
+                    cf_income = _adj_inc
             else:
                 cf_schedule = None
+                cf_expense = None
+                cf_income = None
         elif has_cf:
             if has_nominal and inflation_matrix is not None:
                 nominal_schedule = build_cf_schedule(
                     nominal_cfs, retirement_years, inflation_matrix[i]
                 )
+                nom_exp, nom_inc = build_cf_split_schedules(
+                    nominal_cfs, retirement_years, inflation_matrix[i]
+                )
                 cf_schedule = fixed_cf_schedule + nominal_schedule
+                cf_expense = fixed_cf_expense + nom_exp
+                cf_income = fixed_cf_income + nom_inc
             else:
                 cf_schedule = fixed_cf_schedule
+                cf_expense = fixed_cf_expense
+                cf_income = fixed_cf_income
         else:
             cf_schedule = None
+            cf_expense = None
+            cf_income = None
 
         for year in range(retirement_years):
             withdrawals[i, year] = annual_wd
             value = value * (1.0 + scenarios[i, year]) - annual_wd
 
-            # Apply negative CFs (expenses) before depletion check
-            if cf_schedule is not None and cf_schedule[year] < 0:
-                value += cf_schedule[year]
-                withdrawals[i, year] -= cf_schedule[year]
+            # Apply expenses before depletion check
+            if cf_expense is not None and cf_expense[year] > 0:
+                value -= cf_expense[year]
+                withdrawals[i, year] += cf_expense[year]
 
             if value <= 0:
                 value = 0.0
@@ -1028,9 +1070,9 @@ def run_fixed_baseline(
                 withdrawals[i, year + 1:] = 0.0
                 break
 
-            # Apply positive CFs (income) after depletion check
-            if cf_schedule is not None and cf_schedule[year] > 0:
-                value += cf_schedule[year]
+            # Apply income after depletion check
+            if cf_income is not None and cf_income[year] > 0:
+                value += cf_income[year]
             trajectories[i, year + 1] = value
 
     return trajectories, withdrawals
@@ -1109,6 +1151,9 @@ def run_historical_backtest(
         infl = inflation_series[:n_years] if inflation_series is not None else None
         if has_probabilistic_cf(cash_flows):
             cf_schedule = build_expected_cf_schedule(cash_flows, n_years, infl)
+            # For probabilistic CFs, split the expected schedule by sign
+            cf_expense = np.maximum(-cf_schedule, 0.0)
+            cf_income = np.maximum(cf_schedule, 0.0)
         else:
             if any(not cf.inflation_adjusted for cf in cash_flows):
                 if inflation_series is None:
@@ -1116,10 +1161,14 @@ def run_historical_backtest(
                         "历史回测中存在非通胀调整现金流，但未提供 inflation_series"
                     )
                 cf_schedule = build_cf_schedule(cash_flows, n_years, infl)
+                cf_expense, cf_income = build_cf_split_schedules(cash_flows, n_years, infl)
             else:
                 cf_schedule = build_cf_schedule(cash_flows, n_years)
+                cf_expense, cf_income = build_cf_split_schedules(cash_flows, n_years)
     else:
         cf_schedule = None
+        cf_expense = None
+        cf_income = None
 
     # Guardrail 策略
     has_3d = cf_table is not None and cf_rate_grid is not None and cf_scale_grid is not None and last_cf_year >= 0
@@ -1211,10 +1260,10 @@ def run_historical_backtest(
         g_withdrawals[year] = wd
         value = value * (1.0 + real_returns[year]) - wd
 
-        # Apply negative CFs (expenses) before depletion check
-        if cf_schedule is not None and cf_schedule[year] < 0:
-            value += cf_schedule[year]
-            g_withdrawals[year] -= cf_schedule[year]
+        # Apply expenses before depletion check
+        if cf_expense is not None and cf_expense[year] > 0:
+            value -= cf_expense[year]
+            g_withdrawals[year] += cf_expense[year]
 
         if value <= 0:
             value = 0.0
@@ -1222,9 +1271,9 @@ def run_historical_backtest(
             g_withdrawals[year + 1:] = 0.0
             break
 
-        # Apply positive CFs (income) after depletion check
-        if cf_schedule is not None and cf_schedule[year] > 0:
-            value += cf_schedule[year]
+        # Apply income after depletion check
+        if cf_income is not None and cf_income[year] > 0:
+            value += cf_income[year]
         g_portfolio[year + 1] = value
 
     # 基准固定策略
@@ -1239,17 +1288,17 @@ def run_historical_backtest(
         if value > 0:
             value = value * (1.0 + real_returns[year]) - baseline_wd
 
-            # Apply negative CFs (expenses) before depletion check
-            if cf_schedule is not None and cf_schedule[year] < 0:
-                value += cf_schedule[year]
-                b_withdrawals[year] -= cf_schedule[year]
+            # Apply expenses before depletion check
+            if cf_expense is not None and cf_expense[year] > 0:
+                value -= cf_expense[year]
+                b_withdrawals[year] += cf_expense[year]
 
             if value <= 0:
                 value = 0.0
 
-            # Apply positive CFs (income) after depletion check
-            if cf_schedule is not None and cf_schedule[year] > 0:
-                value += cf_schedule[year]
+            # Apply income after depletion check
+            if cf_income is not None and cf_income[year] > 0:
+                value += cf_income[year]
         b_portfolio[year + 1] = value
 
     return {
