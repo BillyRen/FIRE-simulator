@@ -27,6 +27,8 @@ export function usePersistedState<T>(
         } else {
           setValue(parsed);
         }
+      } else {
+        setValue(defaultRef.current);
       }
     } catch { /* ignore malformed / missing */ }
   }, [key]);
