@@ -7,15 +7,10 @@ import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { ParamsProvider } from "@/lib/params-context";
-
-const OG_LOCALE_MAP: Record<string, string> = {
-  en: "en_US",
-  zh: "zh_CN",
-};
+import { getOgLocale } from "@/lib/og-locale";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const locale = await getLocale();
-  const ogLocale = OG_LOCALE_MAP[locale] ?? "en_US";
+  const ogLocale = await getOgLocale();
 
   return {
     title: {
