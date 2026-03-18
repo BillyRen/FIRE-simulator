@@ -58,6 +58,23 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: "FIRE Lab",
+  url: "https://fire.rens.ai",
+  applicationCategory: "FinanceApplication",
+  operatingSystem: "Any",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  description:
+    "Free Monte Carlo retirement simulator with 150+ years of historical data from 16 countries. Analyze withdrawal strategies, asset allocation, and risk guardrails.",
+  creator: {
+    "@type": "Organization",
+    name: "Rens.AI",
+    url: "https://rens.ai",
+  },
+};
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -68,6 +85,12 @@ export default async function RootLayout({
 
   return (
     <html lang={locale}>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
       <body
         className="antialiased min-h-screen bg-background flex flex-col font-sans"
       >

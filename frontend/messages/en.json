@@ -699,6 +699,32 @@
     "portfolioMini": "Portfolio Trajectory (P10-P90)",
     "withdrawalMini": "Withdrawal Trajectory (P10-P90)"
   },
+  "seo": {
+    "simulator": {
+      "h1": "Monte Carlo Retirement Simulator",
+      "intro": "Run thousands of retirement scenarios using 150+ years of historical market data from 16 countries. Test fixed and dynamic withdrawal strategies, custom cash flows, and asset allocation — powered by Block Bootstrap sampling for realistic sequence-of-returns modeling."
+    },
+    "sensitivity": {
+      "h1": "Safe Withdrawal Rate Calculator",
+      "intro": "Find the withdrawal rate that matches your target success rate or funded ratio. Visualize how changing your annual withdrawal affects retirement outcomes across thousands of Monte Carlo simulations."
+    },
+    "guardrail": {
+      "h1": "Guardrail Withdrawal Strategy Simulator",
+      "intro": "Simulate dynamic spending rules that automatically adjust withdrawals based on portfolio performance. Compare guardrail strategies against fixed withdrawal baselines with Monte Carlo analysis and historical backtesting across 150+ years of data."
+    },
+    "allocation": {
+      "h1": "Retirement Asset Allocation Optimizer",
+      "intro": "Scan hundreds of domestic stock, international stock, and bond combinations to find the optimal asset allocation for your retirement portfolio. View results as heatmaps, ternary plots, and Pareto frontiers."
+    },
+    "buyVsRent": {
+      "h1": "Buy vs Rent Calculator",
+      "intro": "Compare the long-term financial outcomes of buying versus renting a home. Includes both deterministic analysis and Monte Carlo simulation with historical market data for home prices, rents, mortgage rates, and investment returns."
+    },
+    "accumulation": {
+      "h1": "FIRE Calculator — Financial Independence Planner",
+      "intro": "Calculate when you can achieve financial independence based on your income, expenses, and savings rate. Uses Monte Carlo simulation with dynamic safe withdrawal rates to find your FIRE age across thousands of market scenarios."
+    }
+  },
   "footer": {
     "brand": "FIRE Lab",
     "byLine": "by Rens.AI",
