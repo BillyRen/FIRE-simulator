@@ -751,9 +751,11 @@ def run_simple_historical_backtest(
         value = value_after_growth - actual_wd
         withdrawals_out.append(actual_wd)
 
-        # Apply negative CFs (expenses) before depletion check
+        # Treat negative custom cash flows as additional portfolio-funded spending,
+        # matching the MC engine and guardrail backtest series semantics.
         if cf_schedule is not None and cf_schedule[year] < 0:
             value += cf_schedule[year]
+            withdrawals_out[-1] -= cf_schedule[year]
 
         if value <= 0:
             value = 0.0
