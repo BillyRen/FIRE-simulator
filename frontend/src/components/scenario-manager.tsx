@@ -86,8 +86,10 @@ export function ScenarioManager({
     const a = document.createElement("a");
     a.href = url;
     a.download = `fire-scenario-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,8 +98,16 @@ export function ScenarioManager({
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const params = JSON.parse(reader.result as string) as FormParams;
-        onLoad(params);
+        const parsed = JSON.parse(reader.result as string);
+        if (
+          typeof parsed !== "object" ||
+          parsed === null ||
+          typeof parsed.initial_portfolio !== "number" ||
+          typeof parsed.retirement_years !== "number"
+        ) {
+          return;
+        }
+        onLoad(parsed as FormParams);
       } catch {
         /* ignore invalid JSON */
       }

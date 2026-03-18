@@ -412,10 +412,22 @@ export function CashFlowEditor({ value, onChange }: CashFlowEditorProps) {
     new Set()
   );
 
+  // Sync internal state when value prop changes externally (e.g. scenario load)
+  const internalChangeRef = useRef(false);
+  useEffect(() => {
+    if (internalChangeRef.current) {
+      internalChangeRef.current = false;
+      return;
+    }
+    setItems(value);
+    setTypes(value.map((item) => (item.amount < 0 ? "expense" : "income")));
+  }, [value]);
+
   const sync = (
     next: CashFlowItem[],
     nextTypes: ("income" | "expense")[]
   ) => {
+    internalChangeRef.current = true;
     setItems(next);
     setTypes(nextTypes);
     onChange(next);

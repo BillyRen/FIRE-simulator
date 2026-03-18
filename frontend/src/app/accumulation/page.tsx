@@ -63,10 +63,8 @@ export default function AccumulationPage() {
 
   useEffect(() => {
     const retYears = Math.max(5, lifeExpectancy - currentAge);
-    if (params.retirement_years !== retYears) {
-      setParams({ ...params, retirement_years: retYears });
-    }
-  }, [currentAge, lifeExpectancy]);
+    setParams(p => p.retirement_years !== retYears ? { ...p, retirement_years: retYears } : p);
+  }, [currentAge, lifeExpectancy, setParams]);
 
   const handleRun = async () => {
     setLoading(true);

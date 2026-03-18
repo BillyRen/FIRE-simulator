@@ -2,28 +2,38 @@
 
 import { useState, useEffect, useRef, useCallback, type Dispatch, type SetStateAction } from "react";
 
+function readFromStorage<T>(key: string, defaultValue: T): T {
+  if (typeof window === "undefined") return defaultValue;
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved !== null) {
+      const parsed = JSON.parse(saved);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+          && typeof defaultValue === "object" && defaultValue !== null) {
+        return { ...defaultValue, ...parsed } as T;
+      }
+      return parsed;
+    }
+  } catch { /* ignore malformed / missing */ }
+  return defaultValue;
+}
+
 export function usePersistedState<T>(
   key: string,
   defaultValue: T,
 ): [T, Dispatch<SetStateAction<T>>] {
-  const [value, setValue] = useState<T>(defaultValue);
   const defaultRef = useRef(defaultValue);
   useEffect(() => { defaultRef.current = defaultValue; }, [defaultValue]);
 
+  const [value, setValue] = useState<T>(() => readFromStorage(key, defaultValue));
+
+  // Re-sync if key changes (rare but possible)
+  const prevKeyRef = useRef(key);
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(key);
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        const def = defaultRef.current;
-        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-            && typeof def === "object" && def !== null) {
-          setValue({ ...def, ...parsed } as T);
-        } else {
-          setValue(parsed);
-        }
-      }
-    } catch { /* ignore malformed / missing */ }
+    if (prevKeyRef.current !== key) {
+      prevKeyRef.current = key;
+      setValue(readFromStorage(key, defaultRef.current));
+    }
   }, [key]);
 
   const setPersisted = useCallback<Dispatch<SetStateAction<T>>>(
