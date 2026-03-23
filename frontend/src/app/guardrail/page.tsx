@@ -662,12 +662,12 @@ export default function GuardrailPage() {
                   <FanChart
                     trajectories={mcResult.g_withdrawal_percentiles}
                     title={t("withdrawalTrajectory")}
-                    xLabels={Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                    xLabels={Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i)}
                     xTitle={tf("ageAxis")}
                     color={CHART_COLORS.secondary.rgb}
                     showLogToggle
                     extraTraces={(() => {
-                      const wdX = Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i);
+                      const wdX = Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i);
                       return [
                         {
                           x: wdX,
@@ -835,7 +835,7 @@ export default function GuardrailPage() {
                             <FanChart
                               trajectories={batchResult.g_withdrawal_percentiles}
                               title={t("withdrawalTrajectory")}
-                              xLabels={Array.from({ length: batchResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                              xLabels={Array.from({ length: batchResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i)}
                               xTitle={tf("ageAxis")}
                               color={CHART_COLORS.secondary.rgb}
                               showLogToggle

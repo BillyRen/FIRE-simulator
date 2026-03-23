@@ -420,7 +420,7 @@ export function SimulatorClient() {
                       <FanChart
                         trajectories={result.withdrawal_percentile_trajectories}
                         title={t("withdrawalTrajectory")}
-                        xLabels={Array.from({ length: result.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                        xLabels={Array.from({ length: result.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i)}
                         xTitle={tf("ageAxis")}
                         color={CHART_COLORS.orange.rgb}
                         showLogToggle
@@ -564,7 +564,7 @@ export function SimulatorClient() {
                           <FanChart
                             trajectories={batchResult.withdrawal_percentile_trajectories}
                             title={t("withdrawalTrajectory")}
-                            xLabels={Array.from({ length: batchResult.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                            xLabels={Array.from({ length: batchResult.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i)}
                             xTitle={tf("ageAxis")}
                             color={CHART_COLORS.orange.rgb}
                             showLogToggle
