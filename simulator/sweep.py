@@ -23,7 +23,7 @@ from .bootstrap import (
     block_bootstrap_pooled_np,
     _prepare_pooled_arrays,
 )
-from .cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, has_probabilistic_cf, sample_cash_flows
+from .cashflow import CashFlowItem, build_cf_schedule, has_probabilistic_cf, sample_cash_flows
 from .config import is_low_memory
 from .monte_carlo import compute_withdrawal
 from .portfolio import compute_real_portfolio_returns_np
@@ -189,6 +189,170 @@ def pregenerate_return_scenarios(
     return scenarios, inflation_matrix
 
 
+def _classify_cash_flows(
+    cash_flows: list[CashFlowItem] | None,
+    retirement_years: int,
+) -> tuple[bool, bool, bool, np.ndarray | None, list[CashFlowItem]]:
+    """Classify CFs and precompute path-independent schedule.
+
+    Returns (has_cf, has_groups, has_nominal, fixed_schedule, nominal_cfs).
+    """
+    has_cf = cash_flows is not None and len(cash_flows) > 0
+    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+    if has_cf and not has_groups:
+        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
+        adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
+        fixed_schedule = build_cf_schedule(adj_only, retirement_years)
+        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
+    else:
+        has_nominal = False
+        fixed_schedule = None
+        nominal_cfs = []
+    return has_cf, has_groups, has_nominal, fixed_schedule, nominal_cfs
+
+
+def _batch_nominal_cf_matrix(
+    nominal_cfs: list[CashFlowItem],
+    retirement_years: int,
+    inflation_matrix: np.ndarray,
+) -> np.ndarray:
+    """Batch-compute nominal CF schedules for all sims at once.
+
+    Returns (num_sims, retirement_years) matrix of nominal CF contributions
+    in real (inflation-adjusted) terms.
+    """
+    num_sims = inflation_matrix.shape[0]
+    cum_infl = np.cumprod(1.0 + inflation_matrix, axis=1)  # (N, Y)
+    result = np.zeros((num_sims, retirement_years))
+    for cf in nominal_cfs:
+        start_idx = cf.start_year - 1
+        end_idx = min(start_idx + cf.duration, retirement_years)
+        if start_idx < 0 or start_idx >= retirement_years:
+            continue
+        t_range = np.arange(end_idx - start_idx)
+        nominal_vals = cf.amount * (1.0 + cf.growth_rate) ** t_range  # (D,)
+        result[:, start_idx:end_idx] += nominal_vals[np.newaxis, :] / cum_infl[:, start_idx:end_idx]
+    return result
+
+
+def _precompute_withdrawal_schedule(
+    strategy: str,
+    retirement_years: int,
+    annual_withdrawal: float,
+    retirement_age: int = 45,
+    declining_rate: float = 0.02,
+    declining_start_age: int = 65,
+    smile_decline_rate: float = 0.01,
+    smile_decline_start_age: int = 65,
+    smile_min_age: int = 80,
+    smile_increase_rate: float = 0.01,
+) -> np.ndarray:
+    """Precompute deterministic withdrawal schedule for fixed/declining/smile.
+
+    These strategies depend only on year number, not portfolio value,
+    so the schedule can be precomputed and used in vectorized simulation.
+    """
+    if strategy == "fixed":
+        return np.full(retirement_years, annual_withdrawal)
+
+    schedule = np.empty(retirement_years)
+    if strategy == "declining":
+        prev = annual_withdrawal
+        for year in range(retirement_years):
+            age = retirement_age + year
+            if year > 0 and age >= declining_start_age:
+                prev = prev * (1.0 - declining_rate)
+            else:
+                prev = annual_withdrawal
+            schedule[year] = prev
+    elif strategy == "smile":
+        for year in range(retirement_years):
+            age = retirement_age + year
+            if age < smile_decline_start_age:
+                schedule[year] = annual_withdrawal
+            elif age < smile_min_age:
+                schedule[year] = annual_withdrawal * (1.0 - smile_decline_rate) ** (age - smile_decline_start_age)
+            else:
+                min_spending = annual_withdrawal * (1.0 - smile_decline_rate) ** (smile_min_age - smile_decline_start_age)
+                schedule[year] = min_spending * (1.0 + smile_increase_rate) ** (age - smile_min_age)
+    else:
+        raise ValueError(f"Cannot precompute schedule for strategy: {strategy}")
+    return schedule
+
+
+def _simulate_vectorized(
+    real_returns_matrix: np.ndarray,
+    initial_portfolio: float,
+    wd_schedule: np.ndarray,
+    cf_schedule: np.ndarray | None = None,
+    cf_matrix: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Vectorized simulation loop with optional CF support.
+
+    Parameters
+    ----------
+    wd_schedule : np.ndarray
+        (retirement_years,) withdrawal amount per year.
+    cf_schedule : np.ndarray or None
+        (retirement_years,) path-independent CF schedule (same for all sims).
+    cf_matrix : np.ndarray or None
+        (num_sims, retirement_years) per-sim CF schedule (e.g. nominal CFs).
+        If provided, takes precedence over cf_schedule.
+
+    Returns
+    -------
+    (depletion_years, final_values)
+    """
+    num_sims, retirement_years = real_returns_matrix.shape
+    values = np.full(num_sims, initial_portfolio, dtype=np.float64)
+    depletion_years = np.full(num_sims, float(retirement_years))
+    alive = np.ones(num_sims, dtype=bool)
+
+    has_per_sim_cf = cf_matrix is not None
+    has_uniform_cf = cf_schedule is not None and not has_per_sim_cf
+
+    for year in range(retirement_years):
+        grown = values[alive] * (1.0 + real_returns_matrix[alive, year])
+        actual_wd = np.minimum(wd_schedule[year], np.maximum(grown, 0.0))
+        values[alive] = grown - actual_wd
+
+        # Apply CF: expenses before depletion check, income after
+        if has_uniform_cf:
+            cf_val = cf_schedule[year]
+            if cf_val < 0:
+                values[alive] += cf_val
+        elif has_per_sim_cf:
+            alive_idx = np.flatnonzero(alive)
+            cf_vals = cf_matrix[alive_idx, year]
+            expense_mask = cf_vals < 0
+            if np.any(expense_mask):
+                idx = alive_idx[expense_mask]
+                values[idx] += cf_vals[expense_mask]
+
+        newly_failed = alive & (values <= 0)
+        if np.any(newly_failed):
+            depletion_years[newly_failed] = float(year + 1)
+            values[newly_failed] = 0.0
+            alive[newly_failed] = False
+
+        if has_uniform_cf:
+            if cf_val > 0:
+                values[alive] += cf_val
+        elif has_per_sim_cf:
+            # Re-check alive status after depletion
+            income_mask = cf_vals > 0
+            still_alive = alive[alive_idx]
+            apply_income = income_mask & still_alive
+            if np.any(apply_income):
+                idx = alive_idx[apply_income]
+                values[idx] += cf_vals[apply_income]
+
+        if not np.any(alive):
+            break
+
+    return depletion_years, values
+
+
 def _simulate_success_and_funded(
     real_returns_matrix: np.ndarray,
     initial_portfolio: float,
@@ -236,45 +400,39 @@ def _simulate_success_and_funded(
     num_sims, retirement_years = real_returns_matrix.shape
     initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
 
-    has_cf = cash_flows is not None and len(cash_flows) > 0
-    has_groups = has_cf and has_probabilistic_cf(cash_flows)
+    has_cf, has_groups, has_nominal, fixed_schedule, nominal_cfs = _classify_cash_flows(
+        cash_flows, retirement_years,
+    )
 
-    # ── Fast vectorized path: fixed strategy, no cash flows ──
-    if withdrawal_strategy == "fixed" and not has_cf:
-        values = np.full(num_sims, initial_portfolio, dtype=np.float64)
-        depletion_years = np.full(num_sims, float(retirement_years))
-        alive = np.ones(num_sims, dtype=bool)
+    # Precompute nominal CF matrix if needed (batch across all sims)
+    nominal_cf_matrix = None
+    if has_nominal and not has_groups and inflation_matrix is not None:
+        nominal_cf_matrix = _batch_nominal_cf_matrix(nominal_cfs, retirement_years, inflation_matrix)
 
-        for year in range(retirement_years):
-            grown = values[alive] * (1.0 + real_returns_matrix[alive, year])
-            actual_wd = np.minimum(annual_withdrawal, np.maximum(grown, 0.0))
-            values[alive] = grown - actual_wd
-
-            newly_failed = alive & (values <= 0)
-            if np.any(newly_failed):
-                depletion_years[newly_failed] = float(year + 1)
-                values[newly_failed] = 0.0
-                alive[newly_failed] = False
-
-            if not np.any(alive):
-                break
-
+    # ── Vectorized fast path: fixed/declining/smile, no probabilistic groups ──
+    can_vectorize = withdrawal_strategy in ("fixed", "declining", "smile") and not has_groups
+    if can_vectorize:
+        wd_sched = _precompute_withdrawal_schedule(
+            withdrawal_strategy, retirement_years, annual_withdrawal,
+            retirement_age, declining_rate, declining_start_age,
+            smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+        )
+        if nominal_cf_matrix is not None:
+            cf_mat = fixed_schedule[np.newaxis, :] + nominal_cf_matrix
+            depletion_years, _ = _simulate_vectorized(
+                real_returns_matrix, initial_portfolio, wd_sched,
+                cf_matrix=cf_mat,
+            )
+        else:
+            depletion_years, _ = _simulate_vectorized(
+                real_returns_matrix, initial_portfolio, wd_sched,
+                cf_schedule=fixed_schedule,  # None when no CF, (Y,) when adj-only CF
+            )
         success_rate = float(np.mean(depletion_years >= retirement_years))
         funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
         return success_rate, funded_ratio
 
-    # ── General path: dynamic/declining/smile strategies or cash flows ──
-    # 预计算通胀调整部分的固定 schedule（仅当无概率分组时可复用）
-    if has_cf and not has_groups:
-        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
-        adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
-        fixed_schedule = build_cf_schedule(adj_only, retirement_years)
-        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
-    else:
-        fixed_schedule = None
-        nominal_cfs = []
-        has_nominal = False
-
+    # ── General scalar path: dynamic strategy or probabilistic groups ──
     rng = np.random.default_rng() if has_groups else None
 
     depletion_years = np.full(num_sims, float(retirement_years))
@@ -295,28 +453,20 @@ def _simulate_success_and_funded(
                     cf_schedule = _adj_sched + _nom_sched
                 else:
                     cf_schedule = _adj_sched
-                cf_expense, cf_income = build_cf_split_schedules(
-                    active_cfs, retirement_years,
-                    inflation_matrix[i] if inflation_matrix is not None else None,
-                )
             else:
                 cf_schedule = None
-                cf_expense = cf_income = None
         elif has_cf:
-            if has_nominal and inflation_matrix is not None:
-                nominal_schedule = build_cf_schedule(
-                    nominal_cfs, retirement_years, inflation_matrix[i]
-                )
-                cf_schedule = fixed_schedule + nominal_schedule
+            # Use precomputed nominal matrix when available
+            if nominal_cf_matrix is not None:
+                cf_schedule = fixed_schedule + nominal_cf_matrix[i]
+            elif has_nominal:
+                # Nominal CFs without inflation_matrix are silently ignored
+                # (API layer always provides inflation_matrix for nominal CFs)
+                cf_schedule = fixed_schedule
             else:
                 cf_schedule = fixed_schedule
-            cf_expense, cf_income = build_cf_split_schedules(
-                cash_flows, retirement_years,
-                inflation_matrix[i] if (has_nominal and inflation_matrix is not None) else None,
-            )
         else:
             cf_schedule = None
-            cf_expense = cf_income = None
 
         for year in range(retirement_years):
             wd = compute_withdrawal(
@@ -391,20 +541,10 @@ def _sweep_single_allocation(args, _shared=None):
 
     num_sims, retirement_years = us_stock.shape
 
-    # 预计算现金流 schedule
-    has_cf = cash_flows is not None and len(cash_flows) > 0
-    has_groups = has_cf and has_probabilistic_cf(cash_flows)
-    if has_cf and not has_groups:
-        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
-        adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
-        fixed_schedule = build_cf_schedule(adj_only, retirement_years)
-        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
-    else:
-        fixed_schedule = None
-        nominal_cfs = []
-        has_nominal = False
+    has_cf, has_groups, has_nominal, fixed_schedule, nominal_cfs = _classify_cash_flows(
+        cash_flows, retirement_years,
+    )
 
-    rng = np.random.default_rng() if has_groups else None
     initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
 
     # 1. 加权计算名义回报
@@ -418,33 +558,37 @@ def _sweep_single_allocation(args, _shared=None):
     # 3. 转换为实际回报
     real_returns = (1.0 + nominal) / (1.0 + inflation) - 1.0
 
+    # Precompute nominal CF matrix if needed
+    nominal_cf_matrix = None
+    if has_nominal and not has_groups and inflation is not None:
+        nominal_cf_matrix = _batch_nominal_cf_matrix(nominal_cfs, retirement_years, inflation)
+
     # 4. 逐年模拟
-    final_values = np.zeros(num_sims)
-    depletion_years = np.full(num_sims, retirement_years, dtype=float)
-
-    # ── Fast vectorized path: fixed strategy, no cash flows ──
-    if withdrawal_strategy == "fixed" and not has_cf:
-        values = np.full(num_sims, initial_portfolio, dtype=np.float64)
-        alive = np.ones(num_sims, dtype=bool)
-
-        for year in range(retirement_years):
-            grown = values[alive] * (1.0 + real_returns[alive, year])
-            actual_wd = np.minimum(annual_withdrawal, np.maximum(grown, 0.0))
-            values[alive] = grown - actual_wd
-
-            newly_failed = alive & (values <= 0)
-            if np.any(newly_failed):
-                depletion_years[newly_failed] = year + 1
-                values[newly_failed] = 0.0
-                alive[newly_failed] = False
-
-            if not np.any(alive):
-                break
-
-        final_values[:] = values
-
+    # ── Vectorized fast path: fixed/declining/smile, no probabilistic groups ──
+    can_vectorize = withdrawal_strategy in ("fixed", "declining", "smile") and not has_groups
+    if can_vectorize:
+        wd_sched = _precompute_withdrawal_schedule(
+            withdrawal_strategy, retirement_years, annual_withdrawal,
+            retirement_age, declining_rate, declining_start_age,
+            smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+        )
+        if nominal_cf_matrix is not None:
+            cf_mat = fixed_schedule[np.newaxis, :] + nominal_cf_matrix
+            depletion_years, final_values = _simulate_vectorized(
+                real_returns, initial_portfolio, wd_sched,
+                cf_matrix=cf_mat,
+            )
+        else:
+            depletion_years, final_values = _simulate_vectorized(
+                real_returns, initial_portfolio, wd_sched,
+                cf_schedule=fixed_schedule,
+            )
     else:
-        # ── General path ──
+        # ── General scalar path ──
+        rng = np.random.default_rng() if has_groups else None
+        final_values = np.zeros(num_sims)
+        depletion_years = np.full(num_sims, retirement_years, dtype=float)
+
         for i in range(num_sims):
             value = initial_portfolio
             prev_wd = annual_withdrawal
@@ -462,28 +606,18 @@ def _sweep_single_allocation(args, _shared=None):
                         cf_schedule = _adj_sched + _nom_sched
                     else:
                         cf_schedule = _adj_sched
-                    cf_expense, cf_income = build_cf_split_schedules(
-                        active_cfs, retirement_years,
-                        inflation[i] if inflation is not None else None,
-                    )
                 else:
                     cf_schedule = None
-                    cf_expense = cf_income = None
             elif has_cf:
-                if has_nominal and inflation is not None:
-                    nominal_schedule = build_cf_schedule(
-                        nominal_cfs, retirement_years, inflation[i]
-                    )
-                    cf_schedule = fixed_schedule + nominal_schedule
+                if nominal_cf_matrix is not None:
+                    cf_schedule = fixed_schedule + nominal_cf_matrix[i]
+                elif has_nominal:
+                    # Nominal CFs without inflation are silently ignored
+                    cf_schedule = fixed_schedule
                 else:
                     cf_schedule = fixed_schedule
-                cf_expense, cf_income = build_cf_split_schedules(
-                    cash_flows, retirement_years,
-                    inflation[i] if (has_nominal and inflation is not None) else None,
-                )
             else:
                 cf_schedule = None
-                cf_expense = cf_income = None
 
             for year in range(retirement_years):
                 wd = compute_withdrawal(

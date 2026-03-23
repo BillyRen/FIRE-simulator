@@ -412,14 +412,14 @@ def build_cf_schedule(
             if cf.growth_rate == 0.0:
                 schedule[start_idx:end_idx] += cf.amount
             else:
-                for t in range(start_idx, end_idx):
-                    schedule[t] += cf.amount * (1.0 + cf.growth_rate) ** (t - start_idx)
+                t_range = np.arange(end_idx - start_idx)
+                schedule[start_idx:end_idx] += cf.amount * (1.0 + cf.growth_rate) ** t_range
         else:
             if cumulative_inflation is None:
                 raise ValueError("inflation_series is required for nominal (non-inflation-adjusted) cash flows")
-            for t in range(start_idx, end_idx):
-                nominal = cf.amount * (1.0 + cf.growth_rate) ** (t - start_idx)
-                schedule[t] += nominal / cumulative_inflation[t]
+            t_range = np.arange(end_idx - start_idx)
+            nominal_vals = cf.amount * (1.0 + cf.growth_rate) ** t_range
+            schedule[start_idx:end_idx] += nominal_vals / cumulative_inflation[start_idx:end_idx]
 
     return schedule
 

@@ -3,7 +3,8 @@
 import numpy as np
 import pytest
 
-from simulator.sweep import _simulate_success_and_funded
+from simulator.cashflow import CashFlowItem
+from simulator.sweep import _simulate_success_and_funded, _sweep_single_allocation
 from simulator.monte_carlo import compute_withdrawal
 from simulator.guardrail import (
     find_rate_for_target,
@@ -203,3 +204,366 @@ class TestFixedBaselineEquivalence:
 
         np.testing.assert_allclose(traj_vec, traj_scalar, rtol=1e-12)
         np.testing.assert_allclose(wd_vec, wd_scalar, rtol=1e-12)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 4. Vectorized CF fast path equivalence
+# ─────────────────────────────────────────────────────────────────────
+
+def _simulate_scalar_with_cf(
+    real_returns_matrix, initial_portfolio, annual_withdrawal,
+    cash_flows, inflation_matrix=None,
+    withdrawal_strategy="fixed", retirement_age=45,
+    dynamic_ceiling=0.05, dynamic_floor=0.025,
+    declining_rate=0.02, declining_start_age=65,
+    smile_decline_rate=0.01, smile_decline_start_age=65,
+    smile_min_age=80, smile_increase_rate=0.01,
+):
+    """Pure scalar double-loop reference (ground truth for CF scenarios)."""
+    from simulator.cashflow import build_cf_schedule, has_probabilistic_cf
+
+    num_sims, retirement_years = real_returns_matrix.shape
+    initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0
+
+    has_cf = cash_flows is not None and len(cash_flows) > 0
+
+    if has_cf:
+        has_nominal = any(not cf.inflation_adjusted for cf in cash_flows)
+        adj_only = [cf for cf in cash_flows if cf.inflation_adjusted]
+        fixed_schedule = build_cf_schedule(adj_only, retirement_years)
+        nominal_cfs = [cf for cf in cash_flows if not cf.inflation_adjusted]
+    else:
+        fixed_schedule = None
+        nominal_cfs = []
+        has_nominal = False
+
+    depletion_years = np.full(num_sims, float(retirement_years))
+    final_values = np.zeros(num_sims)
+
+    for i in range(num_sims):
+        value = initial_portfolio
+        prev_wd = annual_withdrawal
+
+        if has_cf:
+            if has_nominal and inflation_matrix is not None:
+                nominal_schedule = build_cf_schedule(
+                    nominal_cfs, retirement_years, inflation_matrix[i]
+                )
+                cf_schedule = fixed_schedule + nominal_schedule
+            else:
+                cf_schedule = fixed_schedule
+        else:
+            cf_schedule = None
+
+        for year in range(retirement_years):
+            wd = compute_withdrawal(
+                withdrawal_strategy, year, value, annual_withdrawal, prev_wd,
+                initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
+                declining_rate, declining_start_age,
+                smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+            )
+            prev_wd = wd
+            value_after_growth = value * (1.0 + real_returns_matrix[i, year])
+            actual_wd = min(wd, max(value_after_growth, 0.0))
+            value = value_after_growth - actual_wd
+
+            if cf_schedule is not None and cf_schedule[year] < 0:
+                value += cf_schedule[year]
+
+            if value <= 0:
+                depletion_years[i] = float(year + 1)
+                value = 0.0
+                break
+
+            if cf_schedule is not None and cf_schedule[year] > 0:
+                value += cf_schedule[year]
+
+        final_values[i] = value
+
+    success_rate = float(np.mean(depletion_years >= retirement_years))
+    funded_ratio = float(np.mean(np.minimum(depletion_years / retirement_years, 1.0)))
+    return success_rate, funded_ratio, depletion_years, final_values
+
+
+@pytest.fixture
+def inflation_scenarios():
+    """Reproducible inflation matrix."""
+    rng = np.random.default_rng(99)
+    return rng.normal(0.03, 0.02, (200, 30))
+
+
+class TestVectorizedCFEquivalence:
+    """Vectorized CF fast path vs scalar reference."""
+
+    def test_fixed_adj_cf_no_growth(self, scenarios):
+        """Fixed strategy + inflation-adjusted CFs (no growth)."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [
+            CashFlowItem("pension", 20_000, start_year=5, duration=20),
+            CashFlowItem("mortgage", -12_000, start_year=1, duration=30),
+        ]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+            cash_flows=cfs,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, cfs,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_fixed_adj_cf_with_growth(self, scenarios):
+        """Fixed strategy + inflation-adjusted CFs with growth_rate."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [
+            CashFlowItem("pension", 15_000, start_year=5, duration=25, growth_rate=0.02),
+            CashFlowItem("medical", -5_000, start_year=1, duration=30, growth_rate=0.03),
+        ]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+            cash_flows=cfs,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, cfs,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_fixed_nominal_cf(self, scenarios, inflation_scenarios):
+        """Fixed strategy + nominal (non-inflation-adjusted) CFs."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [
+            CashFlowItem("rent_income", 10_000, start_year=1, duration=20,
+                         inflation_adjusted=False, growth_rate=0.03),
+        ]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+            cash_flows=cfs, inflation_matrix=inflation_scenarios,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, cfs,
+            inflation_matrix=inflation_scenarios,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_fixed_mixed_cf(self, scenarios, inflation_scenarios):
+        """Fixed strategy + mixed adj/nominal CFs."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [
+            CashFlowItem("pension", 20_000, start_year=5, duration=20),
+            CashFlowItem("annuity", 8_000, start_year=1, duration=30,
+                         inflation_adjusted=False),
+            CashFlowItem("mortgage", -15_000, start_year=1, duration=15),
+        ]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+            cash_flows=cfs, inflation_matrix=inflation_scenarios,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, cfs,
+            inflation_matrix=inflation_scenarios,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_declining_no_cf(self, scenarios):
+        """Declining strategy, no CFs — now vectorized."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal,
+            "declining", 0.05, 0.025,
+            retirement_age=45, declining_rate=0.02, declining_start_age=65,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, None,
+            withdrawal_strategy="declining",
+            retirement_age=45, declining_rate=0.02, declining_start_age=65,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_declining_with_adj_cf(self, scenarios):
+        """Declining strategy + inflation-adjusted CFs."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [CashFlowItem("pension", 15_000, start_year=10, duration=20)]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal,
+            "declining", 0.05, 0.025,
+            cash_flows=cfs,
+            retirement_age=45, declining_rate=0.02, declining_start_age=65,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, cfs,
+            withdrawal_strategy="declining",
+            retirement_age=45, declining_rate=0.02, declining_start_age=65,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_smile_no_cf(self, scenarios):
+        """Smile strategy, no CFs — now vectorized."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal,
+            "smile", 0.05, 0.025,
+            retirement_age=45,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, None,
+            withdrawal_strategy="smile",
+            retirement_age=45,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_smile_with_adj_cf(self, scenarios):
+        """Smile strategy + inflation-adjusted CFs."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [CashFlowItem("pension", 18_000, start_year=8, duration=22)]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal,
+            "smile", 0.05, 0.025,
+            cash_flows=cfs,
+            retirement_age=45,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, cfs,
+            withdrawal_strategy="smile",
+            retirement_age=45,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+
+class TestAllocationSweepCFEquivalence:
+    """_sweep_single_allocation vectorized path vs scalar for CFs."""
+
+    def _run_allocation(self, scenarios, inflation, cfs=None,
+                        withdrawal_strategy="fixed", **kwargs):
+        """Run allocation sweep with given params."""
+        import functools
+        shared = {
+            "us_stock": scenarios,
+            "intl_stock": np.zeros_like(scenarios),
+            "us_bond": np.zeros_like(scenarios),
+            "inflation": inflation,
+        }
+        worker = functools.partial(_sweep_single_allocation, _shared=shared)
+        return worker((
+            1.0, 0.0, 0.0,  # 100% domestic stock
+            1_000_000, 40_000, 1.0, 0.0,
+            withdrawal_strategy, 0.05, 0.025, 45,
+            cfs,
+            kwargs.get("declining_rate", 0.02),
+            kwargs.get("declining_start_age", 65),
+            kwargs.get("smile_decline_rate", 0.01),
+            kwargs.get("smile_decline_start_age", 65),
+            kwargs.get("smile_min_age", 80),
+            kwargs.get("smile_increase_rate", 0.01),
+        ))
+
+    def test_adj_cf_final_stats(self, scenarios, inflation_scenarios):
+        """Allocation sweep with adj CFs: verify all final value stats."""
+        cfs = [
+            CashFlowItem("pension", 20_000, start_year=5, duration=20),
+            CashFlowItem("mortgage", -12_000, start_year=1, duration=15),
+        ]
+        result = self._run_allocation(scenarios, inflation_scenarios, cfs=cfs)
+
+        # Compute real returns matching what _sweep_single_allocation does
+        # (100% domestic stock, no leverage)
+        real_returns = (1.0 + scenarios) / (1.0 + inflation_scenarios) - 1.0
+
+        sr_sc, fr_sc, dep_sc, fv_sc = _simulate_scalar_with_cf(
+            real_returns, 1_000_000, 40_000, cfs,
+        )
+        assert result["success_rate"] == sr_sc
+        assert result["funded_ratio"] == fr_sc
+        assert result["median_final"] == float(np.median(fv_sc))
+        assert result["mean_final"] == float(np.mean(fv_sc))
+
+        sorted_fv = np.sort(fv_sc)
+        n10 = max(1, int(0.1 * len(fv_sc)))
+        assert result["cvar_10"] == float(np.mean(sorted_fv[:n10]))
+        assert result["p90_final"] == float(np.percentile(fv_sc, 90))
+
+
+class TestNominalCFEdgeCases:
+    """Edge case and semantic lock-in tests."""
+
+    def test_nominal_cf_no_inflation_ignored(self, scenarios):
+        """Nominal CFs with inflation_matrix=None should be silently ignored."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [
+            CashFlowItem("annuity", 10_000, start_year=1, duration=20,
+                         inflation_adjusted=False),
+        ]
+        # Should not raise — nominal CF is silently ignored
+        sr, fr = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+            cash_flows=cfs, inflation_matrix=None,
+        )
+        # Result should equal no-CF scenario (since nominal is ignored)
+        sr_no_cf, fr_no_cf = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+        )
+        assert sr == sr_no_cf
+        assert fr == fr_no_cf
+
+    def test_cf_after_retirement_years(self, scenarios):
+        """CF starting after retirement_years should be ignored."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [CashFlowItem("late", 50_000, start_year=999, duration=5)]
+        sr, fr = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+            cash_flows=cfs,
+        )
+        sr_no_cf, fr_no_cf = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+        )
+        assert sr == sr_no_cf
+        assert fr == fr_no_cf
+
+    def test_mixed_expense_income_same_year(self, scenarios):
+        """Mixed expense + income CFs in same year."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [
+            CashFlowItem("pension", 30_000, start_year=1, duration=30),
+            CashFlowItem("mortgage", -25_000, start_year=1, duration=30),
+        ]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+            cash_flows=cfs,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            scenarios, portfolio, withdrawal, cfs,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
+
+    def test_single_sim(self):
+        """Single simulation path."""
+        rng = np.random.default_rng(42)
+        returns = rng.normal(0.05, 0.15, (1, 30))
+        cfs = [CashFlowItem("pension", 10_000, start_year=5, duration=20)]
+        sr_vec, fr_vec = _simulate_success_and_funded(
+            returns, 500_000, 20_000, "fixed", 0.05, 0.025,
+            cash_flows=cfs,
+        )
+        sr_sc, fr_sc, _, _ = _simulate_scalar_with_cf(
+            returns, 500_000, 20_000, cfs,
+        )
+        assert sr_vec == sr_sc
+        assert fr_vec == fr_sc
