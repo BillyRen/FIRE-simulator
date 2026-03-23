@@ -404,7 +404,10 @@ def _simulate_success_and_funded(
         cash_flows, retirement_years,
     )
 
-    if has_nominal and inflation_matrix is None:
+    # Check ALL CFs for nominal items (has_nominal only covers non-grouped CFs)
+    if has_cf and inflation_matrix is None and any(
+        not cf.inflation_adjusted for cf in cash_flows
+    ):
         raise ValueError(
             "inflation_matrix is required when nominal (non-inflation-adjusted) "
             "cash flows are present"
@@ -559,7 +562,9 @@ def _sweep_single_allocation(args, _shared=None):
     # 3. 转换为实际回报
     real_returns = (1.0 + nominal) / (1.0 + inflation) - 1.0
 
-    if has_nominal and inflation is None:
+    if has_cf and inflation is None and any(
+        not cf.inflation_adjusted for cf in cash_flows
+    ):
         raise ValueError(
             "inflation is required when nominal (non-inflation-adjusted) "
             "cash flows are present"

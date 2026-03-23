@@ -514,6 +514,22 @@ class TestNominalCFEdgeCases:
                 cash_flows=cfs, inflation_matrix=None,
             )
 
+    def test_grouped_nominal_cf_no_inflation_raises(self, scenarios):
+        """Grouped nominal CFs with inflation_matrix=None must also raise."""
+        portfolio = 1_000_000
+        withdrawal = 40_000
+        cfs = [
+            CashFlowItem("job_a", 15_000, start_year=1, duration=20,
+                         inflation_adjusted=False, group="career", probability=0.6),
+            CashFlowItem("job_b", 10_000, start_year=1, duration=20,
+                         inflation_adjusted=False, group="career", probability=0.4),
+        ]
+        with pytest.raises(ValueError, match="inflation_matrix is required"):
+            _simulate_success_and_funded(
+                scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+                cash_flows=cfs, inflation_matrix=None,
+            )
+
     def test_cf_after_retirement_years(self, scenarios):
         """CF starting after retirement_years should be ignored."""
         portfolio = 1_000_000
