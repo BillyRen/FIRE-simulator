@@ -355,7 +355,19 @@ function CashFlowCard({
             </div>
           )}
           <div>
-            <Label className="text-xs">{t("cfStartYear")}</Label>
+            <Label className="text-xs">
+              {t("cfStartYear")}{" "}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="inline h-3 w-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <p>{t("cfStartYearHint")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </Label>
             <CfNumberInput
               value={item.start_year}
               onChange={(v) => onUpdate({ start_year: Math.round(v) })}
