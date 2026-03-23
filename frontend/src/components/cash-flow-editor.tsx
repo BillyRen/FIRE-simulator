@@ -324,7 +324,7 @@ function CashFlowCard({
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button type="button" className="inline-flex items-center align-middle" aria-label={item.inflation_adjusted ? t("amountHintReal") : t("amountHintNominal")}>
+                    <button type="button" className="inline-flex items-center align-middle p-0 border-0 bg-transparent appearance-none" aria-label={item.inflation_adjusted ? t("amountHintReal") : t("amountHintNominal")}>
                       <Info className="h-3 w-3 text-muted-foreground cursor-help" />
                     </button>
                   </TooltipTrigger>
@@ -362,7 +362,7 @@ function CashFlowCard({
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button type="button" className="inline-flex items-center align-middle" aria-label={t("cfStartYearHint")}>
+                    <button type="button" className="inline-flex items-center align-middle p-0 border-0 bg-transparent appearance-none" aria-label={t("cfStartYearHint")}>
                       <Info className="h-3 w-3 text-muted-foreground cursor-help" />
                     </button>
                   </TooltipTrigger>
