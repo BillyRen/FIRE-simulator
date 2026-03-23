@@ -404,9 +404,15 @@ def _simulate_success_and_funded(
         cash_flows, retirement_years,
     )
 
+    if has_nominal and inflation_matrix is None:
+        raise ValueError(
+            "inflation_matrix is required when nominal (non-inflation-adjusted) "
+            "cash flows are present"
+        )
+
     # Precompute nominal CF matrix if needed (batch across all sims)
     nominal_cf_matrix = None
-    if has_nominal and not has_groups and inflation_matrix is not None:
+    if has_nominal and not has_groups:
         nominal_cf_matrix = _batch_nominal_cf_matrix(nominal_cfs, retirement_years, inflation_matrix)
 
     # ── Vectorized fast path: fixed/declining/smile, no probabilistic groups ──
@@ -456,13 +462,8 @@ def _simulate_success_and_funded(
             else:
                 cf_schedule = None
         elif has_cf:
-            # Use precomputed nominal matrix when available
             if nominal_cf_matrix is not None:
                 cf_schedule = fixed_schedule + nominal_cf_matrix[i]
-            elif has_nominal:
-                # Nominal CFs without inflation_matrix are silently ignored
-                # (API layer always provides inflation_matrix for nominal CFs)
-                cf_schedule = fixed_schedule
             else:
                 cf_schedule = fixed_schedule
         else:
@@ -558,9 +559,15 @@ def _sweep_single_allocation(args, _shared=None):
     # 3. 转换为实际回报
     real_returns = (1.0 + nominal) / (1.0 + inflation) - 1.0
 
+    if has_nominal and inflation is None:
+        raise ValueError(
+            "inflation is required when nominal (non-inflation-adjusted) "
+            "cash flows are present"
+        )
+
     # Precompute nominal CF matrix if needed
     nominal_cf_matrix = None
-    if has_nominal and not has_groups and inflation is not None:
+    if has_nominal and not has_groups:
         nominal_cf_matrix = _batch_nominal_cf_matrix(nominal_cfs, retirement_years, inflation)
 
     # 4. 逐年模拟
@@ -611,9 +618,6 @@ def _sweep_single_allocation(args, _shared=None):
             elif has_cf:
                 if nominal_cf_matrix is not None:
                     cf_schedule = fixed_schedule + nominal_cf_matrix[i]
-                elif has_nominal:
-                    # Nominal CFs without inflation are silently ignored
-                    cf_schedule = fixed_schedule
                 else:
                     cf_schedule = fixed_schedule
             else:

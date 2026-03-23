@@ -500,25 +500,19 @@ class TestAllocationSweepCFEquivalence:
 class TestNominalCFEdgeCases:
     """Edge case and semantic lock-in tests."""
 
-    def test_nominal_cf_no_inflation_ignored(self, scenarios):
-        """Nominal CFs with inflation_matrix=None should be silently ignored."""
+    def test_nominal_cf_no_inflation_raises(self, scenarios):
+        """Nominal CFs with inflation_matrix=None must raise ValueError."""
         portfolio = 1_000_000
         withdrawal = 40_000
         cfs = [
             CashFlowItem("annuity", 10_000, start_year=1, duration=20,
                          inflation_adjusted=False),
         ]
-        # Should not raise — nominal CF is silently ignored
-        sr, fr = _simulate_success_and_funded(
-            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
-            cash_flows=cfs, inflation_matrix=None,
-        )
-        # Result should equal no-CF scenario (since nominal is ignored)
-        sr_no_cf, fr_no_cf = _simulate_success_and_funded(
-            scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
-        )
-        assert sr == sr_no_cf
-        assert fr == fr_no_cf
+        with pytest.raises(ValueError, match="inflation_matrix is required"):
+            _simulate_success_and_funded(
+                scenarios, portfolio, withdrawal, "fixed", 0.05, 0.025,
+                cash_flows=cfs, inflation_matrix=None,
+            )
 
     def test_cf_after_retirement_years(self, scenarios):
         """CF starting after retirement_years should be ignored."""
