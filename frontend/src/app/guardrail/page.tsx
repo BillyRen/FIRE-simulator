@@ -61,6 +61,7 @@ export default function GuardrailPage() {
     guardrailConsumptionFloorAmount: consumptionFloorAmount, setGuardrailConsumptionFloorAmount: setConsumptionFloorAmount,
     histStartYear, setHistStartYear,
     singleCountry, setSingleCountry,
+    getSimCount,
   } = useSharedParams();
   const [inputMode, setInputMode] = usePersistedState<"portfolio" | "withdrawal">("fire:guardrail:inputMode", "portfolio");
   const [portfolio, setPortfolio] = usePersistedState("fire:guardrail:portfolio", params.initial_portfolio);
@@ -121,7 +122,7 @@ export default function GuardrailPage() {
     retirement_years: params.retirement_years,
     min_block: params.min_block,
     max_block: params.max_block,
-    num_simulations: params.num_simulations,
+    num_simulations: getSimCount("guardrail"),
     data_start_year: params.data_start_year,
     country: params.country,
     pooling_method: params.pooling_method,

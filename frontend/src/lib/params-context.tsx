@@ -1,14 +1,21 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, type ReactNode, type Dispatch, type SetStateAction } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch, type SetStateAction } from "react";
 import { DEFAULT_PARAMS } from "./types";
 import type { FormParams } from "./types";
 import { usePersistedState } from "./use-persisted-state";
-import { fetchServerDefaults } from "./api";
+import { fetchServerDefaults, type ServerDefaults } from "./api";
+
+/** Page-weight categories for num_simulations recommendations. */
+export type SimCountCategory = "default" | "heavy" | "guardrail" | "allocation";
 
 interface SharedParamsState {
   params: FormParams;
   setParams: Dispatch<SetStateAction<FormParams>>;
+
+  /** Returns the recommended num_simulations for a given page category.
+   *  For heavy pages, caps at the server-recommended value for that category. */
+  getSimCount: (category?: SimCountCategory) => number;
 
   // Guardrail
   guardrailTargetSuccess: number;
@@ -51,22 +58,47 @@ interface SharedParamsState {
 
 const ParamsContext = createContext<SharedParamsState | null>(null);
 
+const SIM_COUNTS_KEY = "fire:serverSimCounts";
+
+function loadCachedSimCounts(): ServerDefaults["recommended_sim_counts"] | null {
+  try {
+    const raw = localStorage.getItem(SIM_COUNTS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
 export function ParamsProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
+  // Initialize from localStorage cache so heavy-page caps are available synchronously
+  const [serverSimCounts, setServerSimCounts] = useState<ServerDefaults["recommended_sim_counts"] | null>(
+    () => loadCachedSimCounts()
+  );
 
-  // Apply server-recommended num_simulations on first load (only if user never changed it)
+  // Fetch fresh server defaults and update cache
   const applied = useRef(false);
   useEffect(() => {
     if (applied.current) return;
     applied.current = true;
-    const hasUserSaved = localStorage.getItem("fire:params") !== null;
-    if (hasUserSaved) return; // user already has persisted params, don't override
     fetchServerDefaults()
       .then((defaults) => {
-        setParams((p) => ({ ...p, num_simulations: defaults.recommended_sim_counts.default }));
+        setServerSimCounts(defaults.recommended_sim_counts);
+        try { localStorage.setItem(SIM_COUNTS_KEY, JSON.stringify(defaults.recommended_sim_counts)); } catch { /* quota */ }
+        const hasUserSaved = localStorage.getItem("fire:params") !== null;
+        if (!hasUserSaved) {
+          setParams((p) => ({ ...p, num_simulations: defaults.recommended_sim_counts.default }));
+        }
       })
-      .catch(() => { /* use static default on failure */ });
+      .catch(() => { /* use cached or static default on failure */ });
   }, [setParams]);
+
+  const getSimCount = useCallback((category: SimCountCategory = "default") => {
+    if (category === "default" || !serverSimCounts) {
+      return params.num_simulations;
+    }
+    // For heavy categories, cap at the server-recommended value
+    const cap = serverSimCounts[category];
+    return Math.min(params.num_simulations, cap);
+  }, [params.num_simulations, serverSimCounts]);
 
   // Guardrail
   const [guardrailTargetSuccess, setGuardrailTargetSuccess] = usePersistedState("fire:guardrailTargetSuccess", 0.85);
@@ -95,6 +127,7 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
     <ParamsContext.Provider
       value={{
         params, setParams,
+        getSimCount,
         guardrailTargetSuccess, setGuardrailTargetSuccess,
         guardrailUpperGuardrail, setGuardrailUpperGuardrail,
         guardrailLowerGuardrail, setGuardrailLowerGuardrail,

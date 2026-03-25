@@ -33,6 +33,7 @@ export default function AllocationPage() {
   const {
     params, setParams,
     allocationAllocStep: allocStep, setAllocationAllocStep: setAllocStep,
+    getSimCount,
   } = useSharedParams();
   const [portfolio, setPortfolio] = usePersistedState("fire:allocation:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:allocation:withdrawal", params.annual_withdrawal);
@@ -120,6 +121,7 @@ export default function AllocationPage() {
           <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
             <Button onClick={() => handleRun({
               ...params,
+              num_simulations: getSimCount("allocation"),
               initial_portfolio: portfolio,
               annual_withdrawal: withdrawal,
               allocation_step: allocStep,

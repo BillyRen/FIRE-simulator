@@ -55,9 +55,9 @@ def _detect_server_tier() -> dict:
         tier = "high"
 
     sim_counts = {
-        "low":  {"default": 1_000, "heavy": 500},
-        "mid":  {"default": 2_000, "heavy": 1_000},
-        "high": {"default": 5_000, "heavy": 2_000},
+        "low":  {"default": 1_000, "heavy": 500,  "guardrail": 500,  "allocation": 500},
+        "mid":  {"default": 2_000, "heavy": 1_000, "guardrail": 1_000, "allocation": 1_000},
+        "high": {"default": 5_000, "heavy": 2_000, "guardrail": 2_000, "allocation": 2_000},
     }
 
     return {

@@ -229,7 +229,12 @@ export interface ServerDefaults {
   tier: "low" | "mid" | "high";
   cores: number;
   memory_gb: number;
-  recommended_sim_counts: { default: number; heavy: number };
+  recommended_sim_counts: {
+    default: number;
+    heavy: number;
+    guardrail: number;
+    allocation: number;
+  };
 }
 
 export async function fetchServerDefaults(): Promise<ServerDefaults> {
