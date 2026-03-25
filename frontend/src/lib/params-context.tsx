@@ -60,25 +60,24 @@ const ParamsContext = createContext<SharedParamsState | null>(null);
 
 const SIM_COUNTS_KEY = "fire:serverSimCounts";
 
-function loadCachedSimCounts(): ServerDefaults["recommended_sim_counts"] | null {
-  try {
-    const raw = localStorage.getItem(SIM_COUNTS_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
+/** Conservative hard caps when server defaults are unknown (first visit, SSR). */
+const FALLBACK_HEAVY_CAP = 1_000;
 
 export function ParamsProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
-  // Initialize from localStorage cache so heavy-page caps are available synchronously
-  const [serverSimCounts, setServerSimCounts] = useState<ServerDefaults["recommended_sim_counts"] | null>(
-    () => loadCachedSimCounts()
-  );
+  const [serverSimCounts, setServerSimCounts] = useState<ServerDefaults["recommended_sim_counts"] | null>(null);
 
-  // Fetch fresh server defaults and update cache
+  // On mount: restore cached server defaults from localStorage, then fetch fresh ones
   const applied = useRef(false);
   useEffect(() => {
     if (applied.current) return;
     applied.current = true;
+    // Restore cache synchronously (in effect, so localStorage is safe in browser)
+    try {
+      const raw = localStorage.getItem(SIM_COUNTS_KEY);
+      if (raw) setServerSimCounts(JSON.parse(raw));
+    } catch { /* ignore corrupt cache */ }
+    // Fetch fresh defaults
     fetchServerDefaults()
       .then((defaults) => {
         setServerSimCounts(defaults.recommended_sim_counts);
@@ -92,11 +91,11 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
   }, [setParams]);
 
   const getSimCount = useCallback((category: SimCountCategory = "default") => {
-    if (category === "default" || !serverSimCounts) {
+    if (category === "default") {
       return params.num_simulations;
     }
-    // For heavy categories, cap at the server-recommended value
-    const cap = serverSimCounts[category];
+    // Use server-recommended cap, or a conservative fallback if not yet loaded
+    const cap = serverSimCounts ? serverSimCounts[category] : FALLBACK_HEAVY_CAP;
     return Math.min(params.num_simulations, cap);
   }, [params.num_simulations, serverSimCounts]);
 
