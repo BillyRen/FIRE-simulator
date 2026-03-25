@@ -61,7 +61,8 @@ const ParamsContext = createContext<SharedParamsState | null>(null);
 const SIM_COUNTS_KEY = "fire:serverSimCounts";
 
 /** Conservative hard caps when server defaults are unknown (first visit, SSR). */
-const FALLBACK_HEAVY_CAP = 1_000;
+/** Matches the low-tier server recommendation (backend/routes/common.py). */
+const FALLBACK_HEAVY_CAP = 500;
 
 export function ParamsProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
