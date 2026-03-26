@@ -29,9 +29,37 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 def _detect_server_tier() -> dict:
-    """Detect server resources and recommend simulation defaults."""
+    """Detect server resources and recommend simulation defaults.
+
+    Uses cgroup limits (container-aware) when available, falling back to
+    host-level values.  This matters on shared-host platforms like Render
+    where cpu_count() returns the *host* cores, not the allocated share.
+    """
     import multiprocessing
-    cores = multiprocessing.cpu_count()
+
+    # -- CPU: prefer cgroup quota (works in Docker / Render / K8s) ----------
+    cores = multiprocessing.cpu_count()  # host fallback
+    try:
+        # cgroup v2
+        with open("/sys/fs/cgroup/cpu.max") as f:
+            parts = f.read().strip().split()
+            if parts[0] != "max":
+                quota, period = int(parts[0]), int(parts[1])
+                cores = max(1, quota / period)
+    except (OSError, ValueError, IndexError):
+        try:
+            # cgroup v1
+            with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as fq, \
+                 open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as fp:
+                quota = int(fq.read().strip())
+                period = int(fp.read().strip())
+                if quota > 0:
+                    cores = max(1, quota / period)
+        except (OSError, ValueError):
+            pass  # keep host cpu_count
+
+    # -- Memory: prefer cgroup limit ------------------------------------
+    mem_gb = 2.0  # conservative default
     try:
         import psutil
         mem_gb = psutil.virtual_memory().total / (1024 ** 3)
@@ -42,10 +70,27 @@ def _detect_server_tier() -> dict:
                     if line.startswith("MemTotal:"):
                         mem_gb = int(line.split()[1]) / (1024 ** 2)
                         break
-                else:
-                    mem_gb = 2.0
         except OSError:
-            mem_gb = 2.0
+            pass
+    # Override with cgroup memory limit if it's lower than host total
+    try:
+        # cgroup v2
+        with open("/sys/fs/cgroup/memory.max") as f:
+            val = f.read().strip()
+            if val != "max":
+                cg_mem = int(val) / (1024 ** 3)
+                mem_gb = min(mem_gb, cg_mem)
+    except (OSError, ValueError):
+        try:
+            # cgroup v1
+            with open("/sys/fs/cgroup/memory/memory.limit_in_bytes") as f:
+                val = int(f.read().strip())
+                # Kernel uses a huge sentinel (~2^63) for "unlimited"
+                if val < 2 ** 62:
+                    cg_mem = val / (1024 ** 3)
+                    mem_gb = min(mem_gb, cg_mem)
+        except (OSError, ValueError):
+            pass
 
     if cores <= 2 or mem_gb <= 1:
         tier = "low"
