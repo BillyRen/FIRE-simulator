@@ -31,7 +31,7 @@ export default function SensitivityPage() {
   const isMobile = useIsMobile();
 
   const {
-    params, setParams,
+    params, setParams, getSimCount,
     sensitivityRateMax: rateMax, setSensitivityRateMax: setRateMax,
     sensitivityRateStep: rateStep, setSensitivityRateStep: setRateStep,
     sensitivityMetric: metric, setSensitivityMetric: setMetric,
@@ -121,6 +121,7 @@ export default function SensitivityPage() {
               ...params,
               initial_portfolio: portfolio,
               annual_withdrawal: withdrawal,
+              num_simulations: getSimCount("default"),
               rate_max: rateMax,
               rate_step: rateStep,
             })} className="w-full" disabled={loading}>

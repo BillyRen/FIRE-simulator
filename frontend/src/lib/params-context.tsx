@@ -92,12 +92,13 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
   }, [setParams]);
 
   const getSimCount = useCallback((category: SimCountCategory = "default") => {
-    if (category === "default") {
+    if (!serverSimCounts) {
+      // Server defaults not yet loaded — use conservative fallback for heavy pages
+      if (category !== "default") return Math.min(params.num_simulations, FALLBACK_HEAVY_CAP);
       return params.num_simulations;
     }
-    // Use server-recommended cap, or a conservative fallback if not yet loaded
-    const cap = serverSimCounts ? serverSimCounts[category] : FALLBACK_HEAVY_CAP;
-    return Math.min(params.num_simulations, cap);
+    // Cap at server-recommended value for this category
+    return Math.min(params.num_simulations, serverSimCounts[category]);
   }, [params.num_simulations, serverSimCounts]);
 
   // Guardrail

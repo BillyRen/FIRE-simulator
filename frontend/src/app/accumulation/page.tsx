@@ -42,7 +42,7 @@ export default function AccumulationPage() {
   const tc = useTranslations("common");
   const isMobile = useIsMobile();
 
-  const { params, setParams } = useSharedParams();
+  const { params, setParams, getSimCount } = useSharedParams();
 
   const [currentAge, setCurrentAge] = usePersistedState("fire:accumulation:currentAge", 30);
   const [lifeExpectancy, setLifeExpectancy] = usePersistedState("fire:accumulation:lifeExpectancy", 90);
@@ -89,7 +89,7 @@ export default function AccumulationPage() {
         retirement_years: Math.max(5, lifeExpectancy - currentAge),
         min_block: params.min_block,
         max_block: params.max_block,
-        num_simulations: params.num_simulations,
+        num_simulations: getSimCount("default"),
         data_start_year: params.data_start_year,
         country: params.country,
         pooling_method: params.pooling_method,

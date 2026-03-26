@@ -41,7 +41,7 @@ export function SimulatorClient() {
 
   const isMobile = useIsMobile();
 
-  const { params, setParams, histStartYear, setHistStartYear, singleCountry, setSingleCountry } = useSharedParams();
+  const { params, setParams, getSimCount, histStartYear, setHistStartYear, singleCountry, setSingleCountry } = useSharedParams();
   const [portfolio, setPortfolio] = usePersistedState("fire:main:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:main:withdrawal", params.annual_withdrawal);
 
@@ -109,6 +109,7 @@ export function SimulatorClient() {
         ...params,
         initial_portfolio: portfolio,
         annual_withdrawal: withdrawal,
+        num_simulations: getSimCount("default"),
       }, setProgress);
       setResult(res);
     } catch (e) {
@@ -196,6 +197,7 @@ export function SimulatorClient() {
     ...params,
     initial_portfolio: portfolio,
     annual_withdrawal: withdrawal,
+    num_simulations: getSimCount("default"),
   });
 
   const handleRunScenarios = async () => {
