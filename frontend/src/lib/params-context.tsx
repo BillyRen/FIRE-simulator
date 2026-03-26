@@ -83,10 +83,9 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
       .then((defaults) => {
         setServerSimCounts(defaults.recommended_sim_counts);
         try { localStorage.setItem(SIM_COUNTS_KEY, JSON.stringify(defaults.recommended_sim_counts)); } catch { /* quota */ }
-        const hasUserSaved = localStorage.getItem("fire:params") !== null;
-        if (!hasUserSaved) {
-          setParams((p) => ({ ...p, num_simulations: defaults.recommended_sim_counts.default }));
-        }
+        // Always cap the displayed num_simulations to the server-recommended default
+        const cap = defaults.recommended_sim_counts.default;
+        setParams((p) => p.num_simulations > cap ? { ...p, num_simulations: cap } : p);
       })
       .catch(() => { /* use cached or static default on failure */ });
   }, [setParams]);
