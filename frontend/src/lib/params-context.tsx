@@ -66,19 +66,19 @@ const FALLBACK_HEAVY_CAP = 500;
 
 export function ParamsProvider({ children }: { children: ReactNode }) {
   const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
-  const [serverSimCounts, setServerSimCounts] = useState<ServerDefaults["recommended_sim_counts"] | null>(null);
+  const [serverSimCounts, setServerSimCounts] = useState<ServerDefaults["recommended_sim_counts"] | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(SIM_COUNTS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
 
-  // On mount: restore cached server defaults from localStorage, then fetch fresh ones
+  // On mount: fetch fresh server defaults
   const applied = useRef(false);
   useEffect(() => {
     if (applied.current) return;
     applied.current = true;
-    // Restore cache synchronously (in effect, so localStorage is safe in browser)
-    try {
-      const raw = localStorage.getItem(SIM_COUNTS_KEY);
-      if (raw) setServerSimCounts(JSON.parse(raw));
-    } catch { /* ignore corrupt cache */ }
-    // Fetch fresh defaults
     fetchServerDefaults()
       .then((defaults) => {
         setServerSimCounts(defaults.recommended_sim_counts);
