@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
-import { Save, Upload, Download, Trash2, Check } from "lucide-react";
+import { Save, Upload, Download, Trash2, Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FormParams } from "@/lib/types";
+import { DEFAULT_PARAMS, type FormParams } from "@/lib/types";
 
 interface SavedScenario {
   name: string;
@@ -90,6 +90,12 @@ export function ScenarioManager({
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
+
+  const handleReset = () => {
+    if (window.confirm(t("resetConfirm"))) {
+      onLoad(DEFAULT_PARAMS);
+    }
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -178,6 +184,16 @@ export function ScenarioManager({
           title={t("import")}
         >
           <Upload className="h-3.5 w-3.5" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2"
+          onClick={handleReset}
+          title={t("reset")}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
         </Button>
         <input
           ref={fileRef}

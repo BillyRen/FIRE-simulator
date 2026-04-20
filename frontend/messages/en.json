@@ -45,7 +45,9 @@
     "loadPlaceholder": "Select scenario",
     "namePlaceholder": "Scenario name",
     "export": "Export JSON",
-    "import": "Import JSON"
+    "import": "Import JSON",
+    "reset": "Reset to defaults",
+    "resetConfirm": "Reset all parameters to defaults? Unsaved changes will be lost."
   },
   "sidebar": {
     "advancedSettings": "Advanced",

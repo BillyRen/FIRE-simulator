@@ -45,7 +45,9 @@
     "loadPlaceholder": "选择方案",
     "namePlaceholder": "方案名称",
     "export": "导出 JSON",
-    "import": "导入 JSON"
+    "import": "导入 JSON",
+    "reset": "恢复默认参数",
+    "resetConfirm": "确定要恢复所有参数为默认值吗？未保存的改动将丢失。"
   },
   "sidebar": {
     "advancedSettings": "高级设置",
