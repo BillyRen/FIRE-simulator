@@ -532,7 +532,17 @@ export function SimulatorClient() {
                   <MetricCard label={t("successRate")} value={pct(batchResult.success_rate)} tooltip={t("successRateHelp")} />
                   <MetricCard label={t("fundedRatio")} value={pct(batchResult.funded_ratio)} tooltip={t("fundedRatioHelp")} />
                 </div>
-                <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
+                {(batchResult.num_incomplete_failed ?? 0) > 0 || (batchResult.num_excluded ?? 0) > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {tc("successRateDenominator", {
+                      complete: batchResult.num_complete,
+                      failed: batchResult.num_incomplete_failed ?? 0,
+                      excluded: batchResult.num_excluded ?? 0,
+                    })}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
+                )}
 
                 {/* Sub-tabs */}
                 <Tabs value={batchSubTab} onValueChange={(v) => setBatchSubTab(v as "aggregate" | "paths")}>

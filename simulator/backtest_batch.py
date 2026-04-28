@@ -34,6 +34,69 @@ def _compute_country_arrays(cdf_sorted: pd.DataFrame, allocation, expense_ratios
     return real_returns_full, inflation_full
 
 
+def _has_failed_depletion(port: np.ndarray, n_years: int, retirement_years: int) -> bool:
+    """Path failed = portfolio first hits zero at year < retirement_years.
+
+    Aligned with compute_success_rate: end-of-horizon depletion (fail_year ==
+    retirement_years) counts as success (Trinity-style). Incomplete paths use
+    fail_year <= n_years <= retirement_years, so any in-window depletion fails.
+    """
+    if n_years <= 0:
+        return False
+    actual = port[1:n_years + 1]
+    if not np.any(actual <= 0):
+        return False
+    fail_year = int(np.argmax(actual <= 0)) + 1
+    return fail_year < retirement_years
+
+
+def _has_failed_guardrail(
+    g_port: np.ndarray,
+    g_wd: np.ndarray,
+    n_years: int,
+    floor_amount: float,
+    retirement_years: int,
+) -> bool:
+    """Guardrail path failed = depletion OR withdrawal below floor at fail_year < retirement_years."""
+    if n_years <= 0:
+        return False
+
+    fail_year: int | None = None
+
+    actual_port = g_port[1:n_years + 1]
+    if np.any(actual_port <= 0):
+        fail_year = int(np.argmax(actual_port <= 0)) + 1
+
+    actual_wd = g_wd[:n_years]
+    if np.any(actual_wd < floor_amount):
+        floor_fail = int(np.argmax(actual_wd < floor_amount)) + 1
+        fail_year = floor_fail if fail_year is None else min(fail_year, floor_fail)
+
+    if fail_year is None:
+        return False
+    return fail_year < retirement_years
+
+
+def _pad_portfolio_to(port_list: list[float], target_len: int) -> np.ndarray:
+    """Pad portfolio array (length n+1) with zeros to retirement_years+1.
+
+    Failed paths stay zero past their failure point; this matches the
+    semantics of compute_success_rate / compute_effective_funded_ratio.
+    """
+    arr = np.asarray(port_list, dtype=float)
+    if arr.size >= target_len:
+        return arr[:target_len]
+    return np.concatenate([arr, np.zeros(target_len - arr.size)])
+
+
+def _pad_withdrawals_to(wd_list: list[float], target_len: int) -> np.ndarray:
+    """Pad withdrawal array (length n) with zeros to retirement_years."""
+    arr = np.asarray(wd_list, dtype=float)
+    if arr.size >= target_len:
+        return arr[:target_len]
+    return np.concatenate([arr, np.zeros(target_len - arr.size)])
+
+
 # ---------------------------------------------------------------------------
 # 1. 主模拟页批量回测
 # ---------------------------------------------------------------------------
@@ -134,10 +197,13 @@ def run_sim_batch_backtest(
                 pm = compute_single_path_metrics(rr, inf)
                 year_labels = [int(years[start_idx] - 1)] + years[start_idx:start_idx + n_years].tolist()
 
-                # Derive survived from actual n_years horizon, not the
-                # zero-padded max_n matrix.  Check whether any year-end
-                # portfolio value within [1, n_years] hit zero *before*
-                # the last year (early depletion).
+                # has_failed: deterministic failure observed within [1, n_years]
+                # AND fail_year < retirement_years.  Drives success-rate
+                # aggregation; survived (kept for backward compat) reflects
+                # the legacy "no early depletion" semantics.
+                has_failed = _has_failed_depletion(
+                    portfolios[bi, :n_years + 1], n_years, retirement_years,
+                )
                 actual_port = portfolios[bi, 1:n_years + 1]
                 early_depleted = bool(np.any(actual_port[:n_years - 1] <= 0)) if n_years > 1 else False
                 path_survived = not early_depleted
@@ -148,6 +214,7 @@ def run_sim_batch_backtest(
                     "years_simulated": n_years,
                     "is_complete": is_complete,
                     "survived": path_survived,
+                    "has_failed": has_failed,
                     "final_portfolio": port_list[-1],
                     "total_consumption": sum(wd_list),
                     "year_labels": year_labels,
@@ -192,12 +259,18 @@ def run_sim_batch_backtest(
                 pm = compute_single_path_metrics(real_returns, inflation_series)
                 year_labels = [int(start_year - 1)] + years[i:i + n_years].tolist()
 
+                has_failed = _has_failed_depletion(
+                    np.asarray(result["portfolio"], dtype=float),
+                    n_years, retirement_years,
+                )
+
                 paths.append({
                     "country": iso,
                     "start_year": start_year,
                     "years_simulated": n_years,
                     "is_complete": n_years >= retirement_years,
                     "survived": result["survived"],
+                    "has_failed": has_failed,
                     "final_portfolio": result["portfolio"][-1],
                     "total_consumption": sum(result["withdrawals"]),
                     "year_labels": year_labels,
@@ -209,17 +282,25 @@ def run_sim_batch_backtest(
                     "_inflation": inflation_series,
                 })
 
-    # --- 聚合统计（仅完整路径） ---
+    # --- 聚合统计 ---
+    # success_rate / funded_ratio 用 (完整 ∪ 已失败不完整),与 compute_success_rate
+    # 语义对齐:已观察到的失败一律计入分母,截尾未失败排除(数据不足判定)。
+    # 分位数轨迹 / final values / portfolio_metrics 仍仅基于完整路径,避免
+    # padded-zero 拉低分位数曲线。
     complete = [p for p in paths if p["is_complete"]]
+    incomplete_failed = [p for p in paths if (not p["is_complete"]) and p["has_failed"]]
+    stats_eligible = complete + incomplete_failed
+    num_excluded = len(paths) - len(stats_eligible)
 
-    if len(complete) == 0:
-        # Strip cached arrays before returning
+    if len(stats_eligible) == 0:
         for p in paths:
             p.pop("_real_returns", None)
             p.pop("_inflation", None)
         return {
             "num_paths": len(paths),
             "num_complete": 0,
+            "num_incomplete_failed": 0,
+            "num_excluded": num_excluded,
             "success_rate": 0.0,
             "funded_ratio": 0.0,
             "percentile_trajectories": {},
@@ -229,25 +310,49 @@ def run_sim_batch_backtest(
             "paths": paths,
         }
 
-    # 构建轨迹矩阵 (num_complete, retirement_years+1)
+    elig_traj = np.array([
+        _pad_portfolio_to(p["portfolio"], retirement_years + 1) for p in stats_eligible
+    ])
+    elig_wd = np.array([
+        _pad_withdrawals_to(p["withdrawals"], retirement_years) for p in stats_eligible
+    ])
+
+    success_rate = compute_success_rate(elig_traj, retirement_years)
+    funded_ratio = compute_funded_ratio(elig_traj, retirement_years)
+
+    if len(complete) == 0:
+        for p in paths:
+            p.pop("_real_returns", None)
+            p.pop("_inflation", None)
+        return {
+            "num_paths": len(paths),
+            "num_complete": 0,
+            "num_incomplete_failed": len(incomplete_failed),
+            "num_excluded": num_excluded,
+            "success_rate": success_rate,
+            "funded_ratio": funded_ratio,
+            "percentile_trajectories": {},
+            "withdrawal_percentile_trajectories": None,
+            "final_values_summary": [],
+            "portfolio_metrics": [],
+            "paths": paths,
+        }
+
     traj = np.array([p["portfolio"] for p in complete])
     wd_mat = np.array([p["withdrawals"] for p in complete])
 
     stats = compute_statistics(traj, retirement_years, wd_mat)
     summary_df = final_values_summary_table(stats)
 
-    # 构建回报/通胀矩阵 — 直接从缓存读取，无需重新计算
     real_ret_mat = np.array([p["_real_returns"] for p in complete])
     infl_mat = np.array([p["_inflation"] for p in complete])
 
     port_metrics = compute_portfolio_metrics(real_ret_mat, infl_mat)
 
-    # Strip cached arrays before returning (avoid serialization overhead)
     for p in paths:
         p.pop("_real_returns", None)
         p.pop("_inflation", None)
 
-    # 序列化分位数轨迹
     pct_traj = {str(k): v.tolist() for k, v in stats.percentile_trajectories.items()}
     wd_pct_traj = None
     if stats.withdrawal_percentile_trajectories is not None:
@@ -259,8 +364,10 @@ def run_sim_batch_backtest(
     return {
         "num_paths": len(paths),
         "num_complete": len(complete),
-        "success_rate": stats.success_rate,
-        "funded_ratio": stats.funded_ratio,
+        "num_incomplete_failed": len(incomplete_failed),
+        "num_excluded": num_excluded,
+        "success_rate": success_rate,
+        "funded_ratio": funded_ratio,
         "percentile_trajectories": pct_traj,
         "withdrawal_percentile_trajectories": wd_pct_traj,
         "final_values_summary": summary_df.to_dict("records"),
@@ -273,6 +380,8 @@ def _empty_sim_batch_result() -> dict:
     return {
         "num_paths": 0,
         "num_complete": 0,
+        "num_incomplete_failed": 0,
+        "num_excluded": 0,
         "success_rate": 0.0,
         "funded_ratio": 0.0,
         "percentile_trajectories": {},
@@ -378,13 +487,12 @@ def run_guardrail_batch_backtest(
             pm = compute_single_path_metrics(real_returns, inflation_series)
             year_labels = [int(start_year - 1)] + years_arr[i:i + n_years].tolist()
 
-            # 逐条路径的消费地板判定
             _path_floor = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
             _path_below_floor = any(w < _path_floor for w in result["g_withdrawals"])
 
-            # Survived = completed full retirement + no early depletion + above consumption floor
-            # Check depletion: if any portfolio value (excluding initial) is <= 0 before the last year,
-            # the path depleted early (guardrail fills remaining years with zeros).
+            # Legacy survived: backward-compatible (no early depletion, above floor).
+            # has_failed: deterministic failure within observation window AND
+            # fail_year < retirement_years. Drives success-rate aggregation.
             g_port = result["g_portfolio"]
             b_port = result["b_portfolio"]
             _g_early_depleted = any(g_port[y] <= 0 for y in range(1, len(g_port) - 1))
@@ -395,6 +503,16 @@ def run_guardrail_batch_backtest(
                 and not _path_below_floor
             )
 
+            g_has_failed = _has_failed_guardrail(
+                np.asarray(result["g_portfolio"], dtype=float),
+                np.asarray(result["g_withdrawals"], dtype=float),
+                n_years, _path_floor, retirement_years,
+            )
+            b_has_failed = _has_failed_depletion(
+                np.asarray(result["b_portfolio"], dtype=float),
+                n_years, retirement_years,
+            )
+
             paths.append({
                 "country": iso,
                 "start_year": start_year,
@@ -402,6 +520,8 @@ def run_guardrail_batch_backtest(
                 "is_complete": n_years >= retirement_years,
                 "g_survived": _g_survived,
                 "b_survived": n_years >= retirement_years and not _b_early_depleted,
+                "g_has_failed": g_has_failed,
+                "b_has_failed": b_has_failed,
                 "g_final_portfolio": float(result["g_portfolio"][-1]),
                 "b_final_portfolio": float(result["b_portfolio"][-1]),
                 "g_total_consumption": result["g_total_consumption"],
@@ -417,40 +537,80 @@ def run_guardrail_batch_backtest(
                 "path_metrics": pm,
             })
 
-    # --- 聚合（仅完整路径） ---
+    # --- 聚合 ---
+    # success_rate / funded_ratio 用 (完整 ∪ 已失败不完整);分位数轨迹仅用完整路径。
+    # g 与 b 各自有独立的 has_failed 判定,因此 eligible 集合可能不同。
     complete = [p for p in paths if p["is_complete"]]
+    g_incomp_failed = [p for p in paths if (not p["is_complete"]) and p["g_has_failed"]]
+    b_incomp_failed = [p for p in paths if (not p["is_complete"]) and p["b_has_failed"]]
+    g_eligible = complete + g_incomp_failed
+    b_eligible = complete + b_incomp_failed
+    # 主展示口径: g 视角的 num_excluded
+    num_excluded = len(paths) - len(g_eligible)
 
-    if len(complete) == 0:
+    if len(g_eligible) == 0 and len(b_eligible) == 0:
         return {
             **_empty_guardrail_batch_result(),
             "num_paths": len(paths),
+            "num_incomplete_failed_g": 0,
+            "num_incomplete_failed_b": 0,
+            "num_excluded": num_excluded,
             "paths": paths,
         }
 
-    # Guardrail 轨迹
-    g_traj = np.array([p["g_portfolio"] for p in complete])
-    g_wd = np.array([p["g_withdrawals"] for p in complete])
-    b_traj = np.array([p["b_portfolio"] for p in complete])
-    b_wd = np.array([p["b_withdrawals"] for p in complete])
-
-    g_fr, g_success = compute_effective_funded_ratio(
-        g_wd, annual_withdrawal, retirement_years,
-        consumption_floor=consumption_floor,
-        trajectories=g_traj,
-        consumption_floor_amount=consumption_floor_amount,
-    )
-    b_success = compute_success_rate(b_traj, retirement_years)
-    b_fr = compute_funded_ratio(b_traj, retirement_years)
-
+    target_len = retirement_years + 1
     band_pcts = [10, 25, 50, 75, 90]
-    g_pct_traj = {str(p): np.percentile(g_traj, p, axis=0).tolist() for p in band_pcts}
-    b_pct_traj = {str(p): np.percentile(b_traj, p, axis=0).tolist() for p in band_pcts}
-    g_wd_pcts = {str(p): np.percentile(g_wd, p, axis=0).tolist() for p in band_pcts}
-    b_wd_pcts = {str(p): np.percentile(b_wd, p, axis=0).tolist() for p in band_pcts}
+
+    if g_eligible:
+        g_traj_elig = np.array([
+            _pad_portfolio_to(p["g_portfolio"], target_len) for p in g_eligible
+        ])
+        g_wd_elig = np.array([
+            _pad_withdrawals_to(p["g_withdrawals"], retirement_years) for p in g_eligible
+        ])
+        g_fr, g_success = compute_effective_funded_ratio(
+            g_wd_elig, annual_withdrawal, retirement_years,
+            consumption_floor=consumption_floor,
+            trajectories=g_traj_elig,
+            consumption_floor_amount=consumption_floor_amount,
+        )
+    else:
+        g_fr, g_success = 0.0, 0.0
+
+    if b_eligible:
+        b_traj_elig = np.array([
+            _pad_portfolio_to(p["b_portfolio"], target_len) for p in b_eligible
+        ])
+        b_wd_elig = np.array([
+            _pad_withdrawals_to(p["b_withdrawals"], retirement_years) for p in b_eligible
+        ])
+        b_success = compute_success_rate(b_traj_elig, retirement_years)
+        b_fr = compute_funded_ratio(b_traj_elig, retirement_years)
+    else:
+        b_success, b_fr = 0.0, 0.0
+
+    # 分位数轨迹 — 仅基于完整路径,避免 padded zeros 拉低曲线
+    if complete:
+        g_traj_c = np.array([p["g_portfolio"] for p in complete])
+        g_wd_c = np.array([p["g_withdrawals"] for p in complete])
+        b_traj_c = np.array([p["b_portfolio"] for p in complete])
+        b_wd_c = np.array([p["b_withdrawals"] for p in complete])
+        g_pct_traj = {str(p): np.percentile(g_traj_c, p, axis=0).tolist() for p in band_pcts}
+        b_pct_traj = {str(p): np.percentile(b_traj_c, p, axis=0).tolist() for p in band_pcts}
+        g_wd_pcts = {str(p): np.percentile(g_wd_c, p, axis=0).tolist() for p in band_pcts}
+        b_wd_pcts = {str(p): np.percentile(b_wd_c, p, axis=0).tolist() for p in band_pcts}
+    else:
+        g_pct_traj = {}
+        b_pct_traj = {}
+        g_wd_pcts = {}
+        b_wd_pcts = {}
 
     return {
         "num_paths": len(paths),
         "num_complete": len(complete),
+        "num_incomplete_failed_g": len(g_incomp_failed),
+        "num_incomplete_failed_b": len(b_incomp_failed),
+        "num_excluded": num_excluded,
         "g_success_rate": g_success,
         "g_funded_ratio": g_fr,
         "b_success_rate": b_success,
@@ -467,6 +627,9 @@ def _empty_guardrail_batch_result() -> dict:
     return {
         "num_paths": 0,
         "num_complete": 0,
+        "num_incomplete_failed_g": 0,
+        "num_incomplete_failed_b": 0,
+        "num_excluded": 0,
         "g_success_rate": 0.0,
         "g_funded_ratio": 0.0,
         "b_success_rate": 0.0,

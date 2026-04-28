@@ -840,6 +840,8 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
             is_complete=p["is_complete"],
             g_survived=p["g_survived"],
             b_survived=p["b_survived"],
+            g_has_failed=p.get("g_has_failed", False),
+            b_has_failed=p.get("b_has_failed", False),
             g_final_portfolio=p["g_final_portfolio"],
             b_final_portfolio=p["b_final_portfolio"],
             g_total_consumption=p["g_total_consumption"],
@@ -858,6 +860,9 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
     return GuardrailBatchBacktestResponse(
         num_paths=result["num_paths"],
         num_complete=result["num_complete"],
+        num_incomplete_failed_g=result.get("num_incomplete_failed_g", 0),
+        num_incomplete_failed_b=result.get("num_incomplete_failed_b", 0),
+        num_excluded=result.get("num_excluded", 0),
         g_success_rate=result["g_success_rate"],
         g_funded_ratio=result["g_funded_ratio"],
         b_success_rate=result["b_success_rate"],

@@ -38,7 +38,8 @@
     "linearScale": "Linear",
     "pinBaseline": "Pin as Baseline",
     "unpinBaseline": "Unpin Baseline",
-    "exportPdf": "Export PDF"
+    "exportPdf": "Export PDF",
+    "successRateDenominator": "Denominator = {complete} complete paths + {failed} incomplete paths with confirmed failure; {excluded} more paths excluded (insufficient data)"
   },
   "scenarioManager": {
     "save": "Save",

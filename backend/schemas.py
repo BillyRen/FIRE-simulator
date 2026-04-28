@@ -333,6 +333,7 @@ class SimBatchPathSummary(BaseModel):
     years_simulated: int
     is_complete: bool
     survived: bool
+    has_failed: bool = False
     final_portfolio: float
     total_consumption: float
     year_labels: list[int]
@@ -344,6 +345,8 @@ class SimBatchPathSummary(BaseModel):
 class SimBatchBacktestResponse(BaseModel):
     num_paths: int
     num_complete: int
+    num_incomplete_failed: int = 0
+    num_excluded: int = 0
     success_rate: float
     funded_ratio: float
     percentile_trajectories: dict[str, list[float]]
@@ -388,6 +391,8 @@ class GuardrailBatchPathSummary(BaseModel):
     is_complete: bool
     g_survived: bool
     b_survived: bool
+    g_has_failed: bool = False
+    b_has_failed: bool = False
     g_final_portfolio: float
     b_final_portfolio: float
     g_total_consumption: float
@@ -406,6 +411,9 @@ class GuardrailBatchPathSummary(BaseModel):
 class GuardrailBatchBacktestResponse(BaseModel):
     num_paths: int
     num_complete: int
+    num_incomplete_failed_g: int = 0
+    num_incomplete_failed_b: int = 0
+    num_excluded: int = 0
     g_success_rate: float
     g_funded_ratio: float
     b_success_rate: float

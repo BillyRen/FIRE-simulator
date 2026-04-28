@@ -292,6 +292,7 @@ export interface SimBatchPathSummary {
   years_simulated: number;
   is_complete: boolean;
   survived: boolean;
+  has_failed?: boolean;
   final_portfolio: number;
   total_consumption: number;
   year_labels: number[];
@@ -303,6 +304,8 @@ export interface SimBatchPathSummary {
 export interface SimBatchBacktestResponse {
   num_paths: number;
   num_complete: number;
+  num_incomplete_failed?: number;
+  num_excluded?: number;
   success_rate: number;
   funded_ratio: number;
   percentile_trajectories: Record<string, number[]>;
@@ -323,6 +326,8 @@ export interface GuardrailBatchPathSummary {
   is_complete: boolean;
   g_survived: boolean;
   b_survived: boolean;
+  g_has_failed?: boolean;
+  b_has_failed?: boolean;
   g_final_portfolio: number;
   b_final_portfolio: number;
   g_total_consumption: number;
@@ -341,6 +346,9 @@ export interface GuardrailBatchPathSummary {
 export interface GuardrailBatchBacktestResponse {
   num_paths: number;
   num_complete: number;
+  num_incomplete_failed_g?: number;
+  num_incomplete_failed_b?: number;
+  num_excluded?: number;
   g_success_rate: number;
   g_funded_ratio: number;
   b_success_rate: number;

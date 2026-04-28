@@ -38,7 +38,8 @@
     "linearScale": "线性轴",
     "pinBaseline": "固定为基准",
     "unpinBaseline": "取消基准",
-    "exportPdf": "导出 PDF"
+    "exportPdf": "导出 PDF",
+    "successRateDenominator": "成功率分母 = 完整路径 {complete} 条 + 已确定失败的不完整路径 {failed} 条；另有 {excluded} 条数据不足以判定（已排除）"
   },
   "scenarioManager": {
     "save": "保存",

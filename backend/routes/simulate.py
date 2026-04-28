@@ -249,6 +249,8 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
     return SimBatchBacktestResponse(
         num_paths=result["num_paths"],
         num_complete=result["num_complete"],
+        num_incomplete_failed=result.get("num_incomplete_failed", 0),
+        num_excluded=result.get("num_excluded", 0),
         success_rate=result["success_rate"],
         funded_ratio=result["funded_ratio"],
         percentile_trajectories=result["percentile_trajectories"],

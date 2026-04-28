@@ -803,7 +803,17 @@ export default function GuardrailPage() {
                     <MetricCard label={t("baselineSuccess")} value={pct(batchResult.b_success_rate)} tooltip={tc("successRateHelp")} />
                     <MetricCard label={t("baselineFundedRatio")} value={pct(batchResult.b_funded_ratio)} tooltip={tc("fundedRatioHelp")} />
                   </div>
-                  <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
+                  {(batchResult.num_incomplete_failed_g ?? 0) > 0 || (batchResult.num_excluded ?? 0) > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {tc("successRateDenominator", {
+                        complete: batchResult.num_complete,
+                        failed: batchResult.num_incomplete_failed_g ?? 0,
+                        excluded: batchResult.num_excluded ?? 0,
+                      })}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
+                  )}
 
                   {/* Sub-tabs */}
                   <Tabs value={batchSubTab} onValueChange={(v) => setBatchSubTab(v as "aggregate" | "paths")}>
