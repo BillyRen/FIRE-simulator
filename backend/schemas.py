@@ -413,7 +413,8 @@ class GuardrailBatchBacktestResponse(BaseModel):
     num_complete: int
     num_incomplete_failed_g: int = 0
     num_incomplete_failed_b: int = 0
-    num_excluded: int = 0
+    num_excluded_g: int = 0
+    num_excluded_b: int = 0
     g_success_rate: float
     g_funded_ratio: float
     b_success_rate: float

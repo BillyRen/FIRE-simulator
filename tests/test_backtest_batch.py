@@ -441,6 +441,52 @@ class TestCensoredAwareAggregation:
         assert result["num_excluded"] == result["num_paths"]
         assert result["num_paths"] > 0
 
+    def test_summary_table_success_rate_matches_top_level(self):
+        """Regression: final_values_summary's success-rate row was built from
+        complete-only stats while top-level used the censored-aware value.
+        They must agree even when incomplete failures contribute to the
+        denominator."""
+        n = 35
+        # Mix: front 25y favorable + back 10y crash → some complete paths
+        # succeed, recent (incomplete) start years observably fail.
+        returns = ([0.07] * 25) + ([-0.40] * 10)
+        df = pd.DataFrame({
+            "Year": np.arange(2000, 2000 + n),
+            "Country": ["USA"] * n,
+            "Domestic_Stock": returns,
+            "Global_Stock": returns,
+            "Domestic_Bond": returns,
+            "Inflation": np.full(n, 0.02),
+        })
+
+        result = run_sim_batch_backtest(
+            country_dfs=None,
+            filtered_df=df,
+            allocation={"domestic_stock": 0.6, "global_stock": 0.0, "domestic_bond": 0.4},
+            expense_ratios={"domestic_stock": 0.001, "global_stock": 0.001, "domestic_bond": 0.001},
+            initial_portfolio=1_000_000,
+            annual_withdrawal=80_000,
+            retirement_years=20,
+            withdrawal_strategy="fixed",
+        )
+
+        if result["num_incomplete_failed"] == 0 or result["num_complete"] == 0:
+            pytest.skip("Need both complete and failed-incomplete paths to test consistency")
+
+        # Find the "成功率" row in final_values_summary
+        summary_sr_row = next(
+            (r for r in result["final_values_summary"] if r.get("指标") == "成功率"),
+            None,
+        )
+        assert summary_sr_row is not None
+
+        # Parse "XX.X%" → float
+        summary_sr = float(summary_sr_row["值"].rstrip("%")) / 100.0
+        assert abs(summary_sr - result["success_rate"]) < 0.005, (
+            f"Summary table success rate {summary_sr:.4f} disagrees with "
+            f"top-level {result['success_rate']:.4f}"
+        )
+
     def test_has_failed_field_exposed(self):
         """Each path summary must expose has_failed alongside survived."""
         rng = np.random.default_rng(1)
@@ -535,8 +581,12 @@ class TestGuardrailCensoredAwareAggregation:
 
         partition_g = (result["num_complete"]
                        + result["num_incomplete_failed_g"]
-                       + result["num_excluded"])
+                       + result["num_excluded_g"])
+        partition_b = (result["num_complete"]
+                       + result["num_incomplete_failed_b"]
+                       + result["num_excluded_b"])
         assert partition_g == result["num_paths"]
+        assert partition_b == result["num_paths"]
 
         for p in result["paths"]:
             assert "g_has_failed" in p

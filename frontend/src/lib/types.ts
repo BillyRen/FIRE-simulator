@@ -348,7 +348,8 @@ export interface GuardrailBatchBacktestResponse {
   num_complete: number;
   num_incomplete_failed_g?: number;
   num_incomplete_failed_b?: number;
-  num_excluded?: number;
+  num_excluded_g?: number;
+  num_excluded_b?: number;
   g_success_rate: number;
   g_funded_ratio: number;
   b_success_rate: number;

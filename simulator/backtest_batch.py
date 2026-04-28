@@ -313,9 +313,6 @@ def run_sim_batch_backtest(
     elig_traj = np.array([
         _pad_portfolio_to(p["portfolio"], retirement_years + 1) for p in stats_eligible
     ])
-    elig_wd = np.array([
-        _pad_withdrawals_to(p["withdrawals"], retirement_years) for p in stats_eligible
-    ])
 
     success_rate = compute_success_rate(elig_traj, retirement_years)
     funded_ratio = compute_funded_ratio(elig_traj, retirement_years)
@@ -342,6 +339,11 @@ def run_sim_batch_backtest(
     wd_mat = np.array([p["withdrawals"] for p in complete])
 
     stats = compute_statistics(traj, retirement_years, wd_mat)
+    # Override stats' complete-only success_rate/funded_ratio with the
+    # censored-aware values so final_values_summary stays consistent with
+    # the top-level metrics.
+    stats.success_rate = success_rate
+    stats.funded_ratio = funded_ratio
     summary_df = final_values_summary_table(stats)
 
     real_ret_mat = np.array([p["_real_returns"] for p in complete])
@@ -539,14 +541,15 @@ def run_guardrail_batch_backtest(
 
     # --- 聚合 ---
     # success_rate / funded_ratio 用 (完整 ∪ 已失败不完整);分位数轨迹仅用完整路径。
-    # g 与 b 各自有独立的 has_failed 判定,因此 eligible 集合可能不同。
+    # g 与 b 各自有独立的 has_failed 判定,因此 eligible 集合可能不同 → 单独暴露
+    # num_excluded_g / num_excluded_b 让 baseline 分母也能被 UI 重建。
     complete = [p for p in paths if p["is_complete"]]
     g_incomp_failed = [p for p in paths if (not p["is_complete"]) and p["g_has_failed"]]
     b_incomp_failed = [p for p in paths if (not p["is_complete"]) and p["b_has_failed"]]
     g_eligible = complete + g_incomp_failed
     b_eligible = complete + b_incomp_failed
-    # 主展示口径: g 视角的 num_excluded
-    num_excluded = len(paths) - len(g_eligible)
+    num_excluded_g = len(paths) - len(g_eligible)
+    num_excluded_b = len(paths) - len(b_eligible)
 
     if len(g_eligible) == 0 and len(b_eligible) == 0:
         return {
@@ -554,7 +557,8 @@ def run_guardrail_batch_backtest(
             "num_paths": len(paths),
             "num_incomplete_failed_g": 0,
             "num_incomplete_failed_b": 0,
-            "num_excluded": num_excluded,
+            "num_excluded_g": num_excluded_g,
+            "num_excluded_b": num_excluded_b,
             "paths": paths,
         }
 
@@ -610,7 +614,8 @@ def run_guardrail_batch_backtest(
         "num_complete": len(complete),
         "num_incomplete_failed_g": len(g_incomp_failed),
         "num_incomplete_failed_b": len(b_incomp_failed),
-        "num_excluded": num_excluded,
+        "num_excluded_g": num_excluded_g,
+        "num_excluded_b": num_excluded_b,
         "g_success_rate": g_success,
         "g_funded_ratio": g_fr,
         "b_success_rate": b_success,
@@ -629,7 +634,8 @@ def _empty_guardrail_batch_result() -> dict:
         "num_complete": 0,
         "num_incomplete_failed_g": 0,
         "num_incomplete_failed_b": 0,
-        "num_excluded": 0,
+        "num_excluded_g": 0,
+        "num_excluded_b": 0,
         "g_success_rate": 0.0,
         "g_funded_ratio": 0.0,
         "b_success_rate": 0.0,

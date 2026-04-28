@@ -713,10 +713,13 @@ export function SimulatorClient() {
                                 {!p.is_complete && <span className="ml-1 text-xs text-amber-600">*</span>}
                               </td>
                               <td className="px-3 py-1.5 text-center">
-                                {p.survived
-                                  ? <span className="text-green-600">✓</span>
-                                  : <span className="text-red-500">✗</span>
-                                }
+                                {p.has_failed ? (
+                                  <span className="text-red-500" title={tc("statusFailed")}>✗</span>
+                                ) : p.is_complete ? (
+                                  <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
+                                ) : (
+                                  <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
+                                )}
                               </td>
                               <td className="px-3 py-1.5 text-right font-mono">{fmt(Math.min(...p.withdrawals))}</td>
                               <td className="px-3 py-1.5 text-right font-mono">{fmt(p.final_portfolio)}</td>

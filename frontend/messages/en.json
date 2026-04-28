@@ -39,7 +39,10 @@
     "pinBaseline": "Pin as Baseline",
     "unpinBaseline": "Unpin Baseline",
     "exportPdf": "Export PDF",
-    "successRateDenominator": "Denominator = {complete} complete paths + {failed} incomplete paths with confirmed failure; {excluded} more paths excluded (insufficient data)"
+    "successRateDenominator": "Denominator = {complete} complete paths + {failed} incomplete paths with confirmed failure; {excluded} more paths excluded (insufficient data)",
+    "statusSuccess": "Success (full retirement period)",
+    "statusFailed": "Failed (observed depletion or sub-floor withdrawal)",
+    "statusCensored": "Insufficient data (censored)"
   },
   "scenarioManager": {
     "save": "Save",

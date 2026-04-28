@@ -803,12 +803,12 @@ export default function GuardrailPage() {
                     <MetricCard label={t("baselineSuccess")} value={pct(batchResult.b_success_rate)} tooltip={tc("successRateHelp")} />
                     <MetricCard label={t("baselineFundedRatio")} value={pct(batchResult.b_funded_ratio)} tooltip={tc("fundedRatioHelp")} />
                   </div>
-                  {(batchResult.num_incomplete_failed_g ?? 0) > 0 || (batchResult.num_excluded ?? 0) > 0 ? (
+                  {(batchResult.num_incomplete_failed_g ?? 0) > 0 || (batchResult.num_excluded_g ?? 0) > 0 ? (
                     <p className="text-xs text-muted-foreground">
                       {tc("successRateDenominator", {
                         complete: batchResult.num_complete,
                         failed: batchResult.num_incomplete_failed_g ?? 0,
-                        excluded: batchResult.num_excluded ?? 0,
+                        excluded: batchResult.num_excluded_g ?? 0,
                       })}
                     </p>
                   ) : (
@@ -976,10 +976,22 @@ export default function GuardrailPage() {
                                   {!p.is_complete && <span className="ml-1 text-xs text-amber-600">*</span>}
                                 </td>
                                 <td className="px-3 py-1.5 text-center">
-                                  {p.g_survived ? <span className="text-green-600">✓</span> : <span className="text-red-500">✗</span>}
+                                  {p.g_has_failed ? (
+                                    <span className="text-red-500" title={tc("statusFailed")}>✗</span>
+                                  ) : p.is_complete ? (
+                                    <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
+                                  ) : (
+                                    <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
+                                  )}
                                 </td>
                                 <td className="px-3 py-1.5 text-center">
-                                  {p.b_survived ? <span className="text-green-600">✓</span> : <span className="text-red-500">✗</span>}
+                                  {p.b_has_failed ? (
+                                    <span className="text-red-500" title={tc("statusFailed")}>✗</span>
+                                  ) : p.is_complete ? (
+                                    <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
+                                  ) : (
+                                    <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
+                                  )}
                                 </td>
                                 <td className="px-3 py-1.5 text-right font-mono">{fmt(Math.min(...p.g_withdrawals))}</td>
                                 <td className="px-3 py-1.5 text-right font-mono">{fmt(p.g_final_portfolio)}</td>
