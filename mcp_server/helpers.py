@@ -42,6 +42,9 @@ def safe_call(func: Callable) -> Callable:
     return wrapper
 
 
+_ALLOC_KEYS = ("domestic_stock", "global_stock", "domestic_bond")
+
+
 def _alloc_from_stock_pct(stock_pct: float) -> dict[str, float]:
     """Convenience: split stock_pct equally into domestic_stock / global_stock.
 
@@ -56,6 +59,55 @@ def _alloc_from_stock_pct(stock_pct: float) -> dict[str, float]:
         "global_stock": half,
         "domestic_bond": round(1.0 - stock_pct, 6),
     }
+
+
+def _resolve_allocation(
+    allocation: dict | None,
+    stock_pct: float,
+) -> dict[str, float]:
+    """Validate an explicit allocation dict or fall back to stock_pct.
+
+    Mirrors backend.schemas.AllocationSchema: each weight in [0, 1] and the
+    three weights sum to ~1.0 (tolerance 0.01). Without this guard a caller
+    could pass UI-style integers like {"domestic_stock": 40, ...} and the
+    simulator would happily run with garbage allocations.
+    """
+    if allocation is None:
+        return _alloc_from_stock_pct(stock_pct)
+
+    missing = [k for k in _ALLOC_KEYS if k not in allocation]
+    if missing:
+        raise ValueError(
+            f"allocation missing required keys: {missing}. "
+            f"Expected all of {list(_ALLOC_KEYS)} as floats in [0,1]."
+        )
+    extra = [k for k in allocation if k not in _ALLOC_KEYS]
+    if extra:
+        raise ValueError(
+            f"allocation contains unexpected keys: {extra}. "
+            f"Expected exactly {list(_ALLOC_KEYS)}."
+        )
+
+    out: dict[str, float] = {}
+    for k in _ALLOC_KEYS:
+        v = allocation[k]
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            raise ValueError(f"allocation[{k!r}] must be a number, got {type(v).__name__}")
+        v = float(v)
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(
+                f"allocation[{k!r}]={v} out of range. Use decimal fractions in [0,1] "
+                f"(e.g. 0.4 for 40%, not 40)."
+            )
+        out[k] = v
+
+    total = sum(out.values())
+    if abs(total - 1.0) > 0.01:
+        raise ValueError(
+            f"allocation must sum to 1.0 (got {total:.4f}). "
+            f"Use decimal fractions, not percentages."
+        )
+    return out
 
 
 def _validate_country(country: str, data_source: str) -> str:

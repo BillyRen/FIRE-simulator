@@ -38,10 +38,14 @@ from simulator.statistics import (
 
 from mcp_server.helpers import (
     safe_call,
-    _alloc_from_stock_pct,
+    _resolve_allocation,
     _resolve_data,
     _build_notes,
 )
+
+
+_MAX_SIMS = 20_000
+_MAX_SIMS_GUARDRAIL = 5_000
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +115,9 @@ def fire_simulate(
       - data_source='fire_dataset' + country='ALL' silently coerces to 'USA'.
       - leverage>1.0 applies borrowing at 2% real spread above bond yield.
     """
-    alloc = allocation or _alloc_from_stock_pct(stock_pct)
-    if num_simulations > 20_000:
-        raise ValueError("num_simulations capped at 20_000 for MCP")
+    alloc = _resolve_allocation(allocation, stock_pct)
+    if num_simulations > _MAX_SIMS:
+        raise ValueError(f"num_simulations capped at {_MAX_SIMS:_} for MCP")
 
     filtered, country_dfs, weights = _resolve_data(country, data_source, data_start_year)
 
@@ -198,9 +202,9 @@ def fire_sweep_withdrawal(
     Tip: For a one-shot "what's the SWR at 85% success?" answer, use
     fire_swr_for_target instead — it returns just the number you want.
     """
-    alloc = allocation or _alloc_from_stock_pct(stock_pct)
-    if num_simulations > 20_000:
-        raise ValueError("num_simulations capped at 20_000 for MCP")
+    alloc = _resolve_allocation(allocation, stock_pct)
+    if num_simulations > _MAX_SIMS:
+        raise ValueError(f"num_simulations capped at {_MAX_SIMS:_} for MCP")
 
     filtered, country_dfs, weights = _resolve_data(country, data_source, data_start_year)
 
@@ -281,8 +285,10 @@ def fire_swr_for_target(
     """
     if not 0.0 < target_success < 1.0:
         raise ValueError(f"target_success must be in (0,1), got {target_success}")
+    if num_simulations > _MAX_SIMS:
+        raise ValueError(f"num_simulations capped at {_MAX_SIMS:_} for MCP")
 
-    alloc = allocation or _alloc_from_stock_pct(stock_pct)
+    alloc = _resolve_allocation(allocation, stock_pct)
     filtered, country_dfs, weights = _resolve_data(country, data_source, data_start_year)
 
     scenarios, infl = pregenerate_return_scenarios(
@@ -373,12 +379,14 @@ def fire_guardrail(
     is the user's preferred baseline. Set num_simulations >= 2000 for stable
     effFR (capped at 5000 to bound memory).
     """
-    if num_simulations > 5_000:
-        raise ValueError("fire_guardrail num_simulations capped at 5_000 (memory)")
+    if num_simulations > _MAX_SIMS_GUARDRAIL:
+        raise ValueError(
+            f"fire_guardrail num_simulations capped at {_MAX_SIMS_GUARDRAIL:_} (memory)"
+        )
     if lower_guardrail >= upper_guardrail:
         raise ValueError(f"lower_guardrail ({lower_guardrail}) must be < upper_guardrail ({upper_guardrail})")
 
-    alloc = allocation or _alloc_from_stock_pct(stock_pct)
+    alloc = _resolve_allocation(allocation, stock_pct)
     filtered, country_dfs, weights = _resolve_data(country, data_source, data_start_year)
 
     scenarios, infl = pregenerate_return_scenarios(
