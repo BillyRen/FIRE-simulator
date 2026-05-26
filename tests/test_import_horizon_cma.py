@@ -157,6 +157,97 @@ def test_validation_failure_prevents_any_file_write(
     assert "FAIL" in captured.out or "FAIL" in captured.err
 
 
+def test_atomic_write_rolls_back_when_second_replace_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Codex P2 finding: if first os.replace succeeds and second fails, the
+    paired files must remain at their original state (not mixed-version).
+
+    Reproducer: write a "v1" pair successfully, then attempt to write "v2"
+    where the second os.replace raises. After failure, both target files
+    must still contain v1 data.
+    """
+    assets_v1 = _good_assets()
+    asset_names = [a["asset"] for a in assets_v1 if a["asset"] != "Inflation"]
+    assets_csv = tmp_path / "horizon_test_assets.csv"
+    corr_csv = tmp_path / "horizon_test_corr.csv"
+
+    # First pass: clean write of v1
+    ihc._atomic_write_csvs(assets_csv, corr_csv, assets_v1, asset_names, _good_corr())
+    v1_assets_content = assets_csv.read_text()
+    v1_corr_content = corr_csv.read_text()
+
+    # Patch os.replace to fail on the *second* replace call (mimics partial IO failure)
+    original_replace = ihc.os.replace
+    call_count = {"n": 0}
+
+    def selective_replace(src: Path, dst: Path) -> None:
+        # The sequence inside _atomic_write_csvs is:
+        #   replace(assets_csv, bak_assets)
+        #   replace(corr_csv, bak_corr)
+        #   replace(tmp_assets, assets_csv)   ← we count this
+        #   replace(tmp_corr, corr_csv)       ← and fail here
+        # Only counting promote-temps phase by path destination.
+        call_count["n"] += 1
+        if call_count["n"] == 4:  # second temp→target replace
+            raise OSError("simulated second-replace failure")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(ihc.os, "replace", selective_replace)
+
+    assets_v2 = _good_assets()
+    assets_v2[0]["arith_10yr"] = 0.099  # marker value different from v1
+    with pytest.raises(OSError, match="simulated second-replace failure"):
+        ihc._atomic_write_csvs(assets_csv, corr_csv, assets_v2, asset_names, _good_corr())
+
+    # Both files must be back to v1 state, no mixed-version pair
+    assert assets_csv.read_text() == v1_assets_content, (
+        "assets.csv should have been rolled back to v1 after second-replace failure"
+    )
+    assert corr_csv.read_text() == v1_corr_content, (
+        "corr.csv should remain v1 (it was the one that failed to promote)"
+    )
+    # No sidecars left behind
+    assert not (tmp_path / "horizon_test_assets.csv.tmp").exists()
+    assert not (tmp_path / "horizon_test_corr.csv.tmp").exists()
+    assert not (tmp_path / "horizon_test_assets.csv.bak").exists()
+    assert not (tmp_path / "horizon_test_corr.csv.bak").exists()
+
+
+def test_atomic_write_first_run_failure_leaves_clean_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If there's no prior file and the second replace fails, the partially-
+    promoted first file must be deleted (no orphan)."""
+    assets = _good_assets()
+    asset_names = [a["asset"] for a in assets if a["asset"] != "Inflation"]
+    assets_csv = tmp_path / "horizon_first_assets.csv"
+    corr_csv = tmp_path / "horizon_first_corr.csv"
+
+    original_replace = ihc.os.replace
+    call_count = {"n": 0}
+
+    def selective_replace(src: Path, dst: Path) -> None:
+        # First run: no backup phase (originals don't exist), so the first
+        # two replace calls are the temp→target promotions.
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise OSError("simulated first-run second-replace failure")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(ihc.os, "replace", selective_replace)
+
+    with pytest.raises(OSError):
+        ihc._atomic_write_csvs(assets_csv, corr_csv, assets, asset_names, _good_corr())
+
+    assert not assets_csv.exists(), "Partially-promoted assets.csv must be deleted on first-run failure"
+    assert not corr_csv.exists()
+    # No sidecars
+    for suffix in (".tmp", ".bak"):
+        assert not (assets_csv.with_name(assets_csv.name + suffix)).exists()
+        assert not (corr_csv.with_name(corr_csv.name + suffix)).exists()
+
+
 def test_display_path_inside_repo() -> None:
     p = ROOT / "data" / "cme" / "horizon_2025_assets.csv"
     s = ihc._display_path(p)

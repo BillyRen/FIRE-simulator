@@ -332,26 +332,85 @@ def _atomic_write_csvs(
     asset_names: list[str],
     corr: np.ndarray,
 ) -> None:
-    """Write both CSVs via temp files + os.replace for crash safety.
+    """Write both CSVs as an all-or-nothing pair, with full rollback.
 
-    If either write or rename raises, the temp files are cleaned up so the
-    final paths remain either pristine (their pre-call state) or successfully
-    overwritten — never partially written.
+    Two os.replace() calls cannot themselves be atomic at the filesystem
+    level. To guarantee that data/cme/ never ends up with a mixed-version
+    pair (new assets + old corr, or vice versa), we:
+
+      1. Stage both new CSVs to .tmp sidecars.
+      2. Move existing targets to .bak sidecars (preserve originals).
+      3. Promote temps to targets in sequence.
+      4. On any exception, revert any partial state from steps 2/3 using
+         the .bak sidecars (or delete a freshly-promoted file when the
+         original never existed).
+
+    Limitation: this does NOT protect against process kill -9 between the
+    two replace calls. Crash protection would require filesystem
+    journaling. The helper only protects against exceptions from os.replace
+    or earlier steps.
     """
     tmp_assets = assets_csv.with_name(assets_csv.name + ".tmp")
     tmp_corr = corr_csv.with_name(corr_csv.name + ".tmp")
+    bak_assets = assets_csv.with_name(assets_csv.name + ".bak")
+    bak_corr = corr_csv.with_name(corr_csv.name + ".bak")
+
+    assets_was_moved = False     # original assets_csv → bak_assets
+    corr_was_moved = False       # original corr_csv → bak_corr
+    assets_was_replaced = False  # tmp_assets → assets_csv (new content live)
+    corr_was_replaced = False    # tmp_corr → corr_csv (success)
+
     try:
         write_assets_csv(tmp_assets, assets)
         write_corr_csv(tmp_corr, asset_names, corr)
+
+        if assets_csv.exists():
+            os.replace(assets_csv, bak_assets)
+            assets_was_moved = True
+        if corr_csv.exists():
+            os.replace(corr_csv, bak_corr)
+            corr_was_moved = True
+
         os.replace(tmp_assets, assets_csv)
+        assets_was_replaced = True
         os.replace(tmp_corr, corr_csv)
+        corr_was_replaced = True
     except Exception:
-        for f in (tmp_assets, tmp_corr):
-            try:
-                f.unlink(missing_ok=True)
-            except OSError:
-                pass
+        # Roll back any partial progress so the final paths return to their
+        # pre-call state (either restored from .bak or absent if first run).
+        if assets_was_replaced and not corr_was_replaced:
+            # assets_csv has new content; revert to original (or delete).
+            if assets_was_moved:
+                _safe_replace(bak_assets, assets_csv)
+            else:
+                _safe_unlink(assets_csv)
+        if assets_was_moved and not assets_was_replaced:
+            # assets_csv was moved aside but not yet replaced → restore.
+            _safe_replace(bak_assets, assets_csv)
+        if corr_was_moved and not corr_was_replaced:
+            _safe_replace(bak_corr, corr_csv)
         raise
+    finally:
+        # Always best-effort clean up temp + backup sidecars regardless
+        # of success or failure path.
+        for sidecar in (tmp_assets, tmp_corr, bak_assets, bak_corr):
+            _safe_unlink(sidecar)
+
+
+def _safe_replace(src: Path, dst: Path) -> None:
+    """os.replace that swallows OSError (best-effort rollback)."""
+    try:
+        os.replace(src, dst)
+    except OSError:
+        pass
+
+
+def _safe_unlink(path: Path) -> None:
+    """unlink that swallows OSError (best-effort cleanup)."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def main() -> int:
