@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import re
 import subprocess
 import sys
@@ -253,12 +254,13 @@ def validate(assets: list[dict], corr: np.ndarray) -> list[str]:
     return errors
 
 
-def main() -> int:
+def main_with_args(argv: list[str] | None = None) -> int:
+    """Testable entrypoint. Pass argv explicitly from tests; pass None from CLI."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--pdf", type=Path, help="Path to Horizon CMA survey PDF.")
     parser.add_argument("--year", type=int, help="Edition year (for filename resolution).")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="Output directory for CSVs.")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     pdf_path: Path | None = args.pdf
     if pdf_path is None:
@@ -285,11 +287,9 @@ def main() -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     assets_csv = args.out_dir / f"horizon_{year}_assets.csv"
     corr_csv = args.out_dir / f"horizon_{year}_corr.csv"
-    write_assets_csv(assets_csv, assets)
-    write_corr_csv(corr_csv, asset_names, corr)
-    print(f"  -> {assets_csv.relative_to(ROOT)} ({len(assets)} rows)")
-    print(f"  -> {corr_csv.relative_to(ROOT)} ({corr.shape[0]}x{corr.shape[1]})")
 
+    # Validate parsed in-memory data BEFORE touching the filesystem.
+    # This prevents corrupted CSVs from being left behind on partial failures.
     print("\nValidation:")
     errors = validate(assets, corr)
     if errors:
@@ -302,12 +302,61 @@ def main() -> int:
     print(f"  OK   PSD (eigenvalues min={eigvals.min():.4f}, max={eigvals.max():.4f})")
     print(f"  OK   arith >= geom for all assets/horizons")
     print(f"  OK   returns and volatilities in plausible bounds")
+
+    # Write to temp files then atomically rename. If anything fails mid-way,
+    # clean up the temp files so the final paths are never partially written.
+    _atomic_write_csvs(assets_csv, corr_csv, assets, asset_names, corr)
+    print(f"  -> {_display_path(assets_csv)} ({len(assets)} rows)")
+    print(f"  -> {_display_path(corr_csv)} ({corr.shape[0]}x{corr.shape[1]})")
+
     print("\nSpot checks (10-year geometric):")
     for target in ("US Equity - Large Cap", "US Treasuries (Cash Equivalents)", "Inflation"):
         row = next((a for a in assets if a["asset"] == target), None)
         if row:
             print(f"  {target:40s}  {row['geom_10yr'] * 100:5.2f}%   σ={row['std_dev'] * 100:5.2f}%")
     return 0
+
+
+def _display_path(path: Path) -> str:
+    """Render path relative to repo root when possible, else absolute."""
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path.resolve())
+
+
+def _atomic_write_csvs(
+    assets_csv: Path,
+    corr_csv: Path,
+    assets: list[dict],
+    asset_names: list[str],
+    corr: np.ndarray,
+) -> None:
+    """Write both CSVs via temp files + os.replace for crash safety.
+
+    If either write or rename raises, the temp files are cleaned up so the
+    final paths remain either pristine (their pre-call state) or successfully
+    overwritten — never partially written.
+    """
+    tmp_assets = assets_csv.with_name(assets_csv.name + ".tmp")
+    tmp_corr = corr_csv.with_name(corr_csv.name + ".tmp")
+    try:
+        write_assets_csv(tmp_assets, assets)
+        write_corr_csv(tmp_corr, asset_names, corr)
+        os.replace(tmp_assets, assets_csv)
+        os.replace(tmp_corr, corr_csv)
+    except Exception:
+        for f in (tmp_assets, tmp_corr):
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+
+def main() -> int:
+    """CLI entrypoint. Reads sys.argv via main_with_args."""
+    return main_with_args(None)
 
 
 if __name__ == "__main__":

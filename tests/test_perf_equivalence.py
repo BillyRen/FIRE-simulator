@@ -577,3 +577,184 @@ class TestNominalCFEdgeCases:
         )
         assert sr_vec == sr_sc
         assert fr_vec == fr_sc
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Equivalence fixtures (PR-0)
+# ─────────────────────────────────────────────────────────────────────
+# Captured by scripts/capture_equivalence_fixtures.py from HEAD before any
+# bootstrap/sampling refactor. Subsequent PRs in the CME + yield-conditioning
+# series MUST keep these tests passing for unchanged inputs (data_source /
+# country / yield filter all at defaults).
+
+import json
+from pathlib import Path
+
+import pandas as pd
+
+from simulator.bootstrap import (
+    HOUSING_COLS,
+    RETURN_COLS,
+    _prepare_pooled_arrays,
+    block_bootstrap_np,
+    block_bootstrap_pooled_np,
+)
+from simulator.config import get_gdp_weights
+from simulator.data_loader import (
+    filter_by_country,
+    filter_housing_data,
+    get_country_dfs,
+    load_fire_dataset,
+    load_returns_data,
+)
+from simulator.monte_carlo import run_simulation
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+_REQUIRED_META_KEYS = {
+    "scenario", "numpy_version", "pandas_version", "python_version",
+    "git_sha", "seed", "params", "created_at",
+}
+
+# Must match scripts/capture_equivalence_fixtures.py
+_SEED = 42
+_NUM_SIMS = 200
+_RETIREMENT_YEARS = 65
+_MIN_BLOCK = 5
+_MAX_BLOCK = 15
+_DATA_START_YEAR = 1900
+_INITIAL_PORTFOLIO = 1_000_000.0
+_ANNUAL_WITHDRAWAL = 40_000.0
+_ALLOCATION = {"domestic_stock": 0.4, "global_stock": 0.4, "domestic_bond": 0.2}
+_EXPENSE_RATIOS = {"domestic_stock": 0.005, "global_stock": 0.005, "domestic_bond": 0.005}
+_BVR_YEARS = 30
+
+
+def _load_fixture(name: str) -> dict:
+    path = _FIXTURES_DIR / f"equiv_{name}.npz"
+    if not path.exists():
+        pytest.skip(
+            f"Fixture {path.name} not found — generate via "
+            f"`python scripts/capture_equivalence_fixtures.py`"
+        )
+    raw = np.load(path, allow_pickle=False)
+    meta_str = str(raw["metadata"])
+    meta = json.loads(meta_str)
+    return {"raw": raw, "meta": meta}
+
+
+def _replay_bootstrap(
+    *, returns_df, country_dfs, country_weights, columns, num_sims, retirement_years
+) -> np.ndarray:
+    """Replay the exact bootstrap stream used at capture time."""
+    rng = np.random.default_rng(_SEED)
+    out = np.empty((num_sims, retirement_years, len(columns)), dtype=np.float64)
+    if country_dfs is not None:
+        _, c_arrays, c_lens, c_probs = _prepare_pooled_arrays(
+            country_dfs, country_weights, columns
+        )
+        for i in range(num_sims):
+            out[i] = block_bootstrap_pooled_np(
+                c_arrays, c_lens, c_probs,
+                retirement_years, _MIN_BLOCK, _MAX_BLOCK, rng=rng,
+            )
+    else:
+        src = returns_df[columns].values
+        for i in range(num_sims):
+            out[i] = block_bootstrap_np(
+                src, len(src), retirement_years, _MIN_BLOCK, _MAX_BLOCK, rng=rng,
+            )
+    return out
+
+
+def _replay_sim(returns_df, country_dfs, country_weights) -> tuple:
+    return run_simulation(
+        initial_portfolio=_INITIAL_PORTFOLIO,
+        annual_withdrawal=_ANNUAL_WITHDRAWAL,
+        allocation=_ALLOCATION,
+        expense_ratios=_EXPENSE_RATIOS,
+        retirement_years=_RETIREMENT_YEARS,
+        min_block=_MIN_BLOCK,
+        max_block=_MAX_BLOCK,
+        num_simulations=_NUM_SIMS,
+        returns_df=returns_df,
+        seed=_SEED,
+        country_dfs=country_dfs,
+        country_weights=country_weights,
+    )
+
+
+class TestEquivalenceFixtures:
+    """Backward-compat anchors captured before bootstrap/sampling refactor."""
+
+    @pytest.mark.parametrize("name", ["default", "pooled", "fire", "buy_vs_rent"])
+    def test_fixtures_exist(self, name):
+        path = _FIXTURES_DIR / f"equiv_{name}.npz"
+        assert path.is_file(), f"Fixture missing: {path}"
+
+    @pytest.mark.parametrize("name", ["default", "pooled", "fire", "buy_vs_rent"])
+    def test_fixtures_metadata_recorded(self, name):
+        fx = _load_fixture(name)
+        missing = _REQUIRED_META_KEYS - set(fx["meta"].keys())
+        assert not missing, f"Missing metadata keys in {name}: {missing}"
+        assert fx["meta"]["seed"] == _SEED
+        assert fx["meta"]["scenario"] == name
+
+    def test_default_request_matches_fixture(self):
+        fx = _load_fixture("default")
+        df = load_returns_data()
+        filtered = filter_by_country(df, "USA", _DATA_START_YEAR)
+        # Bootstrap layer
+        boot = _replay_bootstrap(
+            returns_df=filtered, country_dfs=None, country_weights=None,
+            columns=RETURN_COLS, num_sims=_NUM_SIMS, retirement_years=_RETIREMENT_YEARS,
+        )
+        np.testing.assert_array_equal(boot, fx["raw"]["bootstrap_returns"])
+        # Full pipeline
+        traj, wd, real_ret, infl = _replay_sim(filtered, None, None)
+        np.testing.assert_array_equal(traj, fx["raw"]["sim_trajectories"])
+        np.testing.assert_array_equal(wd, fx["raw"]["sim_withdrawals"])
+        np.testing.assert_array_equal(real_ret, fx["raw"]["sim_real_returns"])
+        np.testing.assert_array_equal(infl, fx["raw"]["sim_inflation"])
+
+    def test_pooled_request_matches_fixture(self):
+        fx = _load_fixture("pooled")
+        df = load_returns_data()
+        country_dfs = get_country_dfs(df, _DATA_START_YEAR)
+        country_weights = get_gdp_weights(list(country_dfs.keys()))
+        combined = pd.concat(country_dfs.values(), ignore_index=True)
+        boot = _replay_bootstrap(
+            returns_df=None, country_dfs=country_dfs, country_weights=country_weights,
+            columns=RETURN_COLS, num_sims=_NUM_SIMS, retirement_years=_RETIREMENT_YEARS,
+        )
+        np.testing.assert_array_equal(boot, fx["raw"]["bootstrap_returns"])
+        traj, wd, real_ret, infl = _replay_sim(combined, country_dfs, country_weights)
+        np.testing.assert_array_equal(traj, fx["raw"]["sim_trajectories"])
+        np.testing.assert_array_equal(wd, fx["raw"]["sim_withdrawals"])
+        np.testing.assert_array_equal(real_ret, fx["raw"]["sim_real_returns"])
+        np.testing.assert_array_equal(infl, fx["raw"]["sim_inflation"])
+
+    def test_fire_dataset_matches_fixture(self):
+        fx = _load_fixture("fire")
+        df = load_fire_dataset()
+        filtered = filter_by_country(df, "USA", _DATA_START_YEAR)
+        boot = _replay_bootstrap(
+            returns_df=filtered, country_dfs=None, country_weights=None,
+            columns=RETURN_COLS, num_sims=_NUM_SIMS, retirement_years=_RETIREMENT_YEARS,
+        )
+        np.testing.assert_array_equal(boot, fx["raw"]["bootstrap_returns"])
+        traj, wd, real_ret, infl = _replay_sim(filtered, None, None)
+        np.testing.assert_array_equal(traj, fx["raw"]["sim_trajectories"])
+        np.testing.assert_array_equal(wd, fx["raw"]["sim_withdrawals"])
+        np.testing.assert_array_equal(real_ret, fx["raw"]["sim_real_returns"])
+        np.testing.assert_array_equal(infl, fx["raw"]["sim_inflation"])
+
+    def test_buy_vs_rent_matches_fixture(self):
+        fx = _load_fixture("buy_vs_rent")
+        df = load_returns_data()
+        filtered = filter_housing_data(df, "USA", _DATA_START_YEAR)
+        columns = RETURN_COLS + HOUSING_COLS
+        boot = _replay_bootstrap(
+            returns_df=filtered, country_dfs=None, country_weights=None,
+            columns=columns, num_sims=_NUM_SIMS, retirement_years=_BVR_YEARS,
+        )
+        np.testing.assert_array_equal(boot, fx["raw"]["bootstrap_returns"])
