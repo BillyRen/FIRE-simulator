@@ -11,7 +11,7 @@
 
 | ID | Tier | 参数 | SWR | POOL effSR | 4-src min effSR | 54-env fail count | 54-env min CEW | 推荐场景 |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| **A** | 保守 ★ | `tgt=0.95 up=0.99 lo=0.80 adj=0.05 amount mr=1` | 2.37% | 0.964 | **0.957** ✓ | **18/54** | **$34,925** ✓ | Default / 全部 stress test 通过 |
+| **A** | 保守 ★ | `tgt=0.95 up=0.99 lo=0.80 adj=0.05 amount mr=1` | 2.37% | 0.964 | **0.957** ✓ | **18/54** | **$34,925** ✓ | Default / 4-src 全过 + 54-env fails 最少且 CEW 不崩塌 |
 | **B** | 旧推荐 (v1) | `tgt=0.85 up=0.99 lo=0.70 adj=0.10 amount mr=5` | 3.31% | 0.901 | 0.883 ✓ | 27/54 | ≈ 0 ⚠️ | 平衡水平 / 想要更高消费 |
 | **C** | 激进 | `tgt=0.80 up=0.99 lo=0.50 adj=0.10 amount mr=1` | 3.70% | 0.859 | 0.844 ⚠ | 36/54 | ≈ 0 ⚠️ | 早期高消费 / 接受较大调整 |
 | **D** | 综合-高 CEW | `tgt=0.85 up=0.90 lo=0.50 adj=0.15 amount mr=10` | 3.31% | 0.864 | 0.843 ⚠ | 35/54 | ≈ 0 ⚠️ | CEW > $51K / 接受 4-src 边际 |
@@ -135,5 +135,6 @@
 ## 复现性
 
 - 候选 B 和 D 的 4-src + 54-env 数据由 `analysis/guardrail_v2_validate_candidates.py` 添加到原 `cross_source.csv` (124 rows) 和 `sensitivity.csv` (8208 rows)
-- 汇总表 `analysis/output/guardrail_v2/final_candidates_summary.csv`
+- 汇总表 `analysis/output/guardrail_v2/final_candidates_summary.csv` 包含 5 行：4 个 final（A/B/C/D, `status=final`）+ 1 个 dropped（X Max-CEW, `status=dropped`，保留用于"上界参考"）。`status` 列必读以区分推荐与已淘汰候选。
+- 生成脚本：`analysis/guardrail_v2_summarize_final.py`
 - 所有 4 候选可在 v2 baseline_grid.csv 中查到原始 5-seed 平均
