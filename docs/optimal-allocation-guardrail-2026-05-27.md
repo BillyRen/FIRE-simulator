@@ -70,7 +70,7 @@
 | 9 | 50/40/10 | 30/70/00 | ✅(序变) |
 | 10 | 50/50/00 | 10/70/20 | — |
 
-→ **保留了 v1 fixed 的核心结论**：Stock ≥ 70% / Bond 0-30% / Dom-Intl 比例 20-50:40-70。10 个中 8 个重叠。
+→ **保留了 v1 fixed 的核心结论**：Stock ≥ 70% / Bond 0-30% / Dom-Intl 比例 20-50:40-70。10 个中 8 个重叠：guardrail 多出 `20/50/30` 和 `10/70/20`（更偏 Bond/Intl），v1 fixed 多出 `50/40/10` 和 `50/50/00`（更偏 Dom）——差异都在 1 个 alloc step 内的近邻区域，不改变结论方向。
 
 ## 4. Per-scenario 最优配置（按 eff_FR）的 trap
 
@@ -140,7 +140,7 @@ USA、AUS、CHE 在 eff_FR 视角下都是"100% bond / 90% bond"获胜，init_SW
 - 二者权衡：**高消费但波动 vs 低消费但稳定**。
 
 ### 8.3 切不要在 guardrail 下推 100% Bond
-- USA 100% bond 在 target=0.85 下 init_SWR 仅 1.66%（年 wd $16,600 on $1M），P10_wd 仅 $9,111（含破产路径 wd=0）——退休生活质量远低于 stock-heavy alloc 的可承受下限。
+- USA 100% bond 在 target=0.85 下 init_SWR 仅 1.66%（年 wd $16,600 on $1M），P10_wd 仅 $11,386——退休生活质量远低于 stock-heavy alloc 的可承受下限。
 - 单一 eff_FR 视角下"100% bond 最优"是评估指标人为造成的假象。
 
 ## 9. 与 Memory 的关系
