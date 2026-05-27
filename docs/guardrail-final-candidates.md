@@ -50,7 +50,7 @@
 
 **机理**：在 `with_cfs=True + long horizon + high floor` 极端 env 下，guardrail 触发后 wd 削减按 `(1 - adj)` 倍数缩放。`adj=0.05` 表示每次只削 5% → wd 缓慢下降可被市场回升追回；`adj ≥ 0.15` 表示每次削 ≥15% → 触发频繁时 wd 一路向下跌进 0 附近不再回升。
 
-**应用建议**：如果你重视 long-horizon worst-case 消费水平（不只是 effSR 不破产），**首选 `adj=0.05` 参数**——即 A (tgt=0.95) 或 E (tgt=0.80)。两者只在 SWR 起点不同（2.37% vs 3.70%）。**避开 `adj ≥ 0.15`**（包括 v2 综合 ranking Top-1 即 D 候选）。
+**应用建议**：如果你重视 long-horizon worst-case 消费水平（不只是 effSR 不破产），**首选 `adj=0.05` 参数**——即 A (tgt=0.95) 或 F (tgt=0.80)。两者只在 SWR 起点不同（2.37% vs 3.70%）。**避开 `adj ≥ 0.15`**（包括 v2 综合 ranking Top-1 即 D 候选）。
 
 ---
 
@@ -120,7 +120,7 @@
 │
 └── "CEW 最大化、能容忍 robustness 略低" → D 综合-高 CEW
         SWR 3.31% + CEW $51K（比 B 高 12%）
-        4-src min effSR 0.843（vs B 0.883 / E 0.860），CEW 在 long-
+        4-src min effSR 0.843（vs B 0.883 / F 0.853），CEW 在 long-
         horizon CFs 下崩塌（adj=0.15 → 100% 崩塌率）
 ```
 
@@ -184,7 +184,7 @@
 | v1 (2026-03-17) 单一推荐 | `target=85, up=99, lo=70, adj=10, amount, mr=5` | 现 = **候选 B**，仍合理 |
 | v2 §6.4 单一最终推荐 | `target=95, up=99, lo=80, adj=0.05, amount, mr=1` | 现 = **候选 A**，仍合理 |
 | Composite ranking Top-1 | `target=85, up=90, lo=50, adj=15, amount, mr=10` | 现 = **候选 D**，但 robustness 不如 B |
-| Composite Min-max Top-1 | `target=80, up=99, lo=80, adj=05, amount, mr=1` | 原为候选 E（SWR=3.70% sweet spot），后被 user 约束 (lower ≥ target-0.10) 拒绝；改为候选 F (lo=0.70) |
+| Composite Min-max Top-1 | `target=80, up=99, lo=80, adj=05, amount, mr=1` | 原为候选 E（SWR=3.70% sweet spot），后被 user 约束 `lower ≤ target-0.10`（即 gap ≥ 10pp）拒绝；改为候选 F (lo=0.70) |
 
 **v2 报告的"保守档"和"激进档"未变**。**新增**：**候选 B 重新发现**——综合 robustness 验证后，旧推荐在 SWR 3.31% 档是最稳健选择。候选 D 是 explicit CEW-max trade-off。
 
