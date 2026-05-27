@@ -52,7 +52,11 @@ def parse_alloc(s: str) -> tuple[dict, str]:
         tag = "_".join(parts_raw)  # keep "33_67_0" / "29_71_0"
         parts = [p / 100.0 for p in parts]
     else:
-        tag = "_".join(f"{int(round(p * 100))}" for p in parts)
+        # Proportion-style input (0.33/0.67/0). Preserve precision by emitting
+        # the original raw components with '.' replaced by 'p' so the filename
+        # remains shell-safe and never collides with an integer-percent tag.
+        # Example: 0.333/0.667/0 → "0p333_0p667_0", distinct from "33_67_0".
+        tag = "_".join(p.replace(".", "p") for p in parts_raw)
     alloc = {"domestic_stock": parts[0], "global_stock": parts[1], "domestic_bond": parts[2]}
     return alloc, tag
 
