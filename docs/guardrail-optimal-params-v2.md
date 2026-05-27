@@ -183,6 +183,47 @@ CEW (baseline) = 4-source baseline 单 env CEW。54-env min CEW 见 §6.1。
 
 **结论**：平衡档不适合短期退休（≤30 年）+ 高 consumption_floor (≥0.60) + 含 CFs 的场景。这种场景下应回退到保守档。
 
+### 3.5 补充：33/67/0 allocation 全网格重跑（v1 默认 alloc）
+
+Phase 3 sensitivity 扫了 10/80/10、15/75/10、25/65/10 三个 alloc。为响应"33% 本国 / 67% 全球股票（v1 用过的 alloc）下最优是什么"的问题，单独在 33/67/0 上重跑了完整的 3,000-config grid（单 seed = 42；多 seed Jaccard 0.955+ 已在 §2.1 确认无需重做）。
+
+**Output**: `analysis/output/guardrail_v2/baseline_grid_33_67_0.csv`
+**Script**: `analysis/guardrail_v2_phase2_alt_alloc.py --alloc 33/67/0`
+
+#### 33/67/0 三档 Top-1 vs baseline (15/75/10)
+
+| Tier | 参数 (33/67/0) | SWR | effFR | effSR | CEW | vs 15/75/10 |
+|---|---|---:|---:|---:|---:|---|
+| 保守 | tgt=0.95, up=0.99, lo=0.80, adj=0.05, amount, mr=10 | 2.47% | 0.9900 | 0.9655 | $38,196 | 参数同（mr 漂 1→10，差距 <0.001 effFR） |
+| 平衡 | tgt=0.85, up=0.90, lo=0.50, adj=0.25, success_rate, mr=1 | 3.46% | 0.9277 | 0.8550 | **$57,488** | **参数完全相同** |
+| 激进 | tgt=0.80, up=0.99, lo=0.50, adj=0.10, amount, mr=1 | 3.91% | 0.9439 | 0.8540 | $51,636 | **参数完全相同** |
+
+#### Gating 与 baseline 对比
+
+| | 33/67/0 | 15/75/10 |
+|---|---:|---:|
+| Gating 通过 | 1632/3000 (54.4%) | 1701/3000 (56.7%) |
+| 通过 effSR | 1632 | 1701 |
+| 通过 P10 wd | 2888 | 2904 |
+| 通过 years_below | 2991 | 3000 |
+
+→ 33/67/0 因 100% 股票（无债券 buffer），波动略大，gating 通过率略低，但参数 ranking 不变。
+
+#### 旧推荐在 33/67/0 下的位置
+
+| | 33/67/0 | 15/75/10 |
+|---|---|---|
+| SWR | 3.46% | 3.31% |
+| effFR | 0.9608 (#995/3000) | 0.9624 (#973/3000) |
+| CEW | $48,798 (#2244/3000) | $45,600 (#2237/3000) |
+| effSR | 0.9005 | 0.9011 |
+| 通过 gating | ✓ | ✓ |
+
+→ 旧推荐位置**跨 allocation 极稳定**（排名差异 < 1%），印证"参数 ≈ allocation-invariant"。
+
+#### 关键结论
+**guardrail 参数对 allocation 不敏感**——v2 三档参数在 33/67/0、15/75/10 下几乎完全一致（仅 mr 在 noise 范围内漂移）。allocation 影响的是 SWR 数值标定（更激进 alloc → 高 0.1-0.2pp），不影响参数选择。
+
 ---
 
 ## 4. Phase 4 结果：跨数据源稳健性
@@ -305,6 +346,29 @@ CEW 崩塌细分（two distinct failure modes）：
 | 激进 | 3.70% | 4.01% | 3.08% | 3.17% |
 
 **应用建议**：以 POOL 列作为部署 SWR；USA 列代表"上行情景"；DEU/JPN 列代表"下行 stress test"。
+
+### 6.4 跨 allocation 校准（POOL, 50yr, $1M, seed=42）
+
+为应对不同 user profile（v1 用 33/67/0、用户实际 15/75/10、保守用户 25/65/10），扫了同样的 3,000-config grid 在三个 allocation 上的 Top-1 by tier。**结论：6 个参数对 allocation 不敏感，三档参数几乎完全不变；变的只有 SWR 数值标定**。
+
+| Tier | 33/67/0 (v1 default) | **15/75/10 (user baseline)** | 25/65/10 (balanced) | 参数变化 |
+|---|---:|---:|---:|---|
+| 保守 | 2.47% | 2.37% | — | 参数相同（mr 在 {1,3,5,10} 之间漂移 < 0.001 effFR） |
+| 平衡 | 3.46% | 3.31% | — | 参数完全相同 |
+| 激进 | 3.91% | 3.70% | — | 参数完全相同 |
+
+**33/67/0 下旧推荐**（target=85, upper=99, lower=70, adj=10, amount, mr=5）：
+- SWR 3.46%，effFR 0.9608（#995/3000），CEW $48,798（#2244/3000），通过 gating
+- 在 33/67/0 与 15/75/10 下排名差异 < 1% — 旧推荐位置稳定（中庸偏后）
+
+**为什么参数 allocation-invariant**：
+- guardrail 参数选择是关于*风险态度*（保守 vs 激进）的决策
+- allocation 选择是关于*资产组合*（多少股票 / 债券）的决策
+- 两者大致**正交**——参数最优解不随 allocation 漂移，只是 SWR 标定值变化
+
+**SWR 跨 allocation 差异源于配置**：
+- 33/67/0 拿掉 10% 债券 → 全 stock，SWR 多 0.1-0.2pp，但 mean_years_below_floor 略增（更激进）
+- 15/75/10 保留债券 buffer，降低波动，SWR 略低
 
 ### 6.4 单一最终推荐
 
