@@ -163,7 +163,11 @@ def annotate_pareto_and_near_optimal(rows: list[dict]) -> None:
     for r in rows:
         r["is_near_optimal"] = (best_fr - r["funded_ratio"]) <= NEAR_OPTIMAL_THRESHOLD
 
-    sorted_by_fr = sorted(rows, key=lambda x: x["funded_ratio"], reverse=True)
+    # Break funded_ratio ties by median_final desc so equal-FR rows do not
+    # award Pareto to whichever allocation grid order placed first.
+    sorted_by_fr = sorted(
+        rows, key=lambda x: (-x["funded_ratio"], -x["median_final"]),
+    )
     max_median = float("-inf")
     pareto_ids = set()
     for r in sorted_by_fr:
@@ -337,14 +341,15 @@ def write_summary(df: pd.DataFrame, ranking: pd.DataFrame, per_scenario_best: pd
             f"{r['success_rate']:.3f} | ${r['median_final']:,.0f} |")
     add("")
 
-    # Leverage 1.0 vs 1.2 at baseline
-    add("## Leverage 1.0 vs 1.2 (JST, start_year=1900, 45y, fixed)")
+    # Leverage 1.0 vs 1.2 at baseline — only paired countries
+    add("## Leverage 1.0 vs 1.2 (JST, start_year=1900, 45y, fixed, USA/ALL only)")
     add("")
     lv_cmp = per_scenario_best[
         (per_scenario_best["data_source"] == "jst")
         & (per_scenario_best["start_year"] == 1900)
         & (per_scenario_best["retirement_years"] == 45)
         & (per_scenario_best["strategy"] == "fixed")
+        & (per_scenario_best["country"].isin(["USA", "ALL"]))
     ]
     add("| country | leverage | wr | alloc | FR | success | CVaR |")
     add("|---|---|---|---|---|---|---|")
