@@ -1,9 +1,14 @@
-"""Summarize 5 final candidates across all robustness checks."""
+"""Summarize the 4 final candidates (+ 1 dropped reference) across all
+robustness checks. Reads cross_source.csv and sensitivity.csv from the
+sibling output dir and writes final_candidates_summary.csv next to them."""
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 
-cs = pd.read_csv('/Users/billy.ren/Projects/FIRE_simulator/analysis/output/guardrail_v2/cross_source.csv')
-sens = pd.read_csv('/Users/billy.ren/Projects/FIRE_simulator/analysis/output/guardrail_v2/sensitivity.csv')
+OUT_DIR = Path(__file__).resolve().parent / "output" / "guardrail_v2"
+cs = pd.read_csv(OUT_DIR / "cross_source.csv")
+sens = pd.read_csv(OUT_DIR / "sensitivity.csv")
 
 CANDIDATES = [
     # name, target, upper, lower, adj, mode, min_remain, status
@@ -55,5 +60,5 @@ print(out[["name","status","target","upper","lower","adj","mode","min_remain",
            "pool_swr_pct","pool_effFR","pool_effSR","pool_cew",
            "min_4src_effSR","min_54env_effSR","n_fail_54env","min_54env_cew"]].to_string(index=False))
 
-out.to_csv("/Users/billy.ren/Projects/FIRE_simulator/analysis/output/guardrail_v2/final_candidates_summary.csv", index=False)
+out.to_csv(OUT_DIR / "final_candidates_summary.csv", index=False)
 print("\n→ analysis/output/guardrail_v2/final_candidates_summary.csv")

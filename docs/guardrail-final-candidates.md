@@ -64,8 +64,10 @@
 
 ```
 你的优先级是？
-├── "无论何种 stress 都不破产" → A 保守 ★ DEFAULT
-│       SWR 2.37%，是唯一过 4-src + 54-env 全部检查的 tier
+├── "想要最稳健、可承受较低消费" → A 保守 ★ DEFAULT
+│       SWR 2.37%，4-src 全过 (min 0.957) + 54-env 18/54 fails（最少）
+│       唯一一档 54-env min CEW 保持正值（$34.9K），其它 tier CEW 在
+│       long-horizon + CFs 极端 env 下崩塌至 ≈ 0
 │
 ├── "想要 3-4% 消费水平，仍要 robust" → B 旧推荐（重新发现）
 │       SWR 3.31%，4-src 全过 (min 0.883)，54-env 27 个 fail
@@ -86,8 +88,9 @@
 ## 各候选的选择理由 / 警告
 
 ### A. 保守（推荐 default）
-- **★ 选择理由**: 唯一 4-src + 54-env 全部测试通过的 tier。`target=0.95` 让反算 SWR 极低（2.37%），护栏从不被深度触发，路径稳定。
-- **警告**: SWR 低，初始消费 $23,692 / $1M（用户实际 IB 持仓换算后可能感觉偏紧）。但路径中位 CEW $36K 高于初始 wd 53%，反映 guardrail upper 上调消费。
+- **★ 选择理由**: 在所有 4 个 source baseline 下都过 gating（min effSR 0.957），且 54-env stress 测试中 fails 数最少（18/54）、**唯一 54-env min CEW 保持正值**（$34.9K，其它 tier 都崩到 ≈ 0）。`target=0.95` 让反算 SWR 极低（2.37%），护栏从不被深度触发，路径稳定。
+- **警告**: A 在 54-env stress 中仍有 18/54 个 env 跌出 effSR ≥ 0.85（主要 balanced_25_65_10 + 45yr + CFs + high floor 组合）。完美 robust 不存在；A 的优势是相对其它 tier 跌幅最小（min effSR 0.727 vs B 0.436 / D 0.332）。
+- **额外警告**: SWR 低，初始消费 $23,692 / $1M（用户实际 IB 持仓换算后可能感觉偏紧）。但路径中位 CEW $36K 高于初始 wd 53%，反映 guardrail upper 上调消费。
 - **mr=1 vs 1/3/5/10**: 在所有数据中差异 < 0.001 effFR。选 mr=1 是数据最优；mr=5/10 是 v1 "保守取"，没有实质差异。
 
 ### B. 旧推荐 (v1，2026-03-17)
