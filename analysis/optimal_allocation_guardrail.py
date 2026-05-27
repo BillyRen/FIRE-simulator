@@ -190,10 +190,11 @@ def alloc_metrics(
     n10 = max(1, int(0.1 * len(final_values)))
     cvar_10 = float(np.mean(sorted_finals[:n10]))
 
-    # P10 of min-positive withdrawal per simulation
-    mask = wds > 0
-    filled = np.where(mask, wds, np.inf)
-    min_wd_per_sim = np.where(mask.any(axis=1), np.min(filled, axis=1), 0.0)
+    # P10 of min withdrawal per simulation. Include the zero wds that
+    # run_guardrail_simulation writes after depletion — otherwise paths that
+    # deplete mid-horizon would report only their pre-depletion minimum and
+    # the worst-decile consumption metric would underweight failure.
+    min_wd_per_sim = np.min(wds, axis=1)
     p10_min_wd = float(np.percentile(min_wd_per_sim, 10))
 
     median_total_wd = float(np.median(np.sum(wds, axis=1)))
