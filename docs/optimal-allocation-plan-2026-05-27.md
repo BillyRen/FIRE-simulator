@@ -42,6 +42,7 @@
 ### 主网格规模估算
 - 主线：`{jst} × {USA, ALL} × {1900, 1970} × {fixed, declining, smile} × {0.030, 0.035, 0.040, 0.045} × {30, 45, 60}` = 1×2×2×3×4×3 = **144 个 sweep**。
 - 每个 sweep = 66 alloc × 2000 sims × N 年，向量化约 0.5–1.5s。总耗时预估 **2–4 分钟**（向量化 fast path）。
+- Bootstrap 次数：每个 (country, start_year, retirement_years) 组合一次 = 2×2×3 = 12 次 + 各补充实验 = 约 20 次 bootstrap（每次 ~1–3s）。
 - FIRE_dataset 补充：`{USA} × {1900, 1970} × {fixed} × {0.030, 0.035, 0.040, 0.045} × {45}` = 8 个 sweep。
 - 杠杆补充：`{1.2} × {USA, ALL} × {fixed} × {0.030, 0.035, 0.040, 0.045} × {45}` = 8 个 sweep。
 - 跨国稳健性：`{jst} × {CHE, AUS, JPN, DEU} × {1900} × {fixed} × {0.040} × {45}` = 4 个 sweep。
@@ -60,13 +61,15 @@
 | `is_pareto` | 在 funded_ratio × median_final 上是否帕累托最优 | 现有 |
 
 ## 5. CSV 数据模型（长表）
+
+列名与 `AllocationResult` 对齐，避免后续渲染重映射：
 ```
 data_source, country, pooling, start_year, retirement_years, strategy,
-initial_wr, leverage, us_stock, intl_stock, us_bond,
-success_rate, funded_ratio, cvar_10, median_final, p10_final, p90_final,
+initial_wr, leverage, domestic_stock, global_stock, domestic_bond,
+success_rate, funded_ratio, cvar_10, median_final, mean_final, p90_final,
 p10_depletion_year, is_pareto, is_near_optimal
 ```
-落到 `analysis/output/optimal_allocation/results.csv`。
+注：`AllocationResult` 没有 `p10_final` 字段（只有 `p10_depletion_year`/`cvar_10`/`p90_final`/`median_final`/`mean_final`）。如要 p10_final 必须自己计算 `np.percentile(final_values, 10)`；本次不引入，避免改 simulator 源码。落到 `analysis/output/optimal_allocation/results.csv`。
 
 ## 6. 分析（脚本会生成）
 
@@ -94,8 +97,10 @@ p10_depletion_year, is_pareto, is_near_optimal
 
 1. `analysis/optimal_allocation_v1.py`
    - 顶部统一参数表 + 维度组合生成。
-   - 用 `pregenerate_raw_scenarios` 一次 bootstrap，再循环 strategy/wr/years/leverage 调 `sweep_allocations`。
-     - 注意：start_year/country/data_source 变化时必须重新 bootstrap。
+   - 用 `pregenerate_raw_scenarios` 做 bootstrap，再循环 strategy/wr/leverage 调 `sweep_allocations`。
+     - **必须重新 bootstrap 的维度**：`data_source` / `country` / `data_start_year` / `retirement_years`。`pregenerate_raw_scenarios` 把矩阵宽度固定为 `retirement_years`，`sweep_allocations` 直接读 `us_stock.shape[1]` 当作 horizon；跨 horizon 共用会让 30/45/60 全部按同一年限评分。
+     - **可复用的维度**：同一份 bootstrap 矩阵在所有 `strategy` / `initial_wr` / `leverage` 之间复用。
+   - 每个 (source, country, start_year, retirement_years) 调一次 bootstrap，然后内层循环 strategy × wr × leverage × allocation。预计 ≈ (2 sources/country combos × 2 start_years × 3 horizons + FIRE 补充 + 杠杆补充 + 跨国稳健性) 次 bootstrap，每次 ~1–3s。
    - 输出 `results.csv` + `summary.md`（含 top-10 稳健配置、各维度敏感性）。
 2. 运行：`python analysis/optimal_allocation_v1.py`，预期 < 10 min。
 3. 写报告：`docs/optimal-allocation-analysis-2026-05-27.md`。
@@ -103,10 +108,11 @@ p10_depletion_year, is_pareto, is_near_optimal
 ## 8. 验证清单（跑之前自检）
 
 - [ ] `sweep_allocations` 对 `withdrawal_strategy="declining"/"smile"` 也透传了正确参数（confirmed in code review of `_sweep_single_allocation`）。
-- [ ] `pregenerate_raw_scenarios` 在 country/start_year 变化时被重建。
-- [ ] FIRE_dataset 路径不会被错误传给 `country=ALL`。
-- [ ] 输出 CSV 列与 `AllocationResult` schema 对齐。
+- [ ] `pregenerate_raw_scenarios` 在 country/start_year/data_source/**retirement_years** 变化时都被重建（每次 bootstrap 矩阵宽度 = retirement_years）。
+- [ ] FIRE_dataset 路径不会被错误传给 `country=ALL`（FIRE_dataset 只有 USA 一国，pooling 无意义）。
+- [ ] 输出 CSV 列名与 `AllocationResult` schema 一致：`domestic_stock/global_stock/domestic_bond/success_rate/funded_ratio/cvar_10/median_final/mean_final/p90_final/p10_depletion_year/is_pareto/is_near_optimal`。
 - [ ] 单跑一个组合用例做 sanity check（与 `/api/allocation-sweep` 输出比对）。
+- [ ] Seed=42 单跑后，抽样 2–3 个场景把 seed 改成 [1, 7, 99] 跑一遍，确认 top-3 配置不变（如果变了就上调 num_simulations）。
 
 ## 9. 已知限制（在报告里说明）
 - `sweep_allocations` 把"年提取金额"作为 fixed/declining/smile 的基线，没有 guardrail 的动态上下限调整 → 不能完全替代消费下限保护的偏好分析。
