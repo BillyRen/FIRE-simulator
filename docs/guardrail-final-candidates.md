@@ -89,7 +89,7 @@
 
 ### A. 保守（推荐 default）
 - **★ 选择理由**: 在所有 4 个 source baseline 下都过 gating（min effSR 0.957），且 54-env stress 测试中 fails 数最少（18/54）、**唯一 54-env min CEW 保持正值**（$34.9K，其它 tier 都崩到 ≈ 0）。`target=0.95` 让反算 SWR 极低（2.37%），护栏从不被深度触发，路径稳定。
-- **警告**: A 在 54-env stress 中仍有 18/54 个 env 跌出 effSR ≥ 0.85（主要 balanced_25_65_10 + 45yr + CFs + high floor 组合）。完美 robust 不存在；A 的优势是相对其它 tier 跌幅最小（min effSR 0.727 vs B 0.436 / D 0.332）。
+- **警告**: A 在 54-env stress 中仍有 18/54 个 env 跌出 effSR ≥ 0.85。这 18 个全部是 `with_cfs=True AND retirement_years ∈ {45, 60}` 组合，跨 3 个 alloc（10/80/10、15/75/10、25/65/10）平均分布，floor (0.4/0.5/0.6) 也不 binding——即 **CFs + 中长 horizon 是真正的 stress driver**。完美 robust 不存在；A 的优势是相对其它 tier 跌幅最小（min effSR 0.727 vs B 0.436 / D 0.332）。
 - **额外警告**: SWR 低，初始消费 $23,692 / $1M（用户实际 IB 持仓换算后可能感觉偏紧）。但路径中位 CEW $36K 高于初始 wd 53%，反映 guardrail upper 上调消费。
 - **mr=1 vs 1/3/5/10**: 在所有数据中差异 < 0.001 effFR。选 mr=1 是数据最优；mr=5/10 是 v1 "保守取"，没有实质差异。
 
