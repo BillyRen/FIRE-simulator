@@ -50,7 +50,7 @@
 
 **机理**：在 `with_cfs=True + long horizon + high floor` 极端 env 下，guardrail 触发后 wd 削减按 `(1 - adj)` 倍数缩放。`adj=0.05` 表示每次只削 5% → wd 缓慢下降可被市场回升追回；`adj ≥ 0.15` 表示每次削 ≥15% → 触发频繁时 wd 一路向下跌进 0 附近不再回升。
 
-**应用建议**：如果你重视 long-horizon worst-case 消费水平（不只是 effSR 不破产），**首选 `adj=0.05` 参数**——即 A (tgt=0.95) 或 F (tgt=0.80)。两者只在 SWR 起点不同（2.37% vs 3.70%）。**避开 `adj ≥ 0.15`**（包括 v2 综合 ranking Top-1 即 D 候选）。
+**应用建议**：如果你重视 long-horizon worst-case 消费水平（不只是 effSR 不破产），**首选 `adj=0.05` 参数**——即 A (tgt=0.95, lo=0.80) 或 F (tgt=0.80, lo=0.70)。两者主要差 SWR 起点（2.37% vs 3.70%），但 robustness 也有差：A 跨 4-src min effSR 0.957 + 54-env 仅 18/54 fails；F 跨 4-src min effSR 0.853 + 54-env 33/54 fails（仍通过 gating + CEW 不崩塌）。**避开 `adj ≥ 0.15`**（包括 v2 综合 ranking Top-1 即 D 候选）。
 
 ---
 
