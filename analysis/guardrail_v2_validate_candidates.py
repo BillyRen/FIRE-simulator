@@ -48,6 +48,11 @@ ADDITIONAL_CANDIDATES = [
     # lo=0.50 + adj=0.10) 在 baseline effFR 高 0.9pp at same SWR 3.70%.
     {"name": "Aggressive-robust","target": 0.80, "upper": 0.99, "lower": 0.80,
      "adj": 0.05, "mode": "amount", "min_remain": 1},
+    # 2026-05-27 user-constraint add-on: lower <= target - 0.10. E's
+    # lo=0.80 equals target=0.80, violates constraint. F drops lower to
+    # 0.70 (gap=10pp), keeping adj=0.05 family.
+    {"name": "Aggressive-gap10",   "target": 0.80, "upper": 0.99, "lower": 0.70,
+     "adj": 0.05, "mode": "amount", "min_remain": 1},
 ]
 PARAM_COLS = ["target", "upper", "lower", "adj", "mode", "min_remain"]
 OUT_DIR = Path(__file__).resolve().parent / "output" / "guardrail_v2"
