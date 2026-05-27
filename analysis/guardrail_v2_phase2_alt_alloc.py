@@ -34,16 +34,27 @@ from analysis.guardrail_v2_phase2 import (
 )
 
 
-def parse_alloc(s: str) -> dict:
-    parts = [float(x) for x in s.split("/")]
-    if len(parts) != 3:
+def parse_alloc(s: str) -> tuple[dict, str]:
+    """Return (alloc dict, tag string).
+
+    The tag uses the original integer percentages so that fractional rounding
+    in float multiplication never bleeds into the filename (e.g. 29/71/0 must
+    not become 28_71_0).
+    """
+    parts_raw = [x.strip() for x in s.split("/")]
+    if len(parts_raw) != 3:
         raise ValueError(f"alloc must be 'dom/global/bond', got: {s}")
+    parts = [float(x) for x in parts_raw]
     total = sum(parts)
     if abs(total - 100) > 0.1 and abs(total - 1.0) > 0.001:
         raise ValueError(f"alloc must sum to 100 (or 1), got {total}")
     if total > 1.5:
+        tag = "_".join(parts_raw)  # keep "33_67_0" / "29_71_0"
         parts = [p / 100.0 for p in parts]
-    return {"domestic_stock": parts[0], "global_stock": parts[1], "domestic_bond": parts[2]}
+    else:
+        tag = "_".join(f"{int(round(p * 100))}" for p in parts)
+    alloc = {"domestic_stock": parts[0], "global_stock": parts[1], "domestic_bond": parts[2]}
+    return alloc, tag
 
 
 def main():
@@ -52,8 +63,7 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
-    alloc = parse_alloc(args.alloc)
-    tag = f"{int(alloc['domestic_stock']*100)}_{int(alloc['global_stock']*100)}_{int(alloc['domestic_bond']*100)}"
+    alloc, tag = parse_alloc(args.alloc)
     print(f"[setup] alloc={alloc} (tag={tag}), seed={args.seed}")
 
     returns_df = load_returns_data()
@@ -109,10 +119,18 @@ def main():
             print(f"  {i+1}/{len(grid)} done ({time.time()-t_start:.0f}s)")
 
     df = pd.DataFrame(rows)
+    # Gating columns (must match guardrail_v2_analyze.py logic so the CSV is
+    # self-contained and §3.5's gating comparison can be reproduced).
+    df["passes_eff_sr"] = df["eff_success"] >= 0.85
+    df["passes_p10_wd"] = df["p10_avg_wd"] >= df["init_wd"] * 0.60
+    df["passes_years_below"] = df["mean_years_below_floor"] <= 5
+    df["gating_pass"] = df["passes_eff_sr"] & df["passes_p10_wd"] & df["passes_years_below"]
+
     out_path = Path(__file__).resolve().parent / "output" / "guardrail_v2" / f"baseline_grid_{tag}.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
     print(f"\n[done] {len(df)} configs in {time.time()-t_start:.0f}s → {out_path}")
+    print(f"  gating pass: {df['gating_pass'].sum()}/{len(df)}")
 
 
 if __name__ == "__main__":

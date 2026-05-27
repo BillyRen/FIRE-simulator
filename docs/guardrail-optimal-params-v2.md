@@ -185,7 +185,7 @@ CEW (baseline) = 4-source baseline 单 env CEW。54-env min CEW 见 §6.1。
 
 ### 3.5 补充：33/67/0 allocation 全网格重跑（v1 默认 alloc）
 
-Phase 3 sensitivity 扫了 10/80/10、15/75/10、25/65/10 三个 alloc。为响应"33% 本国 / 67% 全球股票（v1 用过的 alloc）下最优是什么"的问题，单独在 33/67/0 上重跑了完整的 3,000-config grid（单 seed = 42；多 seed Jaccard 0.955+ 已在 §2.1 确认无需重做）。
+Phase 3 sensitivity 扫了 10/80/10、15/75/10、25/65/10 三个 alloc（150 candidates × full env grid）。为响应"33% 本国 / 67% 全球股票（v1 用过的 alloc）下**完整 3,000-config grid 的最优**是什么"，单独在 33/67/0 上重跑了 baseline 其它条件不变的 full grid（单 seed = 42；多 seed Jaccard 0.955+ 已在 §2.1 确认无需重做）。
 
 **Output**: `analysis/output/guardrail_v2/baseline_grid_33_67_0.csv`
 **Script**: `analysis/guardrail_v2_phase2_alt_alloc.py --alloc 33/67/0`
@@ -349,13 +349,15 @@ CEW 崩塌细分（two distinct failure modes）：
 
 ### 6.4 跨 allocation 校准（POOL, 50yr, $1M, seed=42）
 
-为应对不同 user profile（v1 用 33/67/0、用户实际 15/75/10、保守用户 25/65/10），扫了同样的 3,000-config grid 在三个 allocation 上的 Top-1 by tier。**结论：6 个参数对 allocation 不敏感，三档参数几乎完全不变；变的只有 SWR 数值标定**。
+为应对不同 user profile（v1 用 33/67/0、用户实际 15/75/10），在 **2 个 allocation 上** 重跑了完整的 3,000-config grid（baseline 其它条件不变：POOL 1900+, 50yr, $1M, no CFs, seed=42）。**结论：6 个参数对 allocation 不敏感，三档参数几乎完全不变；变的只有 SWR 数值标定**。
 
-| Tier | 33/67/0 (v1 default) | **15/75/10 (user baseline)** | 25/65/10 (balanced) | 参数变化 |
-|---|---:|---:|---:|---|
-| 保守 | 2.47% | 2.37% | — | 参数相同（mr 在 {1,3,5,10} 之间漂移 < 0.001 effFR） |
-| 平衡 | 3.46% | 3.31% | — | 参数完全相同 |
-| 激进 | 3.91% | 3.70% | — | 参数完全相同 |
+| Tier | 33/67/0 (v1 default) | **15/75/10 (user baseline)** | 参数变化 |
+|---|---:|---:|---|
+| 保守 | 2.47% | 2.37% | 参数相同（mr 在 {1,3,5,10} 之间漂移 < 0.001 effFR） |
+| 平衡 | 3.46% | 3.31% | 参数完全相同 |
+| 激进 | 3.91% | 3.70% | 参数完全相同 |
+
+> 25/65/10 在 Phase 3 sensitivity 中作为环境维度之一被扫过（150 candidates × all envs at this alloc），与 33/67/0 / 15/75/10 这种 full grid 扫描非同口径；§4 跨源对照也保留在 15/75/10。如需 25/65/10 full grid 单独跑：`python analysis/guardrail_v2_phase2_alt_alloc.py --alloc 25/65/10`
 
 **33/67/0 下旧推荐**（target=85, upper=99, lower=70, adj=10, amount, mr=5）：
 - SWR 3.46%，effFR 0.9608（#995/3000），CEW $48,798（#2244/3000），通过 gating
