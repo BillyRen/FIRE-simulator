@@ -13,14 +13,14 @@
 |---|---|---|---:|---:|---:|---:|---:|---|
 | **A** | 保守 ★ | `tgt=0.95 up=0.99 lo=0.80 adj=0.05 amount mr=1` | 2.37% | 0.964 | **0.957** ✓ | **18/54** | **$34,925** ✓ | Default / 4-src 全过 + 54-env fails 最少且 CEW 不崩塌 |
 | **B** | 旧推荐 (v1) | `tgt=0.85 up=0.99 lo=0.70 adj=0.10 amount mr=5` | 3.31% | 0.901 | 0.883 ✓ | 27/54 | ≈ 0 ⚠️ | 平衡水平 / 想要 SWR 3.31% / floor=0.50 标准 |
-| **C** | ~~激进 (deprecated)~~ | ~~`tgt=0.80 up=0.99 lo=0.50 adj=0.10 amount mr=1`~~ | ~~3.70%~~ | ~~0.859~~ | ~~0.844 ⚠~~ | ~~36/54~~ | ~~≈ 0 ⚠️~~ | **替代为 E**（同 SWR，E 全面更优） |
+| **C** | ~~激进 (deprecated)~~ | ~~`tgt=0.80 up=0.99 lo=0.50 adj=0.10 amount mr=1`~~ | ~~3.70%~~ | ~~0.859~~ | ~~0.844 ⚠~~ | ~~36/54~~ | ~~≈ 0 ⚠️~~ | **替代为 E**（同 SWR，E robustness 维度全面更优，baseline CEW 略低 -3.4%） |
 | **D** | 综合-高 CEW | `tgt=0.85 up=0.90 lo=0.50 adj=0.15 amount mr=10` | 3.31% | 0.864 | 0.843 ⚠ | 35/54 | ≈ 0 ⚠️ | CEW > $51K / 接受 4-src 边际 |
 | **E** | 激进-稳健 ★ | `tgt=0.80 up=0.99 lo=0.80 adj=0.05 amount mr=1` | 3.70% | 0.861 | **0.860** ✓ | 31/54 | **$45,540** ✓ | 想要 SWR 3.70% + CEW 不崩塌（dominates 旧 C） |
 
 \* `min effSR` 加粗 = 通过 0.85 gating；⚠ = 边际（0.83-0.85）；❌ = 跌出（< 0.83）
 \* `54-env min CEW ≈ 0` 出现在 `with_cfs=True AND retirement_years ∈ {45, 60}` 子集
 \* 平衡档 `target=0.85, lo=0.50, adj=0.25, success_rate, mr=1` 已被剔除（4-src min effSR=0.733 跌出 gating，详见 §选择理由）
-\* C → E：原激进档 C 在 2026-05-27 后续分析中被 E 严格 dominate（同 SWR 3.70%，4-src min effSR +1.6pp，54-env fails -5，且 CEW 不崩塌）。保留 C 在 summary CSV 中 status=deprecated 仅作历史参考。
+\* C → E：原激进档 C 在 2026-05-27 后续分析中被 E robustness 全面优于（同 SWR 3.70%，4-src min effSR +1.6pp，54-env fails -5，且 CEW 不崩塌）。保留 C 在 summary CSV 中 status=deprecated 仅作历史参考。
 
 ---
 
@@ -86,7 +86,7 @@
 | **E** 激进-稳健 | 3.70% | $37,036 | 0.955 | $46,655 |
 
 → B 与 D 同 SWR ($33K)，D CEW 高 +12%（$51K vs $46K），但 D 的 4-src min effSR 比 B 低 0.04（0.843 vs 0.883）。**这是真实 trade-off：D 多 12% CEW 换 4pp robustness 损失**。
-→ E vs deprecated C 同 SWR ($37K)，E POOL CEW $46.7K（-3.4% vs C 的 $48.3K）但 4-src min effSR +1.6pp 通过 gating + CEW 54-env 不崩塌——E 是 SWR 3.70% 档的 Pareto-dominant 选择。
+→ E vs deprecated C 同 SWR ($37K)，**robustness 维度 E 全面更优**（4-src min effSR +1.6pp 通过 gating、54-env fails -5、min effSR +11pp、CEW 54-env 不崩塌），但**baseline POOL CEW E 略低** $46.7K vs $48.3K（-3.4%）。这不是严格 Pareto-dominance，是真实 trade-off：E 用 3.4% 的"平均年份消费"换 stress 维度的全面安全升级。对担心 tail risk 的 user，E 是 SWR 3.70% 档首选。
 
 ---
 
@@ -104,7 +104,7 @@
 │
 ├── "想要 SWR ~3.7% + CEW 不崩塌" → E 激进-稳健 ★
 │       SWR 3.70%，4-src 全过 (min 0.860) + 54-env 31 fails + CEW $45.5K 不崩塌
-│       严格 dominate 旧 C 候选（同 SWR，全维 robustness 更优）
+│       robustness 全面优于 旧 C 候选（同 SWR，全维 robustness 更优）
 │
 └── "CEW 最大化、能容忍 robustness 略低" → D 综合-高 CEW
         SWR 3.31% + CEW $51K（比 B 高 12%）
@@ -130,7 +130,7 @@
 
 ### ~~C. 激进~~ (deprecated 2026-05-27, replaced by E)
 - 原参数 `tgt=0.80 up=0.99 lo=0.50 adj=0.10 amount mr=1`
-- 被 E (同 SWR 3.70%) 严格 dominate：4-src min effSR +1.6pp、54-env fails -5、min effSR +11pp、CEW 不崩塌
+- 被 E (同 SWR 3.70%) robustness 全面优于：4-src min effSR +1.6pp、54-env fails -5、min effSR +11pp、CEW 不崩塌
 - 保留在 `final_candidates_summary.csv` 中 `status=deprecated` 仅作历史参考
 
 ### E. 激进-稳健（推荐用于 SWR 3.70% 需求）
@@ -176,7 +176,7 @@
 - 候选 B、D、E 的 4-src + 54-env 数据由 `analysis/guardrail_v2_validate_candidates.py` 添加到原 `cross_source.csv` 和 `sensitivity.csv`
 - 汇总表 `analysis/output/guardrail_v2/final_candidates_summary.csv` 包含 6 行：
   - 4 final（A / B / D / E，`status=final`）
-  - 1 deprecated（C Aggressive，`status=deprecated`，被 E 严格 dominate）
+  - 1 deprecated（C Aggressive，`status=deprecated`，被 E robustness 全面优于）
   - 1 dropped（X Max-CEW，`status=dropped`，作"上界参考"）
 - **`status` 列必读以区分推荐与已淘汰候选**
 - 生成脚本：`analysis/guardrail_v2_summarize_final.py`
