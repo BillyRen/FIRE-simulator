@@ -10,6 +10,7 @@ Run: python analysis/guardrail_v2_phase2_alt_alloc.py --alloc 33/67/0
 Output: analysis/output/guardrail_v2/baseline_grid_<alloc-tag>.csv
 """
 import argparse
+import math
 import sys
 import time
 import itertools
@@ -45,6 +46,8 @@ def parse_alloc(s: str) -> tuple[dict, str]:
     if len(parts_raw) != 3:
         raise ValueError(f"alloc must be 'dom/global/bond', got: {s}")
     parts = [float(x) for x in parts_raw]
+    if not all(math.isfinite(p) and p >= 0 for p in parts):
+        raise ValueError(f"alloc components must be finite and non-negative, got: {parts}")
     total = sum(parts)
     if abs(total - 100) > 0.1 and abs(total - 1.0) > 0.001:
         raise ValueError(f"alloc must sum to 100 (or 1), got {total}")
