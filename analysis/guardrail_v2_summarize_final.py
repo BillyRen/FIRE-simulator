@@ -12,11 +12,12 @@ sens = pd.read_csv(OUT_DIR / "sensitivity.csv")
 
 CANDIDATES = [
     # name, target, upper, lower, adj, mode, min_remain, status
-    ("A Conservative",     0.95, 0.99, 0.80, 0.05, "amount",        1,  "final"),
-    ("B Legacy-v1",        0.85, 0.99, 0.70, 0.10, "amount",        5,  "final"),
-    ("C Aggressive",       0.80, 0.99, 0.50, 0.10, "amount",        1,  "final"),
-    ("D Composite-CEW",    0.85, 0.90, 0.50, 0.15, "amount",       10,  "final"),
-    ("X Max-CEW (dropped)",0.85, 0.90, 0.50, 0.25, "success_rate",  1,  "dropped"),
+    ("A Conservative",      0.95, 0.99, 0.80, 0.05, "amount",        1,  "final"),
+    ("B Legacy-v1",         0.85, 0.99, 0.70, 0.10, "amount",        5,  "final"),
+    ("C Aggressive (dep)",  0.80, 0.99, 0.50, 0.10, "amount",        1,  "deprecated"),
+    ("D Composite-CEW",     0.85, 0.90, 0.50, 0.15, "amount",       10,  "final"),
+    ("E Aggressive-robust", 0.80, 0.99, 0.80, 0.05, "amount",        1,  "final"),
+    ("X Max-CEW (dropped)", 0.85, 0.90, 0.50, 0.25, "success_rate",  1,  "dropped"),
 ]
 
 print(f"{'Candidate':30s} | {'POOL':>8s} {'USA':>8s} {'DEU':>8s} {'JPN':>8s} | {'4src min':>9s} {'54env min':>10s} {'#<.85':>6s} | {'min CEW':>11s}")

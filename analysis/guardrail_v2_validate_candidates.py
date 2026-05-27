@@ -43,6 +43,11 @@ ADDITIONAL_CANDIDATES = [
      "adj": 0.15, "mode": "amount", "min_remain": 10},
     {"name": "Legacy-v1",        "target": 0.85, "upper": 0.99, "lower": 0.70,
      "adj": 0.10, "mode": "amount", "min_remain": 5},
+    # 2026-05-27 add-on: high-SWR-robust alternative — target=0.80 baseline
+    # internal optimum by effFR (lo=0.80 + adj=0.05), 比已有 Aggressive (C,
+    # lo=0.50 + adj=0.10) 在 baseline effFR 高 0.9pp at same SWR 3.70%.
+    {"name": "Aggressive-robust","target": 0.80, "upper": 0.99, "lower": 0.80,
+     "adj": 0.05, "mode": "amount", "min_remain": 1},
 ]
 PARAM_COLS = ["target", "upper", "lower", "adj", "mode", "min_remain"]
 OUT_DIR = Path(__file__).resolve().parent / "output" / "guardrail_v2"

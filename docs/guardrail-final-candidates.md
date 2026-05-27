@@ -12,13 +12,33 @@
 | ID | Tier | 参数 | SWR | POOL effSR | 4-src min effSR | 54-env fail count | 54-env min CEW | 推荐场景 |
 |---|---|---|---:|---:|---:|---:|---:|---|
 | **A** | 保守 ★ | `tgt=0.95 up=0.99 lo=0.80 adj=0.05 amount mr=1` | 2.37% | 0.964 | **0.957** ✓ | **18/54** | **$34,925** ✓ | Default / 4-src 全过 + 54-env fails 最少且 CEW 不崩塌 |
-| **B** | 旧推荐 (v1) | `tgt=0.85 up=0.99 lo=0.70 adj=0.10 amount mr=5` | 3.31% | 0.901 | 0.883 ✓ | 27/54 | ≈ 0 ⚠️ | 平衡水平 / 想要更高消费 |
-| **C** | 激进 | `tgt=0.80 up=0.99 lo=0.50 adj=0.10 amount mr=1` | 3.70% | 0.859 | 0.844 ⚠ | 36/54 | ≈ 0 ⚠️ | 早期高消费 / 接受较大调整 |
+| **B** | 旧推荐 (v1) | `tgt=0.85 up=0.99 lo=0.70 adj=0.10 amount mr=5` | 3.31% | 0.901 | 0.883 ✓ | 27/54 | ≈ 0 ⚠️ | 平衡水平 / 想要 SWR 3.31% / floor=0.50 标准 |
+| **C** | ~~激进 (deprecated)~~ | ~~`tgt=0.80 up=0.99 lo=0.50 adj=0.10 amount mr=1`~~ | ~~3.70%~~ | ~~0.859~~ | ~~0.844 ⚠~~ | ~~36/54~~ | ~~≈ 0 ⚠️~~ | **替代为 E**（同 SWR，E 全面更优） |
 | **D** | 综合-高 CEW | `tgt=0.85 up=0.90 lo=0.50 adj=0.15 amount mr=10` | 3.31% | 0.864 | 0.843 ⚠ | 35/54 | ≈ 0 ⚠️ | CEW > $51K / 接受 4-src 边际 |
+| **E** | 激进-稳健 ★ | `tgt=0.80 up=0.99 lo=0.80 adj=0.05 amount mr=1` | 3.70% | 0.861 | **0.860** ✓ | 31/54 | **$45,540** ✓ | 想要 SWR 3.70% + CEW 不崩塌（dominates 旧 C） |
 
 \* `min effSR` 加粗 = 通过 0.85 gating；⚠ = 边际（0.83-0.85）；❌ = 跌出（< 0.83）
 \* `54-env min CEW ≈ 0` 出现在 `with_cfs=True AND retirement_years ∈ {45, 60}` 子集
 \* 平衡档 `target=0.85, lo=0.50, adj=0.25, success_rate, mr=1` 已被剔除（4-src min effSR=0.733 跌出 gating，详见 §选择理由）
+\* C → E：原激进档 C 在 2026-05-27 后续分析中被 E 严格 dominate（同 SWR 3.70%，4-src min effSR +1.6pp，54-env fails -5，且 CEW 不崩塌）。保留 C 在 summary CSV 中 status=deprecated 仅作历史参考。
+
+---
+
+### ★ 结构性发现：CEW 崩塌的 root cause
+
+跨所有候选，**CEW 在 54-env 是否崩塌完全由 `(lower, adj)` 组合决定，与 target 无关**：
+
+| (lower, adj) 组合 | 候选 | 54-env min CEW | CEW 崩塌? |
+|---|---|---:|---|
+| `lo=0.80, adj=0.05` | A (tgt=0.95), **E (tgt=0.80)** | $34,925 / $45,540 | **✗ 不崩塌** |
+| `lo=0.70, adj=0.10` | B | ≈ 0 | ✓ 崩塌 |
+| `lo=0.50, adj=0.10` | C (deprecated) | ≈ 0 | ✓ 崩塌 |
+| `lo=0.50, adj=0.15` | D | ≈ 0 | ✓ 崩塌 |
+| `lo=0.50, adj=0.25` | dropped Max-CEW | ≈ 0 | ✓ 崩塌 |
+
+**机理**：在 `with_cfs=True + long horizon + high floor` 极端 env 下，wd 持续向下削减。`lo=0.80 + adj=0.05` 表示"频繁触发 lower + 每次只削 5%"——即使触发也是 micro-adjustments，wd 不会断崖式下跌。其它 (lo, adj) 组合让单次削减更激进 → 跌进 0 附近不再回升。
+
+**应用建议**：如果你重视 long-horizon worst-case 消费水平（不只是 effSR 不破产），**选择 (lo=0.80, adj=0.05) 系列**——即 A (tgt=0.95) 或 E (tgt=0.80)。两者只在 SWR 起点不同（2.37% vs 3.70%）。
 
 ---
 
