@@ -63,7 +63,7 @@ for alloc in 66 grid:
 | 指标 | 含义 |
 |---|---|
 | `initial_swr` | `init_wd / 1,000,000`（guardrail 在 target=0.85 下反推的起始提取率） |
-| `success_rate` | 传统 success（trajectory >0 整路径） |
+| `success_rate` | `compute_success_rate(traj, retirement_years)` — `depletion_year >= retirement_years` 视为成功（与 v1 / 现有 `compute_success_rate` 对齐，last-year 破产仍算成功），避免与 v1 `funded_ratio`/`success_rate` 不可比 |
 | `eff_success_rate` | 加入消费地板 = max(50% initial_wd) 的等效成功率 |
 | `eff_funded_ratio` | 等效 FR |
 | `median_final` | trajectory[:,-1] 中位数 |
@@ -85,11 +85,12 @@ mean_years_below_floor, is_pareto, is_near_optimal
 
 ## 5. 分析
 
-1. **跨场景稳健排名（核心）** — 按 `eff_funded_ratio` rank（同 v1）；同时按 `initial_swr` rank（看哪个 alloc 能撑最高 wd）。
-2. **vs v1 fixed 对比** — 把 v1 的 fixed 最优 vs 本次 guardrail 最优做配对（同 country/start/years），看 top-1 是否变。
-3. **`initial_swr` 提升** — guardrail vs fixed 在同 alloc / target=0.85 下 SWR 差距。
-4. **消费稳定性** — `p10_min_wd` 和 `mean_years_below_floor`，看哪些 alloc 的消费序列更稳。
-5. **杠杆/数据源/跨国** — 同 v1。
+1. **跨场景稳健排名（核心）** — 按 `eff_funded_ratio` rank（同 v1）；同时按 `initial_swr` rank（看哪个 alloc 在 target=0.85 下能撑最高 wd）。
+2. **vs v1 fixed 对比** — 把 v1 的 fixed 最优 vs 本次 guardrail 最优做配对（同 country/start/years），看 top-1 alloc 是否变。
+3. **消费稳定性** — `p10_min_wd` 和 `mean_years_below_floor`，看哪些 alloc 的消费序列更稳。
+4. **杠杆/数据源/跨国** — 同 v1。
+
+> **注**：本次 `initial_swr` 完全等价于在同 alloc 下 fixed 表对 target=0.85 反推的 SWR（因为 `run_guardrail_simulation` 当传 `initial_portfolio` 时用 `find_rate_for_target(table, target=0.85, years)` 反推 init_wd，正是 fixed-WR 表）。所以**不要把 `initial_swr` 解释为 "guardrail 相对 fixed 的 SWR 提升"**。Guardrail 的真正价值体现在 `eff_funded_ratio` / `p10_min_wd` / `cvar_10` 等"路径中后期 dynamic adjustment 改变结局"的指标上。如果想测真正的 SWR uplift，需要对 effective-success 做 root finding，那是另一个研究（不在本次范围）。
 
 ## 6. 实现步骤
 
@@ -103,7 +104,7 @@ mean_years_below_floor, is_pareto, is_near_optimal
 
 ## 7. 验证清单
 
-- [ ] `raw_to_combined` 调用顺序与 `_sweep_single_allocation` 一致（用 inflation 做杠杆借贷成本）。
+- [ ] `raw_to_combined` 调用时**显式传 `borrowing_spread=0.02`**（默认 0.0，会少算 2pp 借贷成本，导致与 v1/API 不可比）。`leverage=1.0` 时该参数被忽略，无影响；`leverage=1.2` 时必传。
 - [ ] `build_success_rate_table` 每个 alloc 重建（不能跨 alloc 共享）。
 - [ ] guardrail 用 `input_mode="portfolio"`，固定 `initial_portfolio=1_000_000`，反推 init_wd。
 - [ ] eff_FR 使用 `consumption_floor=0.5`、`trajectories=traj`（防 trajectories 归零情形被掩盖）。
