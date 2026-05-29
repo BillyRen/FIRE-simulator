@@ -16,6 +16,7 @@ from deps import (
     alloc_dict,
     expense_dict,
     filter_df,
+    resolve_cf_scenarios,
     resolve_country_weights,
     resolve_data,
     streaming,
@@ -37,8 +38,6 @@ from simulator.backtest_batch import run_guardrail_batch_backtest
 from simulator.cashflow import (
     CashFlowItem,
     build_representative_cf_schedule,
-    enumerate_cf_per_group,
-    enumerate_cf_scenarios,
 )
 from simulator.config import (
     SCENARIO_CF_MAX_SIMS,
@@ -322,13 +321,7 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
     if not cash_flows:
         raise HTTPException(400, "需要至少一个自定义现金流")
 
-    mode = "full"
-    cf_scenarios = enumerate_cf_scenarios(cash_flows, max_combinations=32)
-    if not cf_scenarios:
-        cf_scenarios = enumerate_cf_per_group(cash_flows)
-        mode = "per_group"
-        if not cf_scenarios:
-            raise HTTPException(400, "没有概率分组现金流。请检查现金流设置。")
+    cf_scenarios, mode = resolve_cf_scenarios(cash_flows, req.scenario_mode)
 
     def _generate():
         yield {"type": "progress", "stage": "bootstrap", "pct": 5}

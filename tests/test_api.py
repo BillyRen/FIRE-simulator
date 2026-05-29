@@ -32,6 +32,33 @@ def client():
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _disable_rate_limit():
+    """Disable slowapi rate limiting so tests can hit endpoints freely.
+
+    Each route module owns its own Limiter instance; disable them all.
+    """
+    import main as main_module
+    from routes import accumulation, buy_vs_rent, guardrail, sensitivity, simulate
+
+    limiters = [
+        main_module.limiter,
+        accumulation.limiter,
+        buy_vs_rent.limiter,
+        guardrail.limiter,
+        sensitivity.limiter,
+        simulate.limiter,
+    ]
+    saved = [lim.enabled for lim in limiters]
+    for lim in limiters:
+        lim.enabled = False
+    try:
+        yield
+    finally:
+        for lim, was in zip(limiters, saved):
+            lim.enabled = was
+
+
 class TestHealthAndMeta:
     def test_health(self, client):
         r = client.get("/health")
@@ -245,6 +272,72 @@ class TestScenarios:
     def test_scenarios_no_cash_flows_returns_400(self, client):
         r = client.post("/api/simulate/scenarios", json=self.BASE_PARAMS)
         assert r.status_code == 400
+
+    # ── scenario_mode (cross / per-group selection) ──
+
+    TWO_GROUP_CFS = [
+        {"name": "career_a", "amount": 20000, "start_year": 5, "duration": 10,
+         "inflation_adjusted": True, "enabled": True, "probability": 0.6, "group": "career"},
+        {"name": "career_b", "amount": 30000, "start_year": 5, "duration": 10,
+         "inflation_adjusted": True, "enabled": True, "probability": 0.4, "group": "career"},
+        {"name": "house_a", "amount": -50000, "start_year": 3, "duration": 1,
+         "inflation_adjusted": True, "enabled": True, "probability": 0.5, "group": "house"},
+    ]
+
+    def test_scenario_mode_full(self, client):
+        # career(2 variants) × house(1 variant + none) = 2 × 2 = 4 cross scenarios
+        params = {**self.BASE_PARAMS, "scenario_mode": "full", "cash_flows": self.TWO_GROUP_CFS}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 200
+        data = parse_ndjson(r)
+        assert data["mode"] == "full"
+        assert len(data["scenarios"]) == 4
+
+    def test_scenario_mode_per_group(self, client):
+        # career(2 + none? no, prob sums to 1 → 2) + house(1 + none) = 2 + 2 = 4 per-group scenarios
+        params = {**self.BASE_PARAMS, "scenario_mode": "per_group", "cash_flows": self.TWO_GROUP_CFS}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 200
+        data = parse_ndjson(r)
+        assert data["mode"] == "per_group"
+        assert len(data["scenarios"]) == 4
+
+    def test_scenario_mode_default_is_auto(self, client):
+        # No scenario_mode → defaults to auto → small combo count uses full cross
+        params = {**self.BASE_PARAMS, "cash_flows": self.TWO_GROUP_CFS}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 200
+        assert parse_ndjson(r)["mode"] == "full"
+
+    def test_scenario_mode_full_over_cap_returns_400(self, client):
+        # 8 single-variant groups (each + none) = 2**8 = 256 > 128 cap
+        cfs = [
+            {"name": f"g{i}", "amount": 1000, "start_year": 2, "duration": 1,
+             "inflation_adjusted": True, "enabled": True, "probability": 0.5, "group": f"grp{i}"}
+            for i in range(8)
+        ]
+        params = {**self.BASE_PARAMS, "scenario_mode": "full", "cash_flows": cfs}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 400
+
+    def test_scenario_mode_per_group_handles_over_cap(self, client):
+        # Same 8 groups: per_group avoids the explosion → 8 × (variant + none) = 16
+        cfs = [
+            {"name": f"g{i}", "amount": 1000, "start_year": 2, "duration": 1,
+             "inflation_adjusted": True, "enabled": True, "probability": 0.5, "group": f"grp{i}"}
+            for i in range(8)
+        ]
+        params = {**self.BASE_PARAMS, "scenario_mode": "per_group", "cash_flows": cfs}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 200
+        data = parse_ndjson(r)
+        assert data["mode"] == "per_group"
+        assert len(data["scenarios"]) == 16
+
+    def test_scenario_mode_invalid_returns_422(self, client):
+        params = {**self.BASE_PARAMS, "scenario_mode": "bogus", "cash_flows": self.TWO_GROUP_CFS}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 422
 
 
 class TestBuyVsRent:

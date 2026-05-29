@@ -100,6 +100,7 @@ export default function GuardrailPage() {
   const [scenarioResult, setScenarioResult] = useState<ScenarioAnalysisResponse | null>(null);
   const [scenarioLoading, setScenarioLoading] = useState(false);
   const [scenarioProgress, setScenarioProgress] = useState<ProgressInfo | null>(null);
+  const [scenarioMode, setScenarioMode] = usePersistedState<"auto" | "full" | "per_group">("fire:guardrail:scenarioMode", "auto");
   // Sensitivity analysis state
   const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
@@ -244,6 +245,7 @@ export default function GuardrailPage() {
         ...guardrailReqBase(),
         initial_portfolio: mcResult.initial_portfolio,
         annual_withdrawal: mcResult.annual_withdrawal,
+        scenario_mode: scenarioMode,
       }, setScenarioProgress);
       setScenarioResult(res);
     } catch (e) {
@@ -1257,13 +1259,34 @@ export default function GuardrailPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {hasProbabilisticCF ? (
-                    <Button
-                      onClick={handleRunScenarios}
-                      disabled={scenarioLoading}
-                      size="sm"
-                    >
-                      {scenarioLoading ? t("scenarioRunning") : t("runScenarioAnalysis")}
-                    </Button>
+                    <>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">{t("scenarioModeLabel")}</Label>
+                          <Select
+                            value={scenarioMode}
+                            onValueChange={(v) => setScenarioMode(v as "auto" | "full" | "per_group")}
+                          >
+                            <SelectTrigger className="h-8 w-44 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="auto">{t("scenarioModeAuto")}</SelectItem>
+                              <SelectItem value="full">{t("scenarioModeFull")}</SelectItem>
+                              <SelectItem value="per_group">{t("scenarioModePerGroup")}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          onClick={handleRunScenarios}
+                          disabled={scenarioLoading}
+                          size="sm"
+                        >
+                          {scenarioLoading ? t("scenarioRunning") : t("runScenarioAnalysis")}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{t(`scenarioModeHint_${scenarioMode}`)}</p>
+                    </>
                   ) : (
                     <p className="text-sm text-muted-foreground italic">
                       {t("scenarioNoProbCF")}
@@ -1278,7 +1301,7 @@ export default function GuardrailPage() {
                 <>
                   {scenarioResult.mode === "per_group" && (
                     <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
-                      {t("scenarioPerGroupHint")}
+                      {scenarioMode === "per_group" ? t("scenarioPerGroupManual") : t("scenarioPerGroupHint")}
                     </p>
                   )}
 

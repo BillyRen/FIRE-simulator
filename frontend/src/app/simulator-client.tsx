@@ -81,6 +81,7 @@ export function SimulatorClient() {
   const [scenarioResult, setScenarioResult] = useState<ScenarioAnalysisResponse | null>(null);
   const [scenarioLoading, setScenarioLoading] = useState(false);
   const [scenarioProgress, setScenarioProgress] = useState<ProgressInfo | null>(null);
+  const [scenarioMode, setScenarioMode] = usePersistedState<"auto" | "full" | "per_group">("fire:main:scenarioMode", "auto");
   const [sensitivityResult, setSensitivityResult] = useState<SensitivityAnalysisResponse | null>(null);
   const [sensitivityLoading, setSensitivityLoading] = useState(false);
   const [sensitivityProgress, setSensitivityProgress] = useState<ProgressInfo | null>(null);
@@ -205,7 +206,7 @@ export function SimulatorClient() {
     setScenarioProgress(null);
     setError(null);
     try {
-      const res = await runSimScenarios(simReqBase(), setScenarioProgress);
+      const res = await runSimScenarios({ ...simReqBase(), scenario_mode: scenarioMode }, setScenarioProgress);
       setScenarioResult(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : tc("unknownError"));
@@ -888,15 +889,37 @@ export function SimulatorClient() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {hasProbabilisticCF ? (
-                      <Button
-                        onClick={handleRunScenarios}
-                        disabled={scenarioLoading}
-                        size="sm"
-                      >
-                        {scenarioLoading ? t("scenarioRunning") : t("runScenarioAnalysis")}
-                      </Button>
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">{t("scenarioModeLabel")}</Label>
+                          <Select
+                            value={scenarioMode}
+                            onValueChange={(v) => setScenarioMode(v as "auto" | "full" | "per_group")}
+                          >
+                            <SelectTrigger className="h-8 w-44 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="auto">{t("scenarioModeAuto")}</SelectItem>
+                              <SelectItem value="full">{t("scenarioModeFull")}</SelectItem>
+                              <SelectItem value="per_group">{t("scenarioModePerGroup")}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          onClick={handleRunScenarios}
+                          disabled={scenarioLoading}
+                          size="sm"
+                        >
+                          {scenarioLoading ? t("scenarioRunning") : t("runScenarioAnalysis")}
+                        </Button>
+                      </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">{t("scenarioNoProbCF")}</p>
+                    )}
+
+                    {hasProbabilisticCF && (
+                      <p className="text-xs text-muted-foreground">{t(`scenarioModeHint_${scenarioMode}`)}</p>
                     )}
 
                     {scenarioLoading && <ProgressOverlay message={t("scenarioLoading")} progress={scenarioProgress} />}
@@ -905,7 +928,7 @@ export function SimulatorClient() {
                       <>
                         {scenarioResult.mode === "per_group" && (
                           <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
-                            {t("scenarioPerGroupHint")}
+                            {scenarioMode === "per_group" ? t("scenarioPerGroupManual") : t("scenarioPerGroupHint")}
                           </p>
                         )}
 

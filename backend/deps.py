@@ -12,7 +12,12 @@ import pandas as pd
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
-from simulator.cashflow import CashFlowItem
+from simulator.cashflow import (
+    CashFlowItem,
+    count_cf_combinations,
+    enumerate_cf_per_group,
+    enumerate_cf_scenarios,
+)
 from simulator.config import get_gdp_weights
 from simulator.data_loader import (
     filter_by_country,
@@ -178,6 +183,61 @@ def to_cash_flows(items) -> list[CashFlowItem] | None:
         )
         for cf in enabled
     ]
+
+
+# 现金流情景分解的组合数阈值：
+#   AUTO 模式下组合数 ≤ 此值用全交叉，否则回退逐组
+SCENARIO_AUTO_MAX_COMBINATIONS = 32
+#   FULL（强制全交叉）模式的硬上限，超过则拒绝以保护服务器
+SCENARIO_FULL_MAX_COMBINATIONS = 128
+
+
+def resolve_cf_scenarios(
+    cash_flows: list[CashFlowItem],
+    scenario_mode: str = "auto",
+) -> tuple[list[tuple[str, list[CashFlowItem], float]], str]:
+    """根据 scenario_mode 解析现金流情景列表，返回 (scenarios, actual_mode)。
+
+    Parameters
+    ----------
+    cash_flows : list[CashFlowItem]
+        完整现金流列表（已转换、已过滤 enabled）。
+    scenario_mode : str
+        ``"auto"``  组合数 ≤ AUTO 阈值用全交叉，否则回退逐组（默认，向后兼容）。
+        ``"full"``  强制全交叉（笛卡尔积），超过 FULL 硬上限则报错。
+        ``"per_group"``  强制逐组对比（不交叉）。
+
+    Returns
+    -------
+    tuple[list, str]
+        情景列表与实际采用的模式（``"full"`` 或 ``"per_group"``）。
+
+    Raises
+    ------
+    HTTPException
+        没有概率分组现金流（400），或 full 模式组合数超过硬上限（400）。
+    """
+    n_combos = count_cf_combinations(cash_flows)
+    if n_combos == 0:
+        raise HTTPException(400, "没有概率分组现金流。请检查现金流设置。")
+
+    if scenario_mode == "per_group":
+        return enumerate_cf_per_group(cash_flows), "per_group"
+
+    if scenario_mode == "full":
+        if n_combos > SCENARIO_FULL_MAX_COMBINATIONS:
+            raise HTTPException(
+                400,
+                f"全交叉组合数为 {n_combos}，超过上限 {SCENARIO_FULL_MAX_COMBINATIONS}。"
+                f"请改用「逐组」模式，或减少概率分组 / 变体数量。",
+            )
+        return enumerate_cf_scenarios(cash_flows, max_combinations=n_combos), "full"
+
+    # auto
+    scenarios = enumerate_cf_scenarios(cash_flows, max_combinations=SCENARIO_AUTO_MAX_COMBINATIONS)
+    if scenarios:
+        return scenarios, "full"
+    return enumerate_cf_per_group(cash_flows), "per_group"
 
 
 def alloc_dict(a) -> dict[str, float]:

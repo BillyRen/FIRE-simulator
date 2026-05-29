@@ -135,6 +135,8 @@ class SimulationRequest(BaseSimulationParams):
     retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
+    # 现金流情景分解的组合方式：auto=自动（超阈值回退逐组）/ full=强制全交叉 / per_group=强制逐组
+    scenario_mode: str = Field("auto", pattern="^(auto|full|per_group)$")
 
 
 class SimulationResponse(BaseModel):
@@ -200,6 +202,8 @@ class GuardrailRequest(BaseSimulationParams):
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     consumption_floor: float = Field(0.50, gt=0, le=1)
     consumption_floor_amount: float = Field(0.0, ge=0)
+    # 现金流情景分解的组合方式：auto=自动（超阈值回退逐组）/ full=强制全交叉 / per_group=强制逐组
+    scenario_mode: str = Field("auto", pattern="^(auto|full|per_group)$")
 
     @model_validator(mode="after")
     def check_guardrails(self) -> "GuardrailRequest":
