@@ -202,6 +202,31 @@ def build_expected_cf_split_schedules(
     return expense, income
 
 
+def count_cf_combinations(cash_flows: list[CashFlowItem]) -> int:
+    """统计概率分组的笛卡尔组合总数。
+
+    与 :func:`enumerate_cf_scenarios` 的组合口径一致：每个组的选项数为
+    "变体数 + (若变体概率之和 < 1 则额外加 1 个 (none) 选项)"，总组合数为各组选项数之积。
+
+    Returns
+    -------
+    int
+        组合总数。如果不存在概率分组，返回 0。
+    """
+    _, groups = _group_variants(cash_flows)
+    if not groups:
+        return 0
+
+    total_combos = 1
+    for variants in groups.values():
+        n_options = len(variants)
+        total_prob = sum(items[0].probability for items in variants.values())
+        if total_prob < 1.0 - 1e-9:
+            n_options += 1
+        total_combos *= n_options
+    return total_combos
+
+
 def enumerate_cf_scenarios(
     cash_flows: list[CashFlowItem],
     max_combinations: int = 64,

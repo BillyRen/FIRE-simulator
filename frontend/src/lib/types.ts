@@ -67,6 +67,7 @@ export interface SimulationRequest {
   glide_path_enabled: boolean;
   glide_path_end_allocation: Allocation;
   glide_path_years: number;
+  scenario_mode?: "auto" | "full" | "per_group";
 }
 
 export interface SimulationResponse {
@@ -165,6 +166,7 @@ export interface GuardrailRequest {
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
+  scenario_mode?: "auto" | "full" | "per_group";
 }
 
 export interface GuardrailResponse {

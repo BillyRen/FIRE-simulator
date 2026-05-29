@@ -15,6 +15,7 @@ from deps import (
     alloc_dict,
     expense_dict,
     filter_df,
+    resolve_cf_scenarios,
     resolve_country_weights,
     resolve_data,
     streaming,
@@ -34,7 +35,7 @@ from schemas import (
     TargetRateResult,
 )
 from simulator.backtest_batch import run_sim_batch_backtest
-from simulator.cashflow import CashFlowItem, enumerate_cf_per_group, enumerate_cf_scenarios
+from simulator.cashflow import CashFlowItem
 from simulator.config import TARGET_SUCCESS_RATES, is_low_memory
 from simulator.monte_carlo import run_simulation, run_simulation_from_matrix, run_simple_historical_backtest
 from simulator.portfolio import compute_real_portfolio_returns
@@ -279,13 +280,7 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
     if not cash_flows:
         raise HTTPException(400, "需要至少一个自定义现金流")
 
-    mode = "full"
-    cf_scenarios = enumerate_cf_scenarios(cash_flows, max_combinations=32)
-    if not cf_scenarios:
-        cf_scenarios = enumerate_cf_per_group(cash_flows)
-        mode = "per_group"
-        if not cf_scenarios:
-            raise HTTPException(400, "没有概率分组现金流。请检查现金流设置。")
+    cf_scenarios, mode = resolve_cf_scenarios(cash_flows, req.scenario_mode)
 
     def _generate():
         yield {"type": "progress", "stage": "bootstrap", "pct": 10}
