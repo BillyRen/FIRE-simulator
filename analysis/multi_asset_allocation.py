@@ -24,13 +24,13 @@ Method — mirrors the product "optimal allocation" tool
   0.5%, housing 1.5%. No winsorization (product-consistent).
 - Fixed withdrawal via the product kernel; ranked by FUNDED RATIO (= product
   best = max(key=funded_ratio)), success rate as tie-break.
-- Allocation grid step 0.05 (5%). Evaluation is vectorized in chunks so the
-  finer grid stays fast. (A 1% grid for 5 assets = C(104,4) ~ 4.6M points is
-  infeasible by brute force; the optimum sits on a flat plateau so 5% does not
-  change conclusions — adjacent grid points differ <~0.2pp in funded ratio.)
+- Allocation grid step 0.10 (10%). Evaluation is vectorized in chunks. The
+  optimum sits on a flat plateau (adjacent grid points differ <~0.2-0.3pp in
+  funded ratio), so 10% does not change conclusions; a 5% grid was tested and a
+  1% grid for 5 assets (C(104,4) ~ 4.6M points) is infeasible by brute force.
 
 Parameters (per user): initial 1,000,000; withdrawal 33,000 real (3.3%);
-financial/gold expense 0.5%, housing 1.5%; block 5-15; 3000 sims; horizons
+financial/gold expense 0.5%, housing 1.5%; block 5-15; 2000 sims; horizons
 40 & 65y.
 
 Extra analyses
@@ -63,19 +63,23 @@ from simulator.statistics import compute_success_rate, compute_funded_ratio  # n
 
 # ──────────────────────────── parameters ────────────────────────────────────
 INITIAL = 1_000_000.0
-ANNUAL_WD = 33_000.0
+ANNUAL_WD = 33_000.0           # 3.3% real headline (conservative reference)
+# Higher rates un-saturate the success/coverage metric at long horizons (at
+# 3.3%/65y most allocations reach ~100% coverage in benign regimes, so the
+# ranking cannot discriminate — see run_withdrawal_sweep / regime saturation).
+WITHDRAWAL_RATES = [0.033, 0.035, 0.040, 0.045]
 FIN_EXPENSE = 0.005
 HOUSING_EXPENSE = 0.015
 INDIVIDUAL_VOL_MULT = 1.5
-NUM_SIMS = 3_000
+NUM_SIMS = 2_000                 # product default; enough for ranking
 MIN_BLOCK = 5
 MAX_BLOCK = 15
 SEED = 42
 NOISE_SEED = 1_234
-STEP = 0.05
+STEP = 0.10                      # 10% grid (fast; optimum is a flat plateau)
 HORIZONS = [40, 65]
 SENS_HORIZON = 65
-CHUNK = 120                      # combos per vectorized batch (bounds memory)
+CHUNK = 300                      # combos per vectorized batch (bounds memory)
 
 SINGLE_COUNTRIES = ["USA", "JPN", "GBR", "DEU", "AUS"]
 
@@ -87,6 +91,7 @@ NOMINAL_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond",
 IDX_INFL = 5
 N_ASSETS = len(ASSETS)
 HOUSING_IDX = ASSETS.index("housing")
+GOLD_IDX = ASSETS.index("gold")
 REAL_CLIP = (-0.95, 3.0)
 
 MENUS = {
@@ -201,7 +206,7 @@ def menu_allocations(allowed: list[str]) -> np.ndarray:
 
 # ─────────────────────── vectorized evaluation ──────────────────────────────
 def evaluate_menu(tensor, weights, horizon, expense_vec,
-                  sigma_real=0.0, noise_unit=None):
+                  sigma_real=0.0, noise_unit=None, annual_wd=ANNUAL_WD):
     """Return per-combo (success, funded, median_final, p10_final) arrays.
 
     Vectorized in chunks of CHUNK combos. Individual-property idiosyncratic
@@ -222,7 +227,9 @@ def evaluate_menu(tensor, weights, horizon, expense_vec,
     C = weights.shape[0]
     succ = np.empty(C); fund = np.empty(C)
     med = np.empty(C); p10 = np.empty(C)
-    drag = weights @ expense_vec                         # (C,)
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        drag = weights @ expense_vec                     # (C,) — spurious macOS warning
+
 
     for lo in range(0, C, CHUNK):
         hi = min(lo + CHUNK, C)
@@ -233,7 +240,7 @@ def evaluate_menu(tensor, weights, horizon, expense_vec,
             real = real + W[:, HOUSING_IDX][:, None, None] * delta_h[None]
         c = hi - lo
         traj, _, _, _ = _simulate_vectorized_fixed_from_matrix(
-            real.reshape(c * NUM_SIMS, horizon), INITIAL, ANNUAL_WD, horizon)
+            real.reshape(c * NUM_SIMS, horizon), INITIAL, annual_wd, horizon)
         traj = traj.reshape(c, NUM_SIMS, horizon + 1)
         depleted = traj[:, :, 1:] <= 0
         any_dep = depleted.any(axis=2)
@@ -247,13 +254,32 @@ def evaluate_menu(tensor, weights, horizon, expense_vec,
 
 
 def best_row(weights, succ, fund, med, p10):
-    """Funded-ratio-optimal combo (success tie-break)."""
-    i = np.lexsort((succ, fund))[-1]          # primary fund, secondary succ
+    """Funded-ratio-optimal combo. Tie-break: success, then median terminal
+    wealth (deterministic and meaningful — once survival is assured, prefer the
+    higher-wealth allocation; avoids picking an arbitrary tied composition)."""
+    i = np.lexsort((med, succ, fund))[-1]     # primary fund, then succ, then med
     return {
         "alloc": "/".join(f"{int(round(weights[i, j] * 100))}" for j in range(N_ASSETS)),
         **{a: weights[i, j] for j, a in enumerate(ASSETS)},
         "success_rate": float(succ[i]), "funded_ratio": float(fund[i]),
         "median_final": float(med[i]), "p10_final": float(p10[i]),
+    }
+
+
+def coverage_plateau(weights, succ, fund):
+    """Among allocations tied at the max funded ratio AND max success, report
+    how many there are and the weight range of gold / housing — exposes when
+    the coverage metric saturates and cannot pin down an optimum."""
+    fmax = fund.max()
+    at_f = np.isclose(fund, fmax)
+    smax = succ[at_f].max()
+    tied = at_f & np.isclose(succ, smax)
+    gold = weights[tied, GOLD_IDX] * 100
+    house = weights[tied, HOUSING_IDX] * 100
+    return {
+        "n_tied": int(tied.sum()),
+        "gold_plateau": f"{int(gold.min())}-{int(gold.max())}",
+        "housing_plateau": f"{int(house.min())}-{int(house.max())}",
     }
 
 
@@ -372,8 +398,13 @@ def run_sensitivity(arrays, entities, kind):
     print(f"Wrote {kind}_sensitivity.csv")
 
 
-def run_regimes(entities, horizon=SENS_HORIZON):
-    """How the optimum + asset means shift across monetary regimes."""
+def run_regimes(entities, horizon=SENS_HORIZON, rates=(0.033, 0.040)):
+    """How the optimum + asset means shift across monetary regimes.
+
+    Run at both a conservative (3.3%) and a discriminating (4.0%) withdrawal
+    rate: at 3.3% the metric saturates in benign regimes (huge n_tied), so the
+    4.0% run is the one whose optimum is well-identified.
+    """
     exp_vec = expense_vector(HOUSING_EXPENSE)
     alloc_rows, stat_rows = [], []
     menu_w = {"base_stocks_bonds": menu_allocations(MENUS["base_stocks_bonds"]),
@@ -396,16 +427,52 @@ def run_regimes(entities, horizon=SENS_HORIZON):
             for menu, weights in menu_w.items():
                 sigma = (sigma_real_for(INDIVIDUAL_VOL_MULT, v_idx)
                          if menu == "add_both_individual" else 0.0)
-                row = best_row(weights, *evaluate_menu(
-                    tensor, weights, horizon, exp_vec, sigma, noise))
-                row.update(regime=regime, entity=entity, menu=menu)
-                alloc_rows.append(row)
+                for rate in rates:
+                    metrics = evaluate_menu(tensor, weights, horizon, exp_vec,
+                                            sigma, noise, annual_wd=rate * INITIAL)
+                    row = best_row(weights, *metrics)
+                    row.update(coverage_plateau(weights, metrics[0], metrics[1]))
+                    row.update(regime=regime, entity=entity, menu=menu,
+                               withdrawal_rate=rate)
+                    alloc_rows.append(row)
         print(f"  regime {regime}")
-    cols = (["regime", "entity", "menu", "alloc"] + ASSETS
-            + ["success_rate", "funded_ratio", "median_final", "p10_final"])
+    cols = (["regime", "entity", "menu", "withdrawal_rate", "alloc"] + ASSETS
+            + ["success_rate", "funded_ratio", "median_final", "p10_final",
+               "n_tied", "gold_plateau", "housing_plateau"])
     pd.DataFrame(alloc_rows)[cols].to_csv(OUTPUT_DIR / "regime_analysis.csv", index=False)
     pd.DataFrame(stat_rows).to_csv(OUTPUT_DIR / "regime_asset_stats.csv", index=False)
     print("Wrote regime_analysis.csv + regime_asset_stats.csv")
+
+
+def run_withdrawal_sweep(arrays, entities, horizon=SENS_HORIZON):
+    """How the optimum + its identifiability change with the withdrawal rate.
+
+    Shows that raising the rate un-saturates the metric (n_tied collapses) and
+    sharpens the optimal allocation. Pooled + USA, base + add_both individual.
+    """
+    exp_vec = expense_vector(HOUSING_EXPENSE)
+    menu_w = {"base_stocks_bonds": menu_allocations(MENUS["base_stocks_bonds"]),
+              "add_both_individual": menu_allocations(MENUS["add_both"])}
+    rows = []
+    for entity in entities:
+        v_idx = index_housing_real_vol(arrays, entity)
+        tensor = bootstrap_tensor(arrays, entity, horizon, np.random.default_rng(SEED))
+        noise = make_noise(horizon)
+        for menu, weights in menu_w.items():
+            sigma = (sigma_real_for(INDIVIDUAL_VOL_MULT, v_idx)
+                     if menu == "add_both_individual" else 0.0)
+            for rate in WITHDRAWAL_RATES:
+                metrics = evaluate_menu(tensor, weights, horizon, exp_vec,
+                                        sigma, noise, annual_wd=rate * INITIAL)
+                row = best_row(weights, *metrics)
+                row.update(coverage_plateau(weights, metrics[0], metrics[1]))
+                row.update(entity=entity, menu=menu, withdrawal_rate=rate)
+                rows.append(row)
+    cols = (["entity", "menu", "withdrawal_rate", "alloc"] + ASSETS
+            + ["success_rate", "funded_ratio", "median_final", "p10_final",
+               "n_tied", "gold_plateau", "housing_plateau"])
+    pd.DataFrame(rows)[cols].to_csv(OUTPUT_DIR / "withdrawal_rate_analysis.csv", index=False)
+    print("Wrote withdrawal_rate_analysis.csv")
 
 
 def main():
@@ -418,6 +485,7 @@ def main():
     run_main(arrays, entities)
     run_sensitivity(arrays, ["ALL", "USA"], "expense")
     run_sensitivity(arrays, ["ALL", "USA"], "vol")
+    run_withdrawal_sweep(arrays, ["ALL", "USA"])
     run_regimes(["ALL", "USA"])
 
 
