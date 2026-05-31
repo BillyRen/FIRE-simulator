@@ -1,56 +1,49 @@
-"""Multi-asset long-horizon allocation study v3 (2026-05-31).
+"""Multi-asset long-horizon allocation study v4 (2026-05-31).
 
 Question
 --------
-Starting from a stocks+bonds portfolio (domestic_stock + global_stock +
-domestic_bond — the product's three financial assets), how does the optimal
-allocation change when we additionally allow domestic real estate / gold /
-both? Real estate is studied under two treatments (per the prior
-docs/four-asset-allocation-analysis.md):
+From a stocks+bonds base (domestic_stock + global_stock + domestic_bond — the
+product's three financial assets), how does the optimal allocation change when
+adding domestic real estate / gold / both? Real estate is studied two ways
+(per docs/four-asset-allocation-analysis.md):
 
-  - "index"      : a diversified national housing index — volatility as-is,
-                   holding cost 1.5% (owner-occupied: maintenance ~1% + tax/
-                   fees ~0.5%).
-  - "individual" : a single owned property — index systematic return PLUS
-                   idiosyncratic property-specific noise that scales total
-                   volatility to 1.5x the index and dilutes its correlation
-                   with other assets to 2/3 (added in REAL space, scaled by the
-                   housing weight, so individual housing standalone vol is
-                   exactly 1.5x and corr(individual, X) = corr(index, X)/1.5).
+  - "index"      : diversified national housing index — vol as-is, holding
+                   cost 1.5%.
+  - "individual" : single owned property — index systematic return PLUS
+                   idiosyncratic real-space noise that makes standalone vol =
+                   1.5x index and dilutes cross-asset corr to 2/3. The
+                   individual housing real return is floored at -100% (an
+                   unlevered asset cannot lose more than its value).
 
-Method — mirrors the product's "optimal allocation" tool
---------------------------------------------------------
-- Block Bootstrap over JST returns (same engine as the product); pooled
-  (sqrt-GDP weighted, = country="ALL") + representative single countries.
-  All asset columns share block indices so cross-asset correlation is kept.
-- Portfolio real return uses the product convention (portfolio.py): weight
-  nominal returns net of PER-ASSET expense, then deflate once by inflation.
-  Per-asset expense: financial assets + gold 0.5%, housing 1.5% (configurable).
-  No winsorization (product-consistent; portfolio deflation tempers FX spikes).
-- Fixed withdrawal strategy via the product's own kernel
-  (_simulate_vectorized_fixed_from_matrix) + compute_success_rate /
-  compute_funded_ratio, so metrics match the tool exactly.
-- Each allocation on a 0.1 grid is ranked by FUNDED RATIO (coverage) — the
-  product allocation page selects best = max(..., key=funded_ratio) — with
-  SUCCESS RATE as tie-breaker.
+Method — mirrors the product "optimal allocation" tool
+------------------------------------------------------
+- Block Bootstrap over JST returns (product engine); pooled (sqrt-GDP) +
+  single countries; shared block indices keep cross-asset correlation.
+- Portfolio real return = product convention (portfolio.py): weight nominal
+  net of per-asset expense, deflate once. Per-asset expense: financial+gold
+  0.5%, housing 1.5%. No winsorization (product-consistent).
+- Fixed withdrawal via the product kernel; ranked by FUNDED RATIO (= product
+  best = max(key=funded_ratio)), success rate as tie-break.
+- Allocation grid step 0.05 (5%). Evaluation is vectorized in chunks so the
+  finer grid stays fast. (A 1% grid for 5 assets = C(104,4) ~ 4.6M points is
+  infeasible by brute force; the optimum sits on a flat plateau so 5% does not
+  change conclusions — adjacent grid points differ <~0.2pp in funded ratio.)
 
-Parameters (per user)
----------------------
-- initial 1,000,000; withdrawal 33,000 real (3.3%); financial/gold expense
-  0.5%; housing expense 1.5%; block 5-15; leverage 1.0; num_sims 3000;
-  horizons 40 & 65y (3.3% is conservative — only long horizons differentiate).
+Parameters (per user): initial 1,000,000; withdrawal 33,000 real (3.3%);
+financial/gold expense 0.5%, housing 1.5%; block 5-15; 3000 sims; horizons
+40 & 65y.
 
-Sensitivity sweeps (challenge the 1.5% / 1.5x assumptions)
----------------------------------------------------------
-- housing-expense sweep {0.5, 1.0, 1.5, 2.0, 2.5}% (individual vol, 65y)
-- housing-vol-multiple sweep {1.0, 1.25, 1.5, 1.75, 2.0}x (1.5% expense, 65y)
+Extra analyses
+--------------
+- housing-expense {0.5..2.5}% and vol-mult {1.0..2.0}x sensitivity (65y).
+- REGIME sub-period analysis: bootstrap restricted to historical windows
+  (pre-WWII 1900-1945, post-WWII 1946+, post-gold-standard 1971+, modern
+  1990+, vs full sample) for pooled + USA, to see how the optimum and the
+  asset means shift across monetary regimes.
 
-Outputs (analysis/output/multi_asset_allocation/)
-  results.csv            optimum per (entity, horizon, menu, housing_scenario)
-  asset_stats.csv        real mean/vol/corr (display-clipped)
-  expense_sensitivity.csv, vol_sensitivity.csv
-
-NOTE: analysis only — not wired into the product.
+Outputs (analysis/output/multi_asset_allocation/): results.csv, asset_stats.csv,
+expense_sensitivity.csv, vol_sensitivity.csv, regime_analysis.csv,
+regime_asset_stats.csv. NOTE: analysis only — not wired into the product.
 """
 from __future__ import annotations
 
@@ -66,22 +59,23 @@ sys.path.insert(0, str(ROOT))
 from simulator.bootstrap import block_bootstrap_np, block_bootstrap_pooled_np
 from simulator.config import get_gdp_weights
 from simulator.monte_carlo import _simulate_vectorized_fixed_from_matrix
-from simulator.statistics import compute_success_rate, compute_funded_ratio
+from simulator.statistics import compute_success_rate, compute_funded_ratio  # noqa: F401
 
 # ──────────────────────────── parameters ────────────────────────────────────
 INITIAL = 1_000_000.0
-ANNUAL_WD = 33_000.0          # 3.3% real, constant
-FIN_EXPENSE = 0.005           # financial assets + gold: 0.5%
-HOUSING_EXPENSE = 0.015       # owner-occupied holding cost: 1.5%
-INDIVIDUAL_VOL_MULT = 1.5     # single property vol = 1.5x index
+ANNUAL_WD = 33_000.0
+FIN_EXPENSE = 0.005
+HOUSING_EXPENSE = 0.015
+INDIVIDUAL_VOL_MULT = 1.5
 NUM_SIMS = 3_000
 MIN_BLOCK = 5
 MAX_BLOCK = 15
 SEED = 42
-NOISE_SEED = 1_234            # independent stream for idiosyncratic housing noise
-STEP = 0.1
+NOISE_SEED = 1_234
+STEP = 0.05
 HORIZONS = [40, 65]
 SENS_HORIZON = 65
+CHUNK = 120                      # combos per vectorized batch (bounds memory)
 
 SINGLE_COUNTRIES = ["USA", "JPN", "GBR", "DEU", "AUS"]
 
@@ -93,7 +87,7 @@ NOMINAL_COLS = ["Domestic_Stock", "Global_Stock", "Domestic_Bond",
 IDX_INFL = 5
 N_ASSETS = len(ASSETS)
 HOUSING_IDX = ASSETS.index("housing")
-REAL_CLIP = (-0.95, 3.0)      # display/vol-calibration clip on real returns
+REAL_CLIP = (-0.95, 3.0)
 
 MENUS = {
     "base_stocks_bonds": ["domestic_stock", "global_stock", "domestic_bond"],
@@ -102,52 +96,55 @@ MENUS = {
     "add_both":          ASSETS,
 }
 
+REGIMES = {  # (year_min, year_max)
+    "full":              (1871, 2025),
+    "prewar_1900_1945":  (1900, 1945),
+    "postwar_1946+":     (1946, 2025),
+    "post_gold_1971+":   (1971, 2025),
+    "modern_1990+":      (1990, 2025),
+}
+
 OUTPUT_DIR = ROOT / "analysis" / "output" / "multi_asset_allocation"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ──────────────────────────── data prep ─────────────────────────────────────
-def load_nominal_arrays() -> dict[str, np.ndarray]:
-    """Per-country common-sample nominal arrays, shape (n_years, 6)."""
+def load_nominal_arrays(year_min: int | None = None,
+                        year_max: int | None = None,
+                        min_years: int = 30) -> dict[str, np.ndarray]:
+    """Per-country common-sample nominal arrays (n_years, 6), optional window."""
     ret = pd.read_csv(ROOT / "data" / "jst_returns.csv")
     gold = pd.read_csv(ROOT / "data" / "jst_gold.csv")[
-        ["Year", "Country", "Gold_Nominal_Return"]
-    ]
+        ["Year", "Country", "Gold_Nominal_Return"]]
     df = ret.merge(gold, on=["Year", "Country"], how="left")
+    if year_min is not None:
+        df = df[df["Year"] >= year_min]
+    if year_max is not None:
+        df = df[df["Year"] <= year_max]
     out: dict[str, np.ndarray] = {}
     for iso, sub in df.groupby("Country"):
-        sub = sub.sort_values("Year")
-        cc = sub.dropna(subset=NOMINAL_COLS)
-        if len(cc) >= 30:
+        cc = sub.sort_values("Year").dropna(subset=NOMINAL_COLS)
+        if len(cc) >= min_years:
             out[iso] = cc[NOMINAL_COLS].to_numpy(dtype=np.float64)
     return out
 
 
 def expense_vector(housing_expense: float) -> np.ndarray:
-    """Per-asset expense in ASSETS order; housing differs from the rest."""
     e = np.full(N_ASSETS, FIN_EXPENSE)
     e[HOUSING_IDX] = housing_expense
     return e
 
 
 def index_housing_real_vol(arrays: dict[str, np.ndarray], entity: str) -> float:
-    """Index (systematic) real housing vol, clipped; GDP-weighted for ALL.
-
-    Used to calibrate the idiosyncratic noise so individual housing vol becomes
-    exactly INDIVIDUAL_VOL_MULT x this.
-    """
     def real_housing(nom):
-        infl = nom[:, IDX_INFL]
-        r = (1.0 + nom[:, HOUSING_IDX]) / (1.0 + infl) - 1.0
+        r = (1.0 + nom[:, HOUSING_IDX]) / (1.0 + nom[:, IDX_INFL]) - 1.0
         return np.clip(r, *REAL_CLIP)
-
     if entity == "ALL":
         vals = np.concatenate([real_housing(arrays[c]) for c in arrays])
         gw = get_gdp_weights(list(arrays.keys()))
         w = np.concatenate([np.full(len(arrays[c]), gw[c] / len(arrays[c]))
                             for c in arrays])
         w = w / w.sum()
-        # np.errstate: spurious "matmul" RuntimeWarning under macOS Accelerate.
         with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
             mean = w @ vals
             var = w @ (vals - mean) ** 2
@@ -155,10 +152,12 @@ def index_housing_real_vol(arrays: dict[str, np.ndarray], entity: str) -> float:
     return float(real_housing(arrays[entity]).std())
 
 
+def sigma_real_for(vol_mult: float, v_idx: float) -> float:
+    return float(np.sqrt(max(vol_mult ** 2 - 1.0, 0.0)) * v_idx)
+
+
 # ─────────────────────── bootstrap nominal tensor ───────────────────────────
-def bootstrap_tensor(arrays: dict[str, np.ndarray], entity: str,
-                     horizon: int, rng: np.random.Generator) -> np.ndarray:
-    """Nominal tensor (NUM_SIMS, horizon, 6); ALL -> sqrt-GDP pooled draw."""
+def bootstrap_tensor(arrays, entity, horizon, rng):
     out = np.empty((NUM_SIMS, horizon, len(NOMINAL_COLS)), dtype=np.float64)
     if entity == "ALL":
         clist = list(arrays.keys())
@@ -178,30 +177,8 @@ def bootstrap_tensor(arrays: dict[str, np.ndarray], entity: str,
     return out
 
 
-def real_returns_for_alloc(tensor: np.ndarray, w: np.ndarray,
-                           expense_vec: np.ndarray,
-                           sigma_real: float = 0.0,
-                           noise_unit: np.ndarray | None = None) -> np.ndarray:
-    """(NUM_SIMS, horizon) real portfolio returns for weights w.
-
-    Product convention: weight nominal returns net of per-asset expense, then
-    deflate once by inflation. For the individual-property case, add real-space
-    idiosyncratic housing noise scaled by the housing weight:
-        real += w_housing * sigma_real * noise_unit
-    which makes standalone individual housing vol = sqrt(V^2 + sigma_real^2) and
-    dilutes its correlation with every other asset by V / sqrt(V^2+sigma^2).
-    """
-    nominal_assets = tensor[:, :, :N_ASSETS]
-    nominal_port = nominal_assets @ w - (w @ expense_vec)
-    infl = tensor[:, :, IDX_INFL]
-    real = (1.0 + nominal_port) / (1.0 + infl) - 1.0
-    if sigma_real > 0.0 and noise_unit is not None:
-        real = real + w[HOUSING_IDX] * sigma_real * noise_unit
-    return real
-
-
 # ─────────────────────────── allocation grid ────────────────────────────────
-def compositions(k: int, total: int) -> list[tuple[int, ...]]:
+def compositions(k: int, total: int):
     if k == 1:
         return [(total,)]
     res = []
@@ -212,47 +189,76 @@ def compositions(k: int, total: int) -> list[tuple[int, ...]]:
 
 
 def menu_allocations(allowed: list[str]) -> np.ndarray:
-    n_tenths = int(round(1.0 / STEP))
-    allowed_idx = [ASSETS.index(a) for a in allowed]
-    combos = compositions(len(allowed), n_tenths)
-    mat = np.zeros((len(combos), N_ASSETS), dtype=np.float64)
+    n = int(round(1.0 / STEP))
+    idxs = [ASSETS.index(a) for a in allowed]
+    combos = compositions(len(allowed), n)
+    mat = np.zeros((len(combos), N_ASSETS))
     for r, comp in enumerate(combos):
-        for j, idx in enumerate(allowed_idx):
+        for j, idx in enumerate(idxs):
             mat[r, idx] = comp[j] * STEP
     return mat
 
 
-# ─────────────────────────── evaluation ─────────────────────────────────────
-def eval_allocation(tensor, w, horizon, expense_vec, sigma_real, noise_unit):
-    real = real_returns_for_alloc(tensor, w, expense_vec, sigma_real, noise_unit)
-    traj, _, _, _ = _simulate_vectorized_fixed_from_matrix(
-        real, INITIAL, ANNUAL_WD, horizon)
-    sr = compute_success_rate(traj, horizon)
-    fr = compute_funded_ratio(traj, horizon)
-    final = traj[:, -1]
-    return sr, fr, float(np.median(final)), float(np.percentile(final, 10))
+# ─────────────────────── vectorized evaluation ──────────────────────────────
+def evaluate_menu(tensor, weights, horizon, expense_vec,
+                  sigma_real=0.0, noise_unit=None):
+    """Return per-combo (success, funded, median_final, p10_final) arrays.
+
+    Vectorized in chunks of CHUNK combos. Individual-property idiosyncratic
+    noise is applied in real space, scaled by the housing weight, with the
+    individual housing real return floored at -100%.
+    """
+    nominal_assets = tensor[:, :, :N_ASSETS]            # (S,H,5)
+    infl = tensor[:, :, IDX_INFL]                       # (S,H)
+    one_plus_infl = 1.0 + infl
+
+    delta_h = None
+    if sigma_real > 0.0 and noise_unit is not None:
+        e_h = expense_vec[HOUSING_IDX]
+        hr_index = (1.0 + nominal_assets[:, :, HOUSING_IDX] - e_h) / one_plus_infl - 1.0
+        hr_indiv = np.maximum(hr_index + sigma_real * noise_unit, -1.0)
+        delta_h = hr_indiv - hr_index                   # (S,H)
+
+    C = weights.shape[0]
+    succ = np.empty(C); fund = np.empty(C)
+    med = np.empty(C); p10 = np.empty(C)
+    drag = weights @ expense_vec                         # (C,)
+
+    for lo in range(0, C, CHUNK):
+        hi = min(lo + CHUNK, C)
+        W = weights[lo:hi]                               # (c,5)
+        nom_port = np.einsum("sha,ca->csh", nominal_assets, W) - drag[lo:hi, None, None]
+        real = (1.0 + nom_port) / one_plus_infl[None] - 1.0   # (c,S,H)
+        if delta_h is not None:
+            real = real + W[:, HOUSING_IDX][:, None, None] * delta_h[None]
+        c = hi - lo
+        traj, _, _, _ = _simulate_vectorized_fixed_from_matrix(
+            real.reshape(c * NUM_SIMS, horizon), INITIAL, ANNUAL_WD, horizon)
+        traj = traj.reshape(c, NUM_SIMS, horizon + 1)
+        depleted = traj[:, :, 1:] <= 0
+        any_dep = depleted.any(axis=2)
+        dep_year = np.where(any_dep, depleted.argmax(axis=2) + 1, horizon)
+        succ[lo:hi] = (dep_year >= horizon).mean(axis=1)
+        fund[lo:hi] = np.minimum(dep_year / horizon, 1.0).mean(axis=1)
+        final = traj[:, :, -1]
+        med[lo:hi] = np.percentile(final, 50, axis=1)
+        p10[lo:hi] = np.percentile(final, 10, axis=1)
+    return succ, fund, med, p10
 
 
-def best_allocation(tensor, weights, horizon, expense_vec, sigma_real, noise_unit):
-    """Return the funded-ratio-optimal allocation row (success_rate tie-break)."""
-    rows = []
-    for w in weights:
-        sr, fr, mfin, p10 = eval_allocation(
-            tensor, w, horizon, expense_vec, sigma_real, noise_unit)
-        rows.append((sr, fr, mfin, p10))
-    ev = pd.DataFrame(rows, columns=["success_rate", "funded_ratio",
-                                     "median_final", "p10_final"])
-    for j, a in enumerate(ASSETS):
-        ev[a] = weights[:, j]
-    ev = ev.sort_values(["funded_ratio", "success_rate"],
-                        ascending=False).reset_index(drop=True)
-    return ev.iloc[0]
+def best_row(weights, succ, fund, med, p10):
+    """Funded-ratio-optimal combo (success tie-break)."""
+    i = np.lexsort((succ, fund))[-1]          # primary fund, secondary succ
+    return {
+        "alloc": "/".join(f"{int(round(weights[i, j] * 100))}" for j in range(N_ASSETS)),
+        **{a: weights[i, j] for j, a in enumerate(ASSETS)},
+        "success_rate": float(succ[i]), "funded_ratio": float(fund[i]),
+        "median_final": float(med[i]), "p10_final": float(p10[i]),
+    }
 
 
 # ─────────────────────────── descriptive stats ──────────────────────────────
-def _weighted_moments(real: np.ndarray, w: np.ndarray):
-    # np.errstate guards a spurious "matmul" RuntimeWarning under macOS
-    # Accelerate BLAS — inputs are clipped/bounded and outputs verified finite.
+def _weighted_moments(real, w):
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
         mean = w @ real
         centered = real - mean
@@ -263,71 +269,75 @@ def _weighted_moments(real: np.ndarray, w: np.ndarray):
     return mean, vol, corr
 
 
-def asset_descriptive(arrays: dict[str, np.ndarray], entity: str) -> dict:
-    """Per-asset real mean/vol + corr (moments on returns clipped to REAL_CLIP
-    for display readability; the main analysis uses RAW data)."""
+def asset_real_means(arrays, entity):
+    """GDP-weighted (ALL) clipped real mean per asset — for regime insight."""
     def to_real(nom):
         infl = nom[:, IDX_INFL:IDX_INFL + 1]
-        real = (1.0 + nom[:, :N_ASSETS]) / (1.0 + infl) - 1.0
-        return np.clip(real, *REAL_CLIP)
-
+        return np.clip((1.0 + nom[:, :N_ASSETS]) / (1.0 + infl) - 1.0, *REAL_CLIP)
     if entity == "ALL":
         real = np.vstack([to_real(arrays[c]) for c in arrays])
         gw = get_gdp_weights(list(arrays.keys()))
-        per_row = np.concatenate([
-            np.full(len(arrays[c]), gw[c] / len(arrays[c])) for c in arrays])
-        per_row = per_row / per_row.sum()
-        mean, vol, corr = _weighted_moments(real, per_row)
+        w = np.concatenate([np.full(len(arrays[c]), gw[c] / len(arrays[c]))
+                            for c in arrays])
+        w = w / w.sum()
+        mean, vol, _ = _weighted_moments(real, w)
     else:
         real = to_real(arrays[entity])
-        w = np.full(real.shape[0], 1.0 / real.shape[0])
-        mean, vol, corr = _weighted_moments(real, w)
+        mean, vol, _ = _weighted_moments(real, np.full(len(real), 1.0 / len(real)))
+    return mean, vol
+
+
+def asset_descriptive(arrays, entity):
+    mean, vol = asset_real_means(arrays, entity)
+
+    def to_real(nom):
+        infl = nom[:, IDX_INFL:IDX_INFL + 1]
+        return np.clip((1.0 + nom[:, :N_ASSETS]) / (1.0 + infl) - 1.0, *REAL_CLIP)
+    if entity == "ALL":
+        real = np.vstack([to_real(arrays[c]) for c in arrays])
+        gw = get_gdp_weights(list(arrays.keys()))
+        w = np.concatenate([np.full(len(arrays[c]), gw[c] / len(arrays[c]))
+                            for c in arrays])
+        w = w / w.sum()
+        _, _, corr = _weighted_moments(real, w)
+    else:
+        real = to_real(arrays[entity])
+        _, _, corr = _weighted_moments(real, np.full(len(real), 1.0 / len(real)))
     rec = {"entity": entity, "n_obs": real.shape[0]}
     for j, a in enumerate(ASSETS):
-        rec[f"mean_{a}"] = mean[j]
-        rec[f"vol_{a}"] = vol[j]
+        rec[f"mean_{a}"] = mean[j]; rec[f"vol_{a}"] = vol[j]
     for i in range(N_ASSETS):
         for j in range(i + 1, N_ASSETS):
             rec[f"corr_{ASSET_CODE[ASSETS[i]]}_{ASSET_CODE[ASSETS[j]]}"] = corr[i, j]
     return rec
 
 
-# ─────────────────────────── main sweeps ────────────────────────────────────
-def sigma_real_for(vol_mult: float, v_idx: float) -> float:
-    return float(np.sqrt(max(vol_mult ** 2 - 1.0, 0.0)) * v_idx)
+# ─────────────────────────── runners ────────────────────────────────────────
+def make_noise(horizon):
+    return np.random.default_rng(NOISE_SEED).standard_normal((NUM_SIMS, horizon))
 
 
 def run_main(arrays, entities):
-    """Optimum per (entity, horizon, menu, housing_scenario)."""
-    menu_weights = {n: menu_allocations(a) for n, a in MENUS.items()}
+    menu_w = {n: menu_allocations(a) for n, a in MENUS.items()}
     exp_vec = expense_vector(HOUSING_EXPENSE)
     results = []
     for entity in entities:
         v_idx = index_housing_real_vol(arrays, entity)
         for horizon in HORIZONS:
-            rng = np.random.default_rng(SEED)        # identical draws across menus
+            rng = np.random.default_rng(SEED)
             tensor = bootstrap_tensor(arrays, entity, horizon, rng)
-            noise_rng = np.random.default_rng(NOISE_SEED)
-            noise_unit = noise_rng.standard_normal((NUM_SIMS, horizon))
-            for menu, weights in menu_weights.items():
+            noise = make_noise(horizon)
+            for menu, weights in menu_w.items():
                 has_house = "housing" in MENUS[menu]
-                scenarios = (["index", "individual"] if has_house else ["—"])
-                for scen in scenarios:
-                    if scen == "individual":
-                        sigma = sigma_real_for(INDIVIDUAL_VOL_MULT, v_idx)
-                    else:
-                        sigma = 0.0
-                    best = best_allocation(
-                        tensor, weights, horizon, exp_vec, sigma, noise_unit)
-                    best = best.copy()
-                    best["alloc"] = "/".join(
-                        f"{int(round(best[a] * 100))}" for a in ASSETS)
-                    best["entity"] = entity
-                    best["horizon"] = horizon
-                    best["menu"] = menu
-                    best["housing_scenario"] = scen
-                    results.append(best)
-            print(f"  done {entity} H={horizon}")
+                for scen in (["index", "individual"] if has_house else ["—"]):
+                    sigma = (sigma_real_for(INDIVIDUAL_VOL_MULT, v_idx)
+                             if scen == "individual" else 0.0)
+                    metrics = evaluate_menu(tensor, weights, horizon, exp_vec, sigma, noise)
+                    row = best_row(weights, *metrics)
+                    row.update(entity=entity, horizon=horizon, menu=menu,
+                               housing_scenario=scen)
+                    results.append(row)
+            print(f"  main {entity} H={horizon}")
     res = pd.DataFrame(results)
     cols = (["entity", "horizon", "menu", "housing_scenario", "alloc"] + ASSETS
             + ["success_rate", "funded_ratio", "median_final", "p10_final"])
@@ -335,55 +345,80 @@ def run_main(arrays, entities):
     print(f"Wrote results.csv ({len(res)} rows)")
 
 
-def run_sensitivity(arrays, entities, kind: str):
-    """Sweep housing expense or vol-multiple for the +housing menu at 65y."""
+def run_sensitivity(arrays, entities, kind):
     weights = menu_allocations(MENUS["add_housing"])
     grid = ([0.005, 0.010, 0.015, 0.020, 0.025] if kind == "expense"
             else [1.0, 1.25, 1.5, 1.75, 2.0])
     rows = []
     for entity in entities:
         v_idx = index_housing_real_vol(arrays, entity)
-        rng = np.random.default_rng(SEED)
-        tensor = bootstrap_tensor(arrays, entity, SENS_HORIZON, rng)
-        noise_unit = np.random.default_rng(NOISE_SEED).standard_normal(
-            (NUM_SIMS, SENS_HORIZON))
+        tensor = bootstrap_tensor(arrays, entity, SENS_HORIZON,
+                                  np.random.default_rng(SEED))
+        noise = make_noise(SENS_HORIZON)
         for g in grid:
-            if kind == "expense":
-                exp_vec = expense_vector(g)
-                sigma = sigma_real_for(INDIVIDUAL_VOL_MULT, v_idx)  # individual
-            else:
-                exp_vec = expense_vector(HOUSING_EXPENSE)
-                sigma = sigma_real_for(g, v_idx)
-            best = best_allocation(tensor, weights, SENS_HORIZON,
-                                   exp_vec, sigma, noise_unit)
+            exp_vec = expense_vector(g if kind == "expense" else HOUSING_EXPENSE)
+            mult = INDIVIDUAL_VOL_MULT if kind == "expense" else g
+            sigma = sigma_real_for(mult, v_idx)
+            row = best_row(weights, *evaluate_menu(
+                tensor, weights, SENS_HORIZON, exp_vec, sigma, noise))
             rows.append({
                 "entity": entity,
                 ("housing_expense" if kind == "expense" else "vol_mult"): g,
-                "opt_housing_pct": int(round(best["housing"] * 100)),
-                "alloc": "/".join(f"{int(round(best[a] * 100))}" for a in ASSETS),
-                "success_rate": best["success_rate"],
-                "funded_ratio": best["funded_ratio"],
-                "p10_final": best["p10_final"],
+                "opt_housing_pct": int(round(row["housing"] * 100)),
+                "alloc": row["alloc"], "success_rate": row["success_rate"],
+                "funded_ratio": row["funded_ratio"], "p10_final": row["p10_final"],
             })
-    fn = f"{kind}_sensitivity.csv"
-    pd.DataFrame(rows).to_csv(OUTPUT_DIR / fn, index=False)
-    print(f"Wrote {fn}")
+    pd.DataFrame(rows).to_csv(OUTPUT_DIR / f"{kind}_sensitivity.csv", index=False)
+    print(f"Wrote {kind}_sensitivity.csv")
 
 
-def main() -> None:
+def run_regimes(entities, horizon=SENS_HORIZON):
+    """How the optimum + asset means shift across monetary regimes."""
+    exp_vec = expense_vector(HOUSING_EXPENSE)
+    alloc_rows, stat_rows = [], []
+    menu_w = {"base_stocks_bonds": menu_allocations(MENUS["base_stocks_bonds"]),
+              "add_both_individual": menu_allocations(MENUS["add_both"])}
+    for regime, (y0, y1) in REGIMES.items():
+        arrays = load_nominal_arrays(y0, y1, min_years=20)
+        for entity in entities:
+            if entity != "ALL" and entity not in arrays:
+                continue
+            v_idx = index_housing_real_vol(arrays, entity)
+            mean, vol = asset_real_means(arrays, entity)
+            stat_rows.append({
+                "regime": regime, "entity": entity,
+                **{f"mean_{a}": mean[j] for j, a in enumerate(ASSETS)},
+                **{f"vol_{a}": vol[j] for j, a in enumerate(ASSETS)},
+            })
+            tensor = bootstrap_tensor(arrays, entity, horizon,
+                                      np.random.default_rng(SEED))
+            noise = make_noise(horizon)
+            for menu, weights in menu_w.items():
+                sigma = (sigma_real_for(INDIVIDUAL_VOL_MULT, v_idx)
+                         if menu == "add_both_individual" else 0.0)
+                row = best_row(weights, *evaluate_menu(
+                    tensor, weights, horizon, exp_vec, sigma, noise))
+                row.update(regime=regime, entity=entity, menu=menu)
+                alloc_rows.append(row)
+        print(f"  regime {regime}")
+    cols = (["regime", "entity", "menu", "alloc"] + ASSETS
+            + ["success_rate", "funded_ratio", "median_final", "p10_final"])
+    pd.DataFrame(alloc_rows)[cols].to_csv(OUTPUT_DIR / "regime_analysis.csv", index=False)
+    pd.DataFrame(stat_rows).to_csv(OUTPUT_DIR / "regime_asset_stats.csv", index=False)
+    print("Wrote regime_analysis.csv + regime_asset_stats.csv")
+
+
+def main():
     arrays = load_nominal_arrays()
     entities = ["ALL"] + [c for c in SINGLE_COUNTRIES if c in arrays]
-    print(f"Entities: {entities}")
-    print("Common-sample sizes: "
-          + ", ".join(f"{c}={len(arrays[c])}" for c in arrays))
-
+    print(f"Entities: {entities}  (grid step {STEP})")
     pd.DataFrame([asset_descriptive(arrays, e) for e in entities]).to_csv(
         OUTPUT_DIR / "asset_stats.csv", index=False)
     print("Wrote asset_stats.csv")
-
     run_main(arrays, entities)
     run_sensitivity(arrays, ["ALL", "USA"], "expense")
     run_sensitivity(arrays, ["ALL", "USA"], "vol")
+    run_regimes(["ALL", "USA"])
 
 
 if __name__ == "__main__":
