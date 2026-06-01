@@ -48,6 +48,10 @@ def _fire_dataset_path() -> str:
     return os.path.join(_BASE_DIR, "data", "FIRE_dataset.csv")
 
 
+def _fire_dataset_intl_path() -> str:
+    return os.path.join(_BASE_DIR, "data", "FIRE_dataset_intl.csv")
+
+
 def load_country_list(meta_path: str | None = None) -> list[dict[str, Any]]:
     """加载国家元数据列表。
 
@@ -225,12 +229,16 @@ def load_returns_by_source(data_source: str = "jst") -> pd.DataFrame:
     """根据 data_source 加载对应的回报数据。"""
     if data_source == "fire_dataset":
         return load_fire_dataset()
+    if data_source == "fire_dataset_intl":
+        # 与 fire_dataset 相同，但 pre-1970 International Stock 用 JST 校准的
+        # 真实非美序列替换 US 占位（见 scripts/backfill_pre1970_intl.py）。
+        return load_fire_dataset(_fire_dataset_intl_path())
     return load_returns_data()
 
 
 def load_country_list_by_source(data_source: str = "jst") -> list[dict[str, Any]]:
     """根据 data_source 加载对应的国家列表。"""
-    if data_source == "fire_dataset":
+    if data_source in ("fire_dataset", "fire_dataset_intl"):
         return load_fire_country_list()
     return load_country_list()
 

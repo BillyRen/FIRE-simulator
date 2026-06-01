@@ -64,8 +64,9 @@ class BaseSimulationParams(BaseModel):
     seed: int | None = Field(None, ge=0, description="Random seed for reproducibility")
     data_source: str = Field(
         "jst",
-        pattern="^(jst|fire_dataset)$",
-        description="数据源: 'jst'=JST 多国数据, 'fire_dataset'=FIRE Dataset (仅美国)",
+        pattern="^(jst|fire_dataset|fire_dataset_intl)$",
+        description="数据源: 'jst'=JST 多国数据, 'fire_dataset'=FIRE Dataset (仅美国), "
+        "'fire_dataset_intl'=同上但 pre-1970 非美用 JST 校准序列替换 US 占位",
     )
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)

@@ -211,15 +211,35 @@ point, given R1.
 Single data file + single new script. Revert = `git checkout data/FIRE_dataset.csv`
 and delete the script. No engine or schema dependency, so rollback is clean.
 
-## 9. Decision summary (for sign-off)
+## 9. Decision summary (signed off 2026-06-01)
 
 1. **Method:** `Global_Stock` (linear-GDP) JST ex-US shape, read directly from
-   `jst_returns.csv`, + multiplicative level wedge. ✅ proposed (revised per §10)
-2. **Wedge size:** measured **1.69pp** (default) vs conservative ~1.9pp — **needs
-   decision**; recommend shipping both as a sensitivity range.
-3. **Backfill range:** 1960–1969 only vs all pre-1970 — **needs decision**
-   (leaning 1960s-only for credibility; R2).
-4. **Data-only, atomic write, idempotent, provenance documented.** ✅ proposed
+   `jst_returns.csv`, + multiplicative level wedge. ✅ implemented
+2. **Wedge size:** **1.69pp** single measured value (1970–2025 overlap). The
+   `--wedge` CLI flag remains for sensitivity runs (e.g. 1.9pp), but the shipped
+   dataset uses the auto-estimated 1.69pp. ✅ decided
+3. **Backfill range:** **all pre-1970** (1872–1969; 1871 has no JST
+   `Global_Stock` and keeps its placeholder). Downstream consumers filter by
+   `data_start_year` at use time. ✅ decided
+4. **Delivery: separate data source, NOT overwrite.** New
+   `data/FIRE_dataset_intl.csv` + `data_source="fire_dataset_intl"` enum value,
+   selectable in the frontend. Canonical `FIRE_dataset.csv` untouched, so the
+   placeholder-vs-backfill effect stays A/B-able and provenance is clear.
+   ✅ decided & implemented
+5. **Data-only engine change, atomic write, idempotent, provenance in this
+   doc + script docstring.** ✅ implemented
+
+### Implementation map
+- `scripts/backfill_pre1970_intl.py` — generates the variant CSV (idempotent,
+  atomic, `--wedge` flag).
+- `data/FIRE_dataset_intl.csv` — generated output (98 pre-1970 rows recalibrated).
+- `simulator/data_loader.py` — `_fire_dataset_intl_path()` + dispatch in
+  `load_returns_by_source` / `load_country_list_by_source`.
+- `backend/schemas.py` — enum pattern `^(jst|fire_dataset|fire_dataset_intl)$`.
+- `backend/deps.py`, `backend/routes/simulate.py` — treat the new source like
+  `fire_dataset` for the country=USA forcing.
+- `frontend/src/lib/types.ts` (8 unions), `sidebar-form.tsx` (Select + reset),
+  `messages/{en,zh}.json` (`dataSourceFireIntl{,Desc}`).
 
 ## 10. Codex review log
 

@@ -536,15 +536,17 @@ export const SidebarForm = memo(function SidebarForm({
                   text={
                     p.data_source === "fire_dataset"
                       ? t("dataSourceFireDesc")
-                      : t("dataSourceJstDesc")
+                      : p.data_source === "fire_dataset_intl"
+                        ? t("dataSourceFireIntlDesc")
+                        : t("dataSourceJstDesc")
                   }
                 />
               </Label>
               <Select
                 value={p.data_source}
                 onValueChange={(v) => {
-                  const ds = v as "jst" | "fire_dataset";
-                  if (ds === "fire_dataset") {
+                  const ds = v as "jst" | "fire_dataset" | "fire_dataset_intl";
+                  if (ds === "fire_dataset" || ds === "fire_dataset_intl") {
                     onChange({ ...p, data_source: ds, country: "USA" });
                   } else {
                     onChange({ ...p, data_source: ds });
@@ -557,6 +559,7 @@ export const SidebarForm = memo(function SidebarForm({
                 <SelectContent>
                   <SelectItem value="jst">{t("dataSourceJst")}</SelectItem>
                   <SelectItem value="fire_dataset">{t("dataSourceFire")}</SelectItem>
+                  <SelectItem value="fire_dataset_intl">{t("dataSourceFireIntl")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
