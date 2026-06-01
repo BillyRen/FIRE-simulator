@@ -277,7 +277,7 @@ def resolve_data(req):
     """
     ds = getattr(req, "data_source", "jst")
     country = req.country
-    if ds == "fire_dataset" and country == "ALL":
+    if ds in ("fire_dataset", "fire_dataset_intl") and country == "ALL":
         country = "USA"
 
     if country == "ALL":

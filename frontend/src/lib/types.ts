@@ -50,7 +50,7 @@ export interface SimulationRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
@@ -103,7 +103,7 @@ export interface SweepRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
@@ -153,7 +153,7 @@ export interface GuardrailRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -205,7 +205,7 @@ export interface BacktestRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   target_success: number;
   upper_guardrail: number;
   lower_guardrail: number;
@@ -256,7 +256,7 @@ export interface SimBacktestRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
@@ -379,7 +379,7 @@ export interface AllocationSweepRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;
@@ -611,7 +611,7 @@ export interface AccumulationRequest {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
@@ -712,7 +712,7 @@ export interface FormParams {
   data_start_year: number;
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
-  data_source: "jst" | "fire_dataset";
+  data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
   withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
   retirement_age: number;
   dynamic_ceiling: number;

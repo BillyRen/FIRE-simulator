@@ -152,7 +152,7 @@ def api_simulate(request: Request, req: SimulationRequest):
 def api_sim_backtest(request: Request, req: SimBacktestRequest):
     """Single historical path backtest (no bootstrap)."""
     country = req.country
-    if req.data_source == "fire_dataset" and country == "ALL":
+    if req.data_source in ("fire_dataset", "fire_dataset_intl") and country == "ALL":
         country = "USA"
     if country == "ALL":
         raise HTTPException(400, "历史回测必须选择具体国家，不能使用 ALL 池化模式")
