@@ -50,6 +50,8 @@
     "namePlaceholder": "Scenario name",
     "export": "Export JSON",
     "import": "Import JSON",
+    "share": "Copy shareable link",
+    "shareCopyManual": "Copy this link to share your scenario:",
     "reset": "Reset to defaults",
     "resetConfirm": "Reset all parameters to defaults? Unsaved changes will be lost."
   },

@@ -50,6 +50,8 @@
     "namePlaceholder": "方案名称",
     "export": "导出 JSON",
     "import": "导入 JSON",
+    "share": "复制分享链接",
+    "shareCopyManual": "复制此链接以分享你的方案：",
     "reset": "恢复默认参数",
     "resetConfirm": "确定要恢复所有参数为默认值吗？未保存的改动将丢失。"
   },

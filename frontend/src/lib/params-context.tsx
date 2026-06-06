@@ -5,6 +5,7 @@ import { DEFAULT_PARAMS } from "./types";
 import type { FormParams } from "./types";
 import { usePersistedState } from "./use-persisted-state";
 import { fetchServerDefaults, type ServerDefaults } from "./api";
+import { consumeSharedParams } from "./share-url";
 
 /** Page-weight categories for num_simulations recommendations. */
 export type SimCountCategory = "default" | "heavy" | "guardrail" | "allocation";
@@ -73,6 +74,15 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
+
+  // On mount: a shared-link token in the URL overrides persisted state.
+  const sharedConsumed = useRef(false);
+  useEffect(() => {
+    if (sharedConsumed.current) return;
+    sharedConsumed.current = true;
+    const shared = consumeSharedParams();
+    if (shared) setParams(shared);
+  }, [setParams]);
 
   // On mount: fetch fresh server defaults
   const applied = useRef(false);

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
-import { Save, Upload, Download, Trash2, Check, RotateCcw } from "lucide-react";
+import { Save, Upload, Download, Trash2, Check, RotateCcw, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DEFAULT_PARAMS, type FormParams } from "@/lib/types";
+import { buildShareUrl } from "@/lib/share-url";
 
 interface SavedScenario {
   name: string;
@@ -48,6 +49,7 @@ export function ScenarioManager({
   const [saveName, setSaveName] = useState("");
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [justShared, setJustShared] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleSave = () => {
@@ -90,6 +92,20 @@ export function ScenarioManager({
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
+
+  const handleShare = async () => {
+    const url = buildShareUrl(currentParams);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Clipboard API unavailable (insecure context / permissions) — fall back
+      // to a prompt so the user can copy manually.
+      window.prompt(t("shareCopyManual"), url);
+      return;
+    }
+    setJustShared(true);
+    setTimeout(() => setJustShared(false), 1500);
   };
 
   const handleReset = () => {
@@ -163,6 +179,20 @@ export function ScenarioManager({
             <Check className="h-3.5 w-3.5 text-green-500" />
           ) : (
             <Save className="h-3.5 w-3.5" />
+          )}
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2"
+          onClick={handleShare}
+          title={t("share")}
+        >
+          {justShared ? (
+            <Check className="h-3.5 w-3.5 text-green-500" />
+          ) : (
+            <Link2 className="h-3.5 w-3.5" />
           )}
         </Button>
 
