@@ -134,6 +134,7 @@ export default function GuardrailPage() {
     country: params.country,
     pooling_method: params.pooling_method,
     data_source: params.data_source,
+    calibrate_intl_returns: params.calibrate_intl_returns,
     target_success: targetSuccess,
     upper_guardrail: upperGuardrail,
     lower_guardrail: lowerGuardrail,

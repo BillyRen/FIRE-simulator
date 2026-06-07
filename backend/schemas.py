@@ -68,6 +68,13 @@ class BaseSimulationParams(BaseModel):
         description="数据源: 'jst'=JST 多国数据, 'fire_dataset'=FIRE Dataset (仅美国), "
         "'fire_dataset_intl'=同上但 pre-1970 非美用 JST 校准序列替换 US 占位",
     )
+    calibrate_intl_returns: bool = Field(
+        True,
+        description="JST 全球股票投资可得性校准（source-level：美国源不扣、非美源扣 "
+        "JST-vs-MSCI EAFE wedge≈1.69pp/yr）。True=校准后的可投资序列（默认，更贴近 "
+        "VT/MSCI 实际、对退休工具更安全）；False=原始学术总收益序列（advanced/audit）。"
+        "仅作用于 'jst' 数据源。",
+    )
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     cash_flows: list[CashFlowSchema] = Field(default=[], max_length=50)
