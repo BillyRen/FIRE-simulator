@@ -138,6 +138,9 @@ export function SimulatorClient() {
     try {
       const res = await runSimBatchBacktest({
         ...params,
+        // CAPE is a /simulate-MC-only strategy; the batch backtest doesn't
+        // accept it, so fall back to fixed there.
+        withdrawal_strategy: params.withdrawal_strategy === "cape" ? "fixed" : params.withdrawal_strategy,
         initial_portfolio: portfolio,
         annual_withdrawal: withdrawal,
       });
@@ -164,7 +167,9 @@ export function SimulatorClient() {
         country: btCountry,
         pooling_method: params.pooling_method,
         data_source: params.data_source,
-        withdrawal_strategy: params.withdrawal_strategy,
+        // CAPE is a Monte-Carlo-only strategy; the single-path backtest doesn't
+        // support it, so fall back to fixed there.
+        withdrawal_strategy: params.withdrawal_strategy === "cape" ? "fixed" : params.withdrawal_strategy,
         dynamic_ceiling: params.dynamic_ceiling,
         dynamic_floor: params.dynamic_floor,
         retirement_age: params.retirement_age,
@@ -202,6 +207,9 @@ export function SimulatorClient() {
 
   const simReqBase = () => ({
     ...params,
+    // CAPE is supported only on the main MC run; scenario/sensitivity endpoints
+    // don't accept it, so coerce to fixed for those shared requests.
+    withdrawal_strategy: params.withdrawal_strategy === "cape" ? "fixed" : params.withdrawal_strategy,
     initial_portfolio: portfolio,
     annual_withdrawal: withdrawal,
     num_simulations: getSimCount("default"),

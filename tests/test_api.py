@@ -135,6 +135,36 @@ class TestSimulation:
         assert r.status_code == 200
         parse_ndjson(r)  # should not raise
 
+    def test_simulate_cape_strategy_usa(self, client):
+        params = {**self.BASE_PARAMS, "withdrawal_strategy": "cape", "country": "USA"}
+        r = client.post("/api/simulate", json=params)
+        assert r.status_code == 200
+        data = parse_ndjson(r)
+        assert "success_rate" in data
+        assert 0 <= data["success_rate"] <= 1
+
+    def test_simulate_cape_rejects_pooled(self, client):
+        params = {**self.BASE_PARAMS, "withdrawal_strategy": "cape", "country": "ALL"}
+        r = client.post("/api/simulate", json=params)
+        assert r.status_code == 400
+
+    def test_simulate_cape_rejects_non_us(self, client):
+        params = {**self.BASE_PARAMS, "withdrawal_strategy": "cape", "country": "JPN"}
+        r = client.post("/api/simulate", json=params)
+        assert r.status_code == 400
+
+    def test_sensitivity_rejects_cape(self, client):
+        params = {**self.BASE_PARAMS, "withdrawal_strategy": "cape", "country": "USA"}
+        r = client.post("/api/simulate/sensitivity", json=params)
+        assert r.status_code == 400
+
+    def test_scenarios_rejects_cape(self, client):
+        params = {**self.BASE_PARAMS, "withdrawal_strategy": "cape", "country": "USA",
+                  "cash_flows": [{"name": "x", "amount": -5000, "start_year": 1,
+                                  "duration": 3, "inflation_adjusted": True}]}
+        r = client.post("/api/simulate/scenarios", json=params)
+        assert r.status_code == 400
+
     def test_simulate_invalid_allocation(self, client):
         params = {**self.BASE_PARAMS}
         params["allocation"] = {"domestic_stock": 0.5, "global_stock": 0.5, "domestic_bond": 0.5}

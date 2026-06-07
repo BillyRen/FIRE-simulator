@@ -422,7 +422,7 @@ export const SidebarForm = memo(function SidebarForm({
               <Select
                 value={p.withdrawal_strategy}
                 onValueChange={(v) =>
-                  set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining" | "smile")
+                  set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining" | "smile" | "cape")
                 }
               >
                 <SelectTrigger className="h-8 text-sm">
@@ -433,6 +433,7 @@ export const SidebarForm = memo(function SidebarForm({
                   <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
                   <SelectItem value="declining">{t("decliningWithdrawal")}</SelectItem>
                   <SelectItem value="smile">{t("smileWithdrawal")}</SelectItem>
+                  <SelectItem value="cape">{t("capeWithdrawal")}</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -518,6 +519,53 @@ export const SidebarForm = memo(function SidebarForm({
                       min={0}
                       max={10}
                       step={0.1}
+                      suffix="%"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {p.withdrawal_strategy === "cape" && (
+                <div className="space-y-2 mt-2">
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    {t("capeWithdrawalHelp")}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <NumberField
+                      label={t("capeIntercept")}
+                      value={+(((p.cape_intercept ?? 0.015) * 100).toFixed(2))}
+                      onChange={(v) => set("cape_intercept", v / 100)}
+                      min={0}
+                      max={10}
+                      step={0.1}
+                      suffix="%"
+                      tooltip={t("capeInterceptHelp")}
+                    />
+                    <NumberField
+                      label={t("capeSlope")}
+                      value={p.cape_slope ?? 0.5}
+                      onChange={(v) => set("cape_slope", v)}
+                      min={0}
+                      max={2}
+                      step={0.05}
+                      tooltip={t("capeSlopeHelp")}
+                    />
+                    <NumberField
+                      label={t("capeFloor")}
+                      value={+(((p.cape_floor ?? 0.02) * 100).toFixed(1))}
+                      onChange={(v) => set("cape_floor", v / 100)}
+                      min={0.5}
+                      max={20}
+                      step={0.25}
+                      suffix="%"
+                    />
+                    <NumberField
+                      label={t("capeCeiling")}
+                      value={+(((p.cape_ceiling ?? 0.08) * 100).toFixed(1))}
+                      onChange={(v) => set("cape_ceiling", v / 100)}
+                      min={1}
+                      max={30}
+                      step={0.25}
                       suffix="%"
                     />
                   </div>

@@ -121,6 +121,7 @@ export default function AllocationPage() {
           <div className="sticky bottom-0 bg-card px-6 pt-3 pb-4 border-t">
             <Button onClick={() => handleRun({
               ...params,
+              withdrawal_strategy: params.withdrawal_strategy === "cape" ? "fixed" : params.withdrawal_strategy,
               num_simulations: getSimCount("allocation"),
               initial_portfolio: portfolio,
               annual_withdrawal: withdrawal,

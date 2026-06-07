@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -49,6 +49,12 @@ def api_simulate_sensitivity(request: Request, req: SimulationRequest):
     Uses Common Random Numbers — single bootstrap generates raw matrices,
     all variants reuse the same random returns.
     """
+    if req.withdrawal_strategy == "cape":
+        raise HTTPException(
+            status_code=400,
+            detail="CAPE-based withdrawal is not supported on the sensitivity endpoint "
+                   "(it uses a shared return matrix without per-year CAPE). Use /api/simulate.",
+        )
     filtered, country_dfs = resolve_data(req)
     validate_data_sufficient(filtered, country_dfs)
 
