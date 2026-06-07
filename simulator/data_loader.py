@@ -52,6 +52,59 @@ def _fire_dataset_intl_path() -> str:
     return os.path.join(_BASE_DIR, "data", "FIRE_dataset_intl.csv")
 
 
+def _cape_path() -> str:
+    return os.path.join(_BASE_DIR, "data", "shiller_cape.csv")
+
+
+_cape_cache: pd.DataFrame | None = None
+
+
+def load_cape_data(filepath: str | None = None) -> pd.DataFrame:
+    """加载 Shiller CAPE (PE10) 年度序列（美国，start-of-year）。
+
+    Returns
+    -------
+    pd.DataFrame
+        含 Year, CAPE 两列，按 Year 升序。生成自 scripts/import_shiller_cape.py。
+    """
+    global _cape_cache
+    if filepath is None:
+        if _cape_cache is not None:
+            return _cape_cache
+        df = pd.read_csv(_cape_path())
+        _cape_cache = df
+        return df
+    return pd.read_csv(filepath)
+
+
+def cape_for_years(years: np.ndarray, cape_df: pd.DataFrame | None = None) -> np.ndarray:
+    """将 CAPE 对齐到给定的年份序列（与某 returns DataFrame 的 Year 列同序）。
+
+    CAPE 仅覆盖 ~1881-2023（美国）。对超出范围的年份（pre-1881 或最新尚无 earnings
+    的年份）做前后向填充（bfill 早期、ffill 近期），保证每个返回年都有 CAPE 值，
+    避免 bootstrap 采样到缺失 CAPE 的年份时出现 NaN。
+
+    Parameters
+    ----------
+    years : np.ndarray
+        目标年份序列（int）。
+    cape_df : pd.DataFrame or None
+        CAPE 数据；None 时从默认路径加载（带缓存）。
+
+    Returns
+    -------
+    np.ndarray
+        与 years 同长度、同序的 CAPE 值（float）。
+    """
+    if cape_df is None:
+        cape_df = load_cape_data()
+    lookup = cape_df.set_index("Year")["CAPE"]
+    aligned = lookup.reindex(np.asarray(years, dtype=int))
+    # 前后向填充覆盖范围外的年份（早期 bfill、近期 ffill）。
+    aligned = aligned.ffill().bfill()
+    return aligned.to_numpy(dtype=float)
+
+
 def load_country_list(meta_path: str | None = None) -> list[dict[str, Any]]:
     """加载国家元数据列表。
 

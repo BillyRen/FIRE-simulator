@@ -37,8 +37,20 @@ def compute_withdrawal(
     smile_decline_start_age: int = 65,
     smile_min_age: int = 80,
     smile_increase_rate: float = 0.01,
+    cape_value: float | None = None,
+    cape_intercept: float = 0.015,
+    cape_slope: float = 0.5,
+    cape_floor: float = 0.02,
+    cape_ceiling: float = 0.08,
 ) -> float:
     """根据策略计算当年提取金额。所有模拟路径共用此逻辑。"""
+    if strategy == "cape" and value > 0 and cape_value and cape_value > 0:
+        # Valuation-driven withdrawal rate from the cyclically-adjusted earnings
+        # yield (1/CAPE): wr = intercept + slope * (1/CAPE), clamped. Withdrawal
+        # is a percentage of the *current* portfolio (à la FI Calc CAPE-based).
+        wr = cape_intercept + cape_slope * (1.0 / cape_value)
+        wr = max(cape_floor, min(cape_ceiling, wr))
+        return wr * value
     if strategy == "dynamic" and year > 0 and value > 0:
         target = value * initial_rate
         upper = prev_withdrawal * (1.0 + dynamic_ceiling)
@@ -412,6 +424,11 @@ def run_simulation(
     smile_increase_rate: float = 0.01,
     glide_path_end_allocation: dict[str, float] | None = None,
     glide_path_years: int = 20,
+    cape_by_year: np.ndarray | None = None,
+    cape_intercept: float = 0.015,
+    cape_slope: float = 0.5,
+    cape_floor: float = 0.02,
+    cape_ceiling: float = 0.08,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """运行蒙特卡洛退休模拟。
 
@@ -531,6 +548,12 @@ def run_simulation(
         nominal_cfs = []
         has_nominal = False
 
+    # CAPE-based withdrawal: the CAPE of each historical year travels with the
+    # bootstrapped block as an extra passthrough column, keeping valuation
+    # aligned to the sampled returns (valuation conditioning). US single-country
+    # only — the pooled path has no per-country CAPE.
+    use_cape = withdrawal_strategy == "cape" and cape_by_year is not None and country_dfs is None
+
     # Pre-extract numpy arrays from DataFrames (avoid per-iteration overhead)
     if country_dfs is not None:
         _, c_arrays, c_lens, c_probs = _prepare_pooled_arrays(
@@ -539,8 +562,13 @@ def run_simulation(
         src_data, src_n = None, 0
     else:
         src_data = returns_df[RETURN_COLS].values
+        if use_cape:
+            # Append CAPE as a trailing column; compute_real_portfolio_returns_np
+            # only reads cols IDX_DS..IDX_INF (0-3), so it is ignored there.
+            src_data = np.column_stack([src_data, np.asarray(cape_by_year, dtype=float)])
         src_n = len(src_data)
         c_arrays, c_lens, c_probs = None, None, None
+    cape_col = (src_data.shape[1] - 1) if use_cape else -1
 
     for i in range(num_simulations):
         # 1. 生成 bootstrap 回报序列 (numpy, no DataFrame)
@@ -568,6 +596,7 @@ def run_simulation(
         real_returns_matrix[i] = real_returns
         inflation_series = sampled_np[:, IDX_INF]
         inflation_matrix[i] = inflation_series
+        cape_series = sampled_np[:, cape_col] if use_cape else None
 
         # 3. 计算该路径的现金流 schedule
         if has_groups:
@@ -621,6 +650,9 @@ def run_simulation(
                 initial_rate, retirement_age, dynamic_ceiling, dynamic_floor,
                 declining_rate, declining_start_age,
                 smile_decline_rate, smile_decline_start_age, smile_min_age, smile_increase_rate,
+                cape_value=(cape_series[year] if cape_series is not None else None),
+                cape_intercept=cape_intercept, cape_slope=cape_slope,
+                cape_floor=cape_floor, cape_ceiling=cape_ceiling,
             )
 
             prev_withdrawal = withdrawal
