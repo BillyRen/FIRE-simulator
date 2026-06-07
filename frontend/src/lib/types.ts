@@ -81,6 +81,7 @@ export interface SimulationResponse {
   percentile_trajectories: Record<string, number[]>;
   withdrawal_percentile_trajectories: Record<string, number[]> | null;
   withdrawal_mean_trajectory: number[] | null;
+  solvency_by_year: number[] | null;
   final_values_summary: Array<Record<string, string>>;
   initial_withdrawal_rate: number;
   portfolio_metrics: Array<Record<string, string>>;

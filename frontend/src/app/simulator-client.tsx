@@ -28,6 +28,7 @@ import type { HistoricalEvent } from "@/lib/types";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { PdfExportButton } from "@/components/pdf-export-button";
+import { RichBrokeDeadChart } from "@/components/rich-broke-dead-chart";
 import { useSharedParams } from "@/lib/params-context";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
@@ -52,6 +53,10 @@ export function SimulatorClient() {
 
   // MC state
   const [result, setResult] = useState<SimulationResponse | null>(null);
+  // Retirement age that produced `result`, snapshotted at run time so the
+  // result charts (fan charts + mortality overlay) stay consistent with the
+  // displayed data even if the form's retirement age is edited afterwards.
+  const [resultAge, setResultAge] = useState<number>(params.retirement_age);
   const [pinnedResult, setPinnedResult] = useState<SimulationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
@@ -113,6 +118,7 @@ export function SimulatorClient() {
         num_simulations: getSimCount("default"),
       }, setProgress);
       setResult(res);
+      setResultAge(params.retirement_age);
     } catch (e) {
       setError(e instanceof Error ? e.message : tc("unknownError"));
     } finally {
@@ -400,11 +406,11 @@ export function SimulatorClient() {
                     <FanChart
                       trajectories={result.percentile_trajectories}
                       title={t("portfolioTrajectory")}
-                      xLabels={Array.from({ length: result.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
+                      xLabels={Array.from({ length: result.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => resultAge + i)}
                       xTitle={tf("ageAxis")}
                       showLogToggle
                       extraTraces={pinnedResult ? [{
-                        x: Array.from({ length: pinnedResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i),
+                        x: Array.from({ length: pinnedResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => resultAge + i),
                         y: pinnedResult.percentile_trajectories["50"],
                         mode: "lines" as const,
                         name: tc("baselineP50"),
@@ -423,10 +429,22 @@ export function SimulatorClient() {
                       <FanChart
                         trajectories={result.withdrawal_percentile_trajectories}
                         title={t("withdrawalTrajectory")}
-                        xLabels={Array.from({ length: result.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i)}
+                        xLabels={Array.from({ length: result.withdrawal_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => resultAge + 1 + i)}
                         xTitle={tf("ageAxis")}
                         color={CHART_COLORS.orange.rgb}
                         showLogToggle
+                      />
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Rich / Broke / Dead 死亡率叠加图 */}
+                {result.solvency_by_year && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <RichBrokeDeadChart
+                        solvencyByYear={result.solvency_by_year}
+                        retirementAge={resultAge}
                       />
                     </CardContent>
                   </Card>
