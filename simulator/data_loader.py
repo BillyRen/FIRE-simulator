@@ -123,8 +123,24 @@ def load_country_list(meta_path: str | None = None) -> list[dict[str, Any]]:
         return json.load(f)
 
 
-def load_returns_data(filepath: str | None = None) -> pd.DataFrame:
+def load_returns_data(
+    filepath: str | None = None,
+    calibrate_intl: bool = True,
+) -> pd.DataFrame:
     """加载全量 JST 回报数据 CSV（长格式，包含所有国家）。
+
+    Parameters
+    ----------
+    calibrate_intl : bool, default True
+        是否使用 investability-calibrated 的全球股票序列。JST `Global_Stock` 由
+        *学术* 总收益序列按 GDP 加权、FX 换算、leave-one-out 构建，系统性高于可投资
+        的 float-adjusted 指数（MSCI/VT）。`scripts/add_intl_calibration.py` 测得
+        JST-vs-MSCI EAFE 1970-2025 的 wedge≈1.69pp/yr，并以 source-level 方式
+        （美国源 0、非美源扣 wedge）写入 `Global_Stock_calibrated` 列：
+          - 美国投资者（Global=100% 非美）→ 全额 ~1.69pp
+          - 非美投资者（美国占 GDP 篮子 ~40%）→ 有效 ~1.0pp
+        默认 True（投影更贴近可投资现实，且对退休工具更安全）。设为 False 时使用
+        原始学术序列（advanced/audit 模式）。仅 JST 数据源含该列；其他源无影响。
 
     Returns
     -------
@@ -146,6 +162,23 @@ def load_returns_data(filepath: str | None = None) -> pd.DataFrame:
     for col in EXPECTED_COLUMNS:
         if col not in df.columns:
             raise ValueError(f"CSV 缺少必要列: {col}")
+
+    # Source-level investability calibration: swap in the calibrated Global_Stock
+    # column when requested. Drop the auxiliary column either way so downstream
+    # always sees the canonical schema. Fail loud if the calibrated default was
+    # requested but the column is absent (e.g. after a build_dataset_from_jst.py
+    # rebuild that writes only raw columns) — otherwise we would silently serve
+    # raw academic returns while callers treat them as calibrated.
+    if "Global_Stock_calibrated" in df.columns:
+        if calibrate_intl:
+            df["Global_Stock"] = df["Global_Stock_calibrated"]
+        df = df.drop(columns=["Global_Stock_calibrated"])
+    elif calibrate_intl:
+        raise ValueError(
+            f"{filepath} 缺少 Global_Stock_calibrated 列，无法提供 investability-"
+            f"calibrated 全球股票。请运行 `python scripts/add_intl_calibration.py` "
+            f"重新生成该列，或显式传 calibrate_intl=False 使用原始学术序列。"
+        )
 
     if len(df) == 0:
         raise ValueError("CSV 文件为空，没有数据行")
@@ -281,15 +314,23 @@ def load_fire_country_list() -> list[dict[str, Any]]:
 # 统一入口（按 data_source 分发）
 # ---------------------------------------------------------------------------
 
-def load_returns_by_source(data_source: str = "jst") -> pd.DataFrame:
-    """根据 data_source 加载对应的回报数据。"""
+def load_returns_by_source(
+    data_source: str = "jst",
+    calibrate_intl: bool = True,
+) -> pd.DataFrame:
+    """根据 data_source 加载对应的回报数据。
+
+    calibrate_intl 仅作用于 JST 多国源（见 load_returns_data）。fire_dataset /
+    fire_dataset_intl 的 International Stock 1970+ 已是真实 MSCI、pre-1970 已在
+    backfill 阶段校准，因此该标志对它们无影响。
+    """
     if data_source == "fire_dataset":
         return load_fire_dataset()
     if data_source == "fire_dataset_intl":
         # 与 fire_dataset 相同，但 pre-1970 International Stock 用 JST 校准的
         # 真实非美序列替换 US 占位（见 scripts/backfill_pre1970_intl.py）。
         return load_fire_dataset(_fire_dataset_intl_path())
-    return load_returns_data()
+    return load_returns_data(calibrate_intl=calibrate_intl)
 
 
 def load_country_list_by_source(data_source: str = "jst") -> list[dict[str, Any]]:

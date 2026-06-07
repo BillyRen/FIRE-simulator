@@ -11,6 +11,12 @@ Reads JSTdatasetR6.xlsx and produces:
   - data/jst_returns.csv   (long format with core + housing columns)
   - data/jst_countries.json (country metadata with year ranges and housing flags)
 
+NOTE: this writes only the RAW columns. The investability-calibrated
+`Global_Stock_calibrated` column (the engine's default global-equity series) is
+appended by a separate additive step — run `python scripts/add_intl_calibration.py`
+AFTER this script. Without it, load_returns_data(calibrate_intl=True) raises
+because the calibrated column is absent.
+
 Output columns (all NOMINAL — engine computes real values internally):
   Core (always present):
     Year, Country, Domestic_Stock, Global_Stock, Domestic_Bond, Inflation

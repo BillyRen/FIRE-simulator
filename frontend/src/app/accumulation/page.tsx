@@ -95,6 +95,7 @@ export default function AccumulationPage() {
         country: params.country,
         pooling_method: params.pooling_method,
         data_source: params.data_source,
+        calibrate_intl_returns: params.calibrate_intl_returns,
         leverage: params.leverage,
         borrowing_spread: params.borrowing_spread,
         cash_flows: params.cash_flows,

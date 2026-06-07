@@ -115,16 +115,17 @@ def streaming(gen):
 # Data loading & caching
 # ---------------------------------------------------------------------------
 
-_returns_cache: dict[str, object] = {}
+_returns_cache: dict[tuple[str, bool], object] = {}
 _country_list_cache: dict[str, list] = {}
-_country_dfs_cache: dict[tuple[int, str], dict] = {}
-_combined_df_cache: dict[tuple[int, str], object] = {}
+_country_dfs_cache: dict[tuple[int, str, bool], dict] = {}
+_combined_df_cache: dict[tuple[int, str, bool], object] = {}
 
 
-def get_returns_df(data_source: str = "jst"):
-    if data_source not in _returns_cache:
-        _returns_cache[data_source] = load_returns_by_source(data_source)
-    return _returns_cache[data_source]
+def get_returns_df(data_source: str = "jst", calibrate_intl: bool = True):
+    cache_key = (data_source, calibrate_intl)
+    if cache_key not in _returns_cache:
+        _returns_cache[cache_key] = load_returns_by_source(data_source, calibrate_intl=calibrate_intl)
+    return _returns_cache[cache_key]
 
 
 def get_country_list(data_source: str = "jst"):
@@ -133,26 +134,28 @@ def get_country_list(data_source: str = "jst"):
     return _country_list_cache[data_source]
 
 
-def filter_df(country: str, data_start_year: int, data_source: str = "jst"):
+def filter_df(country: str, data_start_year: int, data_source: str = "jst", calibrate_intl: bool = True):
     """Filter data by country and start year (single-country mode)."""
-    df = get_returns_df(data_source)
+    df = get_returns_df(data_source, calibrate_intl)
     return filter_by_country(df, country, data_start_year)
 
 
-def get_country_dfs_cached(data_start_year: int, data_source: str = "jst") -> dict[str, "pd.DataFrame"]:
+def get_country_dfs_cached(
+    data_start_year: int, data_source: str = "jst", calibrate_intl: bool = True
+) -> dict[str, "pd.DataFrame"]:
     """Get per-country DataFrames (for pooled bootstrap), cached."""
-    cache_key = (data_start_year, data_source)
+    cache_key = (data_start_year, data_source, calibrate_intl)
     if cache_key not in _country_dfs_cache:
-        df = get_returns_df(data_source)
+        df = get_returns_df(data_source, calibrate_intl)
         _country_dfs_cache[cache_key] = get_country_dfs(df, data_start_year)
     return _country_dfs_cache[cache_key]
 
 
-def get_combined_df(data_start_year: int, data_source: str = "jst"):
+def get_combined_df(data_start_year: int, data_source: str = "jst", calibrate_intl: bool = True):
     """Get merged multi-country DataFrame (ALL mode), cached."""
-    cache_key = (data_start_year, data_source)
+    cache_key = (data_start_year, data_source, calibrate_intl)
     if cache_key not in _combined_df_cache:
-        country_dfs = get_country_dfs_cached(data_start_year, data_source)
+        country_dfs = get_country_dfs_cached(data_start_year, data_source, calibrate_intl)
         if not country_dfs:
             _combined_df_cache[cache_key] = pd.DataFrame()
         else:
@@ -276,18 +279,19 @@ def resolve_data(req):
         (filtered_df, country_dfs)
     """
     ds = getattr(req, "data_source", "jst")
+    ci = getattr(req, "calibrate_intl_returns", True)
     country = req.country
     if ds in ("fire_dataset", "fire_dataset_intl") and country == "ALL":
         country = "USA"
 
     if country == "ALL":
-        country_dfs = get_country_dfs_cached(req.data_start_year, ds)
+        country_dfs = get_country_dfs_cached(req.data_start_year, ds, ci)
         if not country_dfs:
             return pd.DataFrame(), None
-        combined = get_combined_df(req.data_start_year, ds)
+        combined = get_combined_df(req.data_start_year, ds, ci)
         return combined, country_dfs
     else:
-        filtered = filter_df(country, req.data_start_year, ds)
+        filtered = filter_df(country, req.data_start_year, ds, ci)
         return filtered, None
 
 

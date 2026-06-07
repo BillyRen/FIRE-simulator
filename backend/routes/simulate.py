@@ -184,7 +184,10 @@ def api_sim_backtest(request: Request, req: SimBacktestRequest):
     if country == "ALL":
         raise HTTPException(400, "历史回测必须选择具体国家，不能使用 ALL 池化模式")
 
-    filtered = filter_df(country, req.data_start_year, req.data_source)
+    filtered = filter_df(
+        country, req.data_start_year, req.data_source,
+        getattr(req, "calibrate_intl_returns", True),
+    )
     if len(filtered) < 2:
         raise HTTPException(400, "可用数据不足")
 

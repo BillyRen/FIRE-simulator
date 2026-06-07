@@ -617,6 +617,22 @@ export const SidebarForm = memo(function SidebarForm({
             </div>
 
             {p.data_source === "jst" && (
+              <div className="flex items-center gap-2 mb-2">
+                <input
+                  type="checkbox"
+                  checked={p.calibrate_intl_returns !== false}
+                  onChange={(e) => set("calibrate_intl_returns", e.target.checked)}
+                  className="h-3.5 w-3.5"
+                  id="calibrate-intl-toggle"
+                />
+                <Label htmlFor="calibrate-intl-toggle" className="text-xs cursor-pointer inline-flex items-center gap-1">
+                  {t("calibrateIntl")}
+                  <InfoTip text={t("calibrateIntlDesc")} />
+                </Label>
+              </div>
+            )}
+
+            {p.data_source === "jst" && (
               <div className="mb-2">
                 <Label className="text-xs">{t("country")}</Label>
                 <Select
