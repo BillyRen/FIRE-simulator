@@ -30,7 +30,6 @@ import { fetchCountries } from "@/lib/api";
 import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, CountryInfo } from "@/lib/types";
 import { countryFlag } from "@/lib/utils";
-import { SPENDING_PRESETS, CUSTOM_PRESET_ID, matchSpendingPreset } from "@/lib/spending-presets";
 
 interface SidebarFormProps {
   params: FormParams;
@@ -392,33 +391,6 @@ export const SidebarForm = memo(function SidebarForm({
               modified={isModified.withdrawal}
             />
             <AccordionContent>
-              <div className="mb-2">
-                <Label className="text-xs text-muted-foreground">{t("spendingPresetLabel")}</Label>
-                <Select
-                  value={matchSpendingPreset(p)}
-                  onValueChange={(id) => {
-                    const preset = SPENDING_PRESETS.find((sp) => sp.id === id);
-                    if (preset) onChange({ ...p, ...preset.params });
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {matchSpendingPreset(p) === CUSTOM_PRESET_ID && (
-                      <SelectItem value={CUSTOM_PRESET_ID}>{t("spendingPresetCustom")}</SelectItem>
-                    )}
-                    {SPENDING_PRESETS.map((sp) => (
-                      <SelectItem key={sp.id} value={sp.id}>
-                        {t(`spendingPreset_${sp.id}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                  {t(`spendingPresetHint_${matchSpendingPreset(p)}`)}
-                </p>
-              </div>
               <Select
                 value={p.withdrawal_strategy}
                 onValueChange={(v) =>

@@ -500,7 +500,7 @@ export function SimulatorClient() {
                       <Label className="text-xs">{t("country")}</Label>
                       <Select value={singleCountry} onValueChange={setSingleCountry}>
                         <SelectTrigger className="h-8 text-sm">
-                          <SelectValue />
+                          <SelectValue placeholder={t("country")} />
                         </SelectTrigger>
                         <SelectContent>
                           {countries
