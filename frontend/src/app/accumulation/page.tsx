@@ -83,7 +83,8 @@ export default function AccumulationPage() {
         target_success_rate: RISK_MAP[riskTolerance],
         allocation: params.allocation,
         expense_ratios: params.expense_ratios,
-        withdrawal_strategy: params.withdrawal_strategy,
+        // CAPE is a /simulate-only strategy; accumulation doesn't support it.
+        withdrawal_strategy: params.withdrawal_strategy === "cape" ? "fixed" : params.withdrawal_strategy,
         dynamic_ceiling: params.dynamic_ceiling,
         dynamic_floor: params.dynamic_floor,
         retirement_years: Math.max(5, lifeExpectancy - currentAge),

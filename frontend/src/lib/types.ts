@@ -51,7 +51,7 @@ export interface SimulationRequest {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
-  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile" | "cape";
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -61,6 +61,10 @@ export interface SimulationRequest {
   smile_decline_start_age: number;
   smile_min_age: number;
   smile_increase_rate: number;
+  cape_intercept?: number;
+  cape_slope?: number;
+  cape_floor?: number;
+  cape_ceiling?: number;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
@@ -718,7 +722,7 @@ export interface FormParams {
   country: string;
   pooling_method: "equal" | "gdp_sqrt";
   data_source: "jst" | "fire_dataset" | "fire_dataset_intl";
-  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile";
+  withdrawal_strategy: "fixed" | "dynamic" | "declining" | "smile" | "cape";
   retirement_age: number;
   dynamic_ceiling: number;
   dynamic_floor: number;
@@ -728,6 +732,10 @@ export interface FormParams {
   smile_decline_start_age: number;
   smile_min_age: number;
   smile_increase_rate: number;
+  cape_intercept?: number;
+  cape_slope?: number;
+  cape_floor?: number;
+  cape_ceiling?: number;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
@@ -760,6 +768,10 @@ export const DEFAULT_PARAMS: FormParams = {
   smile_decline_start_age: 65,
   smile_min_age: 80,
   smile_increase_rate: 0.01,
+  cape_intercept: 0.015,
+  cape_slope: 0.5,
+  cape_floor: 0.02,
+  cape_ceiling: 0.08,
   leverage: 1.0,
   borrowing_spread: 0.02,
   cash_flows: [],
