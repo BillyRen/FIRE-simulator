@@ -66,6 +66,11 @@ export default function GuardrailPage() {
   const [inputMode, setInputMode] = usePersistedState<"portfolio" | "withdrawal">("fire:guardrail:inputMode", "portfolio");
   const [portfolio, setPortfolio] = usePersistedState("fire:guardrail:portfolio", params.initial_portfolio);
   const [withdrawal, setWithdrawal] = usePersistedState("fire:guardrail:withdrawal", params.annual_withdrawal);
+  // Asymmetric adjustment (Income-Lab-style): full move up on the upper guardrail,
+  // a gentler move down on the lower. When off, the symmetric adjustmentPct is used.
+  const [asymmetric, setAsymmetric] = usePersistedState("fire:guardrail:asymmetric", false);
+  const [upperAdjustmentPct, setUpperAdjustmentPct] = usePersistedState("fire:guardrail:upperAdjustmentPct", 1.0);
+  const [lowerAdjustmentPct, setLowerAdjustmentPct] = usePersistedState("fire:guardrail:lowerAdjustmentPct", 0.05);
 
   // Results
   const [mcResult, setMcResult] = useState<GuardrailResponse | null>(null);
@@ -133,6 +138,8 @@ export default function GuardrailPage() {
     lower_guardrail: lowerGuardrail,
     adjustment_pct: adjustmentPct,
     adjustment_mode: adjustmentMode,
+    upper_adjustment_pct: asymmetric ? upperAdjustmentPct : null,
+    lower_adjustment_pct: asymmetric ? lowerAdjustmentPct : null,
     min_remaining_years: minRemainingYears,
     baseline_rate: baselineRate,
     consumption_floor: consumptionFloor,
@@ -430,18 +437,49 @@ export default function GuardrailPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <NumberField
-                    label={t("adjustmentPct")}
-                    value={+(adjustmentPct * 100).toFixed(0)}
-                    onChange={(v) => setAdjustmentPct(v / 100)}
-                    min={1}
-                    max={100}
-                    help={
-                      adjustmentMode === "amount"
-                        ? t("amountModeHelp")
-                        : t("successRateModeHelp")
-                    }
-                  />
+                  {!asymmetric && (
+                    <NumberField
+                      label={t("adjustmentPct")}
+                      value={+(adjustmentPct * 100).toFixed(0)}
+                      onChange={(v) => setAdjustmentPct(v / 100)}
+                      min={1}
+                      max={100}
+                      help={
+                        adjustmentMode === "amount"
+                          ? t("amountModeHelp")
+                          : t("successRateModeHelp")
+                      }
+                    />
+                  )}
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={asymmetric}
+                      onChange={(e) => setAsymmetric(e.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    {t("asymmetricLabel")}
+                  </label>
+                  {asymmetric && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <NumberField
+                        label={t("upperAdjustmentPct")}
+                        value={+(upperAdjustmentPct * 100).toFixed(0)}
+                        onChange={(v) => setUpperAdjustmentPct(v / 100)}
+                        min={1}
+                        max={100}
+                        help={t("upperAdjustmentPctHelp")}
+                      />
+                      <NumberField
+                        label={t("lowerAdjustmentPct")}
+                        value={+(lowerAdjustmentPct * 100).toFixed(0)}
+                        onChange={(v) => setLowerAdjustmentPct(v / 100)}
+                        min={1}
+                        max={100}
+                        help={t("lowerAdjustmentPctHelp")}
+                      />
+                    </div>
+                  )}
                   <NumberField
                     label={t("minRemainingYears")}
                     value={minRemainingYears}
