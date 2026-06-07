@@ -19,6 +19,7 @@ import { SidebarForm, NumberField } from "@/components/sidebar-form";
 import { FanChart, useIsMobile, MobileChartTitle } from "@/components/fan-chart";
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
+import { GuardrailStressNarrative } from "@/components/guardrail-stress-narrative";
 import { ProgressOverlay, PreliminaryBanner, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
@@ -854,6 +855,9 @@ export default function GuardrailPage() {
                   ) : (
                     <p className="text-xs text-muted-foreground">{t("aggregateOnlyComplete")}</p>
                   )}
+
+                  {/* Historical stress-test narrative (Income Lab style) */}
+                  <GuardrailStressNarrative paths={batchResult.paths} />
 
                   {/* Sub-tabs */}
                   <Tabs value={batchSubTab} onValueChange={(v) => setBatchSubTab(v as "aggregate" | "paths")}>
