@@ -160,6 +160,8 @@ export interface GuardrailRequest {
   lower_guardrail: number;
   adjustment_pct: number;
   adjustment_mode: "amount" | "success_rate";
+  upper_adjustment_pct?: number | null;
+  lower_adjustment_pct?: number | null;
   min_remaining_years: number;
   baseline_rate: number;
   consumption_floor: number;
@@ -212,6 +214,8 @@ export interface BacktestRequest {
   lower_guardrail: number;
   adjustment_pct: number;
   adjustment_mode: "amount" | "success_rate";
+  upper_adjustment_pct?: number | null;
+  lower_adjustment_pct?: number | null;
   min_remaining_years: number;
   baseline_rate: number;
   leverage: number;

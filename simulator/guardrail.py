@@ -466,12 +466,25 @@ def apply_guardrail_adjustment(
     cf_scale_grid: np.ndarray | None = None,
     cf_scale: float = 0.0,
     start_year: int = 0,
+    upper_adjustment_pct: float | None = None,
+    lower_adjustment_pct: float | None = None,
 ) -> float:
     """根据调整模式计算护栏触发后的新提取金额。
 
     当 cf_table 提供时，使用 3D 表做精确查找（rate = wd/value，CFs 已烘焙进表）。
     否则使用 2D 表 + future_cf_avg 近似（向后兼容）。
+
+    不对称调整（Income Lab 风格）：当 upper_adjustment_pct / lower_adjustment_pct
+    提供时，上护栏（current_success > target，组合表现好→增加支出）用 upper，
+    下护栏（current_success < target→削减支出）用 lower；二者按方向取代 adjustment_pct。
+    任一为 None 时回退到对称的 adjustment_pct，保持向后兼容。
     """
+    # Pick the directional fraction; fall back to the symmetric value.
+    if current_success > target_success:
+        eff_pct = upper_adjustment_pct if upper_adjustment_pct is not None else adjustment_pct
+    else:
+        eff_pct = lower_adjustment_pct if lower_adjustment_pct is not None else adjustment_pct
+    adjustment_pct = eff_pct
     if cf_table is not None and cf_scale_grid is not None:
         # 3D 表模式：rate = wd/value，表已包含现金流影响
         if adjustment_mode == "success_rate":
@@ -727,6 +740,8 @@ def run_guardrail_simulation(
     cf_scale_grid: np.ndarray | None = None,
     cf_ref: float = 0.0,
     last_cf_year: int = -1,
+    upper_adjustment_pct: float | None = None,
+    lower_adjustment_pct: float | None = None,
 ) -> tuple[float, float, np.ndarray, np.ndarray]:
     """运行 Risk-based Guardrail 模拟。
 
@@ -897,6 +912,8 @@ def run_guardrail_simulation(
                             cf_scale_grid=cf_scale_grid,
                             cf_scale=cf_ref / value,
                             start_year=year,
+                            upper_adjustment_pct=upper_adjustment_pct,
+                            lower_adjustment_pct=lower_adjustment_pct,
                         )
                     else:
                         _cf_avg = future_cf_avg if cf_schedule is not None else 0.0
@@ -905,6 +922,8 @@ def run_guardrail_simulation(
                             adjustment_pct, adjustment_mode, remaining,
                             table, rate_grid,
                             future_cf_avg=_cf_avg,
+                            upper_adjustment_pct=upper_adjustment_pct,
+                            lower_adjustment_pct=lower_adjustment_pct,
                         )
 
             withdrawals[i, year] = wd
@@ -1105,6 +1124,8 @@ def run_historical_backtest(
     cf_scale_grid: np.ndarray | None = None,
     cf_ref: float = 0.0,
     last_cf_year: int = -1,
+    upper_adjustment_pct: float | None = None,
+    lower_adjustment_pct: float | None = None,
 ) -> dict:
     """在单条历史回报路径上运行 guardrail 策略和固定基准策略。
 
@@ -1227,6 +1248,8 @@ def run_historical_backtest(
                         cf_scale_grid=cf_scale_grid,
                         cf_scale=cf_ref / value,
                         start_year=year,
+                        upper_adjustment_pct=upper_adjustment_pct,
+                        lower_adjustment_pct=lower_adjustment_pct,
                     )
                     new_success = lookup_cf_aware_success_rate(
                         cf_table, cf_rate_grid, cf_scale_grid,
@@ -1239,6 +1262,8 @@ def run_historical_backtest(
                         adjustment_pct, adjustment_mode, remaining,
                         table, rate_grid,
                         future_cf_avg=_cf_avg,
+                        upper_adjustment_pct=upper_adjustment_pct,
+                        lower_adjustment_pct=lower_adjustment_pct,
                     )
                     if cf_schedule is not None:
                         new_effective_rate = max((wd - future_cf_avg) / value, 0.0)
