@@ -135,24 +135,6 @@ class TestSimulation:
         assert r.status_code == 200
         parse_ndjson(r)  # should not raise
 
-    def test_simulate_intl_calibration_lowers_outcomes(self, client):
-        # 100% global equity, fixed seed: the investability-calibrated default
-        # must yield lower outcomes than the raw academic series for the same
-        # sampled blocks. Validates the field flows end-to-end and is monotone.
-        base = {
-            **self.BASE_PARAMS,
-            "allocation": {"domestic_stock": 0.0, "global_stock": 1.0, "domestic_bond": 0.0},
-            "seed": 123,
-            "num_simulations": 300,
-        }
-        r_cal = client.post("/api/simulate", json={**base, "calibrate_intl_returns": True})
-        r_raw = client.post("/api/simulate", json={**base, "calibrate_intl_returns": False})
-        assert r_cal.status_code == 200 and r_raw.status_code == 200
-        cal = parse_ndjson(r_cal)
-        raw = parse_ndjson(r_raw)
-        assert cal["funded_ratio"] < raw["funded_ratio"]   # calibration lowers wealth
-        assert cal["success_rate"] <= raw["success_rate"]
-
     def test_simulate_cape_strategy_usa(self, client):
         params = {**self.BASE_PARAMS, "withdrawal_strategy": "cape", "country": "USA"}
         r = client.post("/api/simulate", json=params)

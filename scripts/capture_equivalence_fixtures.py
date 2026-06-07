@@ -186,9 +186,7 @@ def _save_npz(path: Path, *, bootstrap_returns: np.ndarray, sim: dict, metadata:
 
 
 def capture_default() -> Path:
-    # Capture from the RAW academic series so fixtures stay stable across the
-    # intl investability calibration (equivalence tests pin to the raw series).
-    df = load_returns_data(calibrate_intl=False)
+    df = load_returns_data()
     filtered = filter_by_country(df, "USA", DATA_START_YEAR)
     boot = _capture_bootstrap_returns(
         returns_df=filtered, country_dfs=None, country_weights=None,
@@ -210,9 +208,7 @@ def capture_default() -> Path:
 
 
 def capture_pooled() -> Path:
-    # Capture from the RAW academic series so fixtures stay stable across the
-    # intl investability calibration (equivalence tests pin to the raw series).
-    df = load_returns_data(calibrate_intl=False)
+    df = load_returns_data()
     country_dfs = get_country_dfs(df, DATA_START_YEAR)
     country_weights = get_gdp_weights(list(country_dfs.keys()))
     combined = pd.concat(country_dfs.values(), ignore_index=True)
@@ -265,9 +261,7 @@ def capture_buy_vs_rent() -> Path:
     """For buy_vs_rent we only capture the bootstrap stream — full run_buy_vs_rent_mc
     needs many additional housing/financing parameters; the bootstrap layer is what
     subsequent PRs touch, so that's the invariant we anchor."""
-    # Capture from the RAW academic series so fixtures stay stable across the
-    # intl investability calibration (equivalence tests pin to the raw series).
-    df = load_returns_data(calibrate_intl=False)
+    df = load_returns_data()
     filtered = filter_housing_data(df, "USA", DATA_START_YEAR)
     columns = RETURN_COLS + HOUSING_COLS  # 7 columns
     bvr_years = 30  # Typical buy-vs-rent horizon

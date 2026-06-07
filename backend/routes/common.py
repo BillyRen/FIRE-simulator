@@ -170,13 +170,8 @@ def api_historical_events(country: str | None = None):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/returns", response_model=ReturnsResponse)
-def api_returns(
-    country: str = "USA",
-    data_start_year: int = 1900,
-    data_source: str = "jst",
-    calibrate_intl_returns: bool = True,
-):
-    df = get_returns_df(data_source, calibrate_intl_returns)
+def api_returns(country: str = "USA", data_start_year: int = 1900, data_source: str = "jst"):
+    df = get_returns_df(data_source)
     filtered = filter_by_country(df, country, data_start_year)
     return ReturnsResponse(
         years=filtered["Year"].tolist(),

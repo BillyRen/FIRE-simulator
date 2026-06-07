@@ -167,7 +167,6 @@ export function SimulatorClient() {
         country: btCountry,
         pooling_method: params.pooling_method,
         data_source: params.data_source,
-        calibrate_intl_returns: params.calibrate_intl_returns,
         // CAPE is a Monte-Carlo-only strategy; the single-path backtest doesn't
         // support it, so fall back to fixed there.
         withdrawal_strategy: params.withdrawal_strategy === "cape" ? "fixed" : params.withdrawal_strategy,

@@ -701,10 +701,7 @@ class TestEquivalenceFixtures:
 
     def test_default_request_matches_fixture(self):
         fx = _load_fixture("default")
-        # Fixtures predate the intl investability calibration; pin to raw
-        # Global_Stock so they keep validating engine (vec==scalar) equivalence
-        # on a stable input. The calibration itself is covered by TestIntlCalibration.
-        df = load_returns_data(calibrate_intl=False)
+        df = load_returns_data()
         filtered = filter_by_country(df, "USA", _DATA_START_YEAR)
         # Bootstrap layer
         boot = _replay_bootstrap(
@@ -721,7 +718,7 @@ class TestEquivalenceFixtures:
 
     def test_pooled_request_matches_fixture(self):
         fx = _load_fixture("pooled")
-        df = load_returns_data(calibrate_intl=False)  # raw: see test_default note
+        df = load_returns_data()
         country_dfs = get_country_dfs(df, _DATA_START_YEAR)
         country_weights = get_gdp_weights(list(country_dfs.keys()))
         combined = pd.concat(country_dfs.values(), ignore_index=True)
@@ -753,7 +750,7 @@ class TestEquivalenceFixtures:
 
     def test_buy_vs_rent_matches_fixture(self):
         fx = _load_fixture("buy_vs_rent")
-        df = load_returns_data(calibrate_intl=False)  # raw: see test_default note
+        df = load_returns_data()
         filtered = filter_housing_data(df, "USA", _DATA_START_YEAR)
         columns = RETURN_COLS + HOUSING_COLS
         boot = _replay_bootstrap(
