@@ -594,7 +594,11 @@ export const SidebarForm = memo(function SidebarForm({
                 value={p.data_source}
                 onValueChange={(v) => {
                   const ds = v as "jst" | "fire_dataset" | "fire_dataset_intl";
-                  if (ds === "fire_dataset" || ds === "fire_dataset_intl") {
+                  if (ds === "fire_dataset") {
+                    // pre-1970 的 International 列是 US 占位副本，50/50 配置在 1970 前实为 100% US。
+                    // 默认从 1960 起：仅含 ~10 年(占窗口 ~15%) 占位段，换取 1966-69 滞胀尾部，且误差偏保守方向。
+                    onChange({ ...p, data_source: ds, country: "USA", data_start_year: 1960 });
+                  } else if (ds === "fire_dataset_intl") {
                     onChange({ ...p, data_source: ds, country: "USA" });
                   } else {
                     onChange({ ...p, data_source: ds });
