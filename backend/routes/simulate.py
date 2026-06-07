@@ -36,6 +36,7 @@ from schemas import (
 )
 from simulator.backtest_batch import run_sim_batch_backtest
 from simulator.cashflow import CashFlowItem
+from simulator.data_loader import cape_for_years
 from simulator.config import TARGET_SUCCESS_RATES, is_low_memory
 from simulator.monte_carlo import run_simulation, run_simulation_from_matrix, run_simple_historical_backtest
 from simulator.portfolio import compute_real_portfolio_returns
@@ -68,6 +69,20 @@ limiter = Limiter(key_func=get_remote_address)
 def api_simulate(request: Request, req: SimulationRequest):
     filtered, country_dfs = resolve_data(req)
     validate_data_sufficient(filtered, country_dfs)
+
+    # CAPE-based withdrawal requires US single-country data (Shiller CAPE is US).
+    cape_by_year = None
+    if req.withdrawal_strategy == "cape":
+        is_us = country_dfs is None and (
+            req.data_source in ("fire_dataset", "fire_dataset_intl") or req.country == "USA"
+        )
+        if not is_us:
+            raise HTTPException(
+                status_code=400,
+                detail="CAPE-based withdrawal requires US data (FIRE_dataset or country=USA); "
+                       "Shiller CAPE is US-specific and unavailable for pooled or non-US series.",
+            )
+        cape_by_year = cape_for_years(filtered["Year"].to_numpy())
 
     def _generate():
         yield {"type": "progress", "stage": "bootstrap", "pct": 10}
@@ -102,6 +117,11 @@ def api_simulate(request: Request, req: SimulationRequest):
             smile_increase_rate=req.smile_increase_rate,
             glide_path_end_allocation=alloc_dict(req.glide_path_end_allocation) if req.glide_path_enabled else None,
             glide_path_years=req.glide_path_years,
+            cape_by_year=cape_by_year,
+            cape_intercept=req.cape_intercept,
+            cape_slope=req.cape_slope,
+            cape_floor=req.cape_floor,
+            cape_ceiling=req.cape_ceiling,
         )
 
         yield {"type": "progress", "stage": "statistics", "pct": 80}

@@ -132,12 +132,23 @@ class BaseSimulationParams(BaseModel):
 class SimulationRequest(BaseSimulationParams):
     initial_portfolio: float = Field(1_000_000, gt=0)
     annual_withdrawal: float = Field(40_000, ge=0)
-    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile)$")
+    withdrawal_strategy: str = Field("fixed", pattern="^(fixed|dynamic|declining|smile|cape)$")
     retirement_age: int = Field(45, ge=18, le=100)
     dynamic_ceiling: float = Field(0.05, ge=0, le=1)
     dynamic_floor: float = Field(0.025, ge=0, le=1)
+    # CAPE 估值驱动取款：wr = clamp(intercept + slope/CAPE, floor, ceiling)。仅美国数据。
+    cape_intercept: float = Field(0.015, ge=0, le=0.1)
+    cape_slope: float = Field(0.5, ge=0, le=2)
+    cape_floor: float = Field(0.02, gt=0, le=0.2)
+    cape_ceiling: float = Field(0.08, gt=0, le=0.5)
     # 现金流情景分解的组合方式：auto=自动（超阈值回退逐组）/ full=强制全交叉 / per_group=强制逐组
     scenario_mode: str = Field("auto", pattern="^(auto|full|per_group)$")
+
+    @model_validator(mode="after")
+    def _validate_cape_bounds(self):
+        if self.cape_floor > self.cape_ceiling:
+            raise ValueError("cape_floor must be <= cape_ceiling")
+        return self
 
 
 class SimulationResponse(BaseModel):
