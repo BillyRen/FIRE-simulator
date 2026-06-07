@@ -689,10 +689,7 @@ def api_backtest(request: Request, req: BacktestRequest):
         raise HTTPException(400, "历史回测必须指定具体国家")
 
     if bt_country != req.country or req.country == "ALL":
-        hist_filtered = filter_df(
-            bt_country, req.data_start_year, req.data_source,
-            getattr(req, "calibrate_intl_returns", True),
-        )
+        hist_filtered = filter_df(bt_country, req.data_start_year, req.data_source)
     else:
         hist_filtered = filtered
 
