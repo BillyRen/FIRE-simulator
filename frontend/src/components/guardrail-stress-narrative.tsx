@@ -73,11 +73,17 @@ export function GuardrailStressNarrative({
       const worstCutPct = Math.max(0, 1 - minWd / initial);
       // Determine true asset depletion from the portfolio trajectory rather than
       // g_has_failed, which also flags consumption-floor breaches on solvent
-      // paths. An early-depletion path zeroes out before its last point.
-      const depletedEarly = p.g_portfolio.slice(0, -1).some((v) => v <= 0);
+      // paths. For a complete plan, a zero only in the final horizon year counts
+      // as survived (project convention), so we look before the last point. For
+      // a censored (incomplete) path, the last point is where data ended, not
+      // the horizon, so a zero there is a genuine depletion and must count.
+      const port = p.g_portfolio;
+      const depleted = p.is_complete
+        ? port.slice(0, -1).some((v) => v <= 0)
+        : port.some((v) => v <= 0);
       // Three states: truly depleted, a complete survivor, or a censored path
       // that simply ran out of historical data (still solvent).
-      const outcome: Outcome = depletedEarly
+      const outcome: Outcome = depleted
         ? "depleted"
         : p.is_complete
           ? "survived"
