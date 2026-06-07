@@ -16,14 +16,13 @@ Method (see docs/plan-pre1970-intl-backfill.md)
    `data/jst_returns.csv` (linear time-varying GDP-weighted ex-US equity, USD
    nominal). It already covers 1872-1969 with no gaps and tracks MSCI at
    corr ~0.92 over the overlap.
-2. Level calibration ("wedge"): JST `Global_Stock` runs systematically hotter
-   than the investable MSCI index (academic total-return vs float-adjusted
-   investable index). We remove this with a single multiplicative haircut `k`
-   estimated on the 1970-2025 overlap:
-       1 + k = geomean(1 + Global_Stock | 1970-2025)
-               / geomean(1 + MSCI | 1970-2025)
-   and apply it to every pre-1970 year:
-       intl_backfill[t] = (1 + Global_Stock_USA[t]) / (1 + k) - 1
+2. NO level haircut by default (k=0): intl_backfill[t] = Global_Stock_USA[t].
+   We originally applied a multiplicative "investability wedge" (~1.69pp/yr,
+   estimated on the 1970-2025 JST-vs-MSCI-EAFE overlap), but a per-country
+   check (2026-06) found JST single-country USD returns match the MSCI country
+   indices within ~0.3pp (1988-2025). The aggregate JST-USA-Global vs MSCI EAFE
+   gap is therefore a GDP-weighting/composition artifact, not per-country data
+   inflation, so we no longer haircut the series. Pass --wedge to re-enable one.
 3. 1970+ International is left untouched (it is the real MSCI series).
 
 This is a CALIBRATED ESTIMATE, not a real index. It is shipped as a SEPARATE
@@ -94,7 +93,14 @@ def build(wedge_override: float | None = None) -> None:
     if INTL_COL not in fire.columns:
         raise ValueError(f"{FIRE_CSV} missing column {INTL_COL!r}")
 
-    k = wedge_override if wedge_override is not None else estimate_wedge(fire, jst_us)
+    # No investability haircut by default. Per-country JST equity returns were
+    # verified comparable to the MSCI country indices (1988-2025, USD, within
+    # ~0.3pp), so the pre-1970 backfill uses the JST Global_Stock series directly.
+    # The ~1.7pp JST-USA-Global vs MSCI EAFE gap is a GDP-weighting/composition
+    # artifact (GDP-weighted 15-country basket vs cap-weighted EAFE), NOT a
+    # per-country data-quality issue, so haircutting the series is unwarranted.
+    # estimate_wedge() is retained for reference; pass --wedge to re-enable one.
+    k = wedge_override if wedge_override is not None else 0.0
 
     # Map year -> Global_Stock (USA, linear-GDP ex-US, USD nominal).
     gs = dict(zip(jst_us["Year"].astype(int), jst_us["Global_Stock"]))
