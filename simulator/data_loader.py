@@ -98,11 +98,14 @@ def cape_for_years(years: np.ndarray, cape_df: pd.DataFrame | None = None) -> np
     """
     if cape_df is None:
         cape_df = load_cape_data()
-    lookup = cape_df.set_index("Year")["CAPE"]
-    aligned = lookup.reindex(np.asarray(years, dtype=int))
-    # 前后向填充覆盖范围外的年份（早期 bfill、近期 ffill）。
-    aligned = aligned.ffill().bfill()
-    return aligned.to_numpy(dtype=float)
+    years_arr = np.asarray(years, dtype=int)
+    lookup = cape_df.set_index("Year")["CAPE"].sort_index()
+    # 在一个排序的连续年份区间上做前后向填充（早期 bfill、近期 ffill），再按
+    # 原始顺序选取目标年份——与输入 years 的排序无关，避免乱序输入拿到错误边界值。
+    lo = int(min(years_arr.min(), lookup.index.min()))
+    hi = int(max(years_arr.max(), lookup.index.max()))
+    filled = lookup.reindex(range(lo, hi + 1)).ffill().bfill()
+    return filled.reindex(years_arr).to_numpy(dtype=float)
 
 
 def load_country_list(meta_path: str | None = None) -> list[dict[str, Any]]:

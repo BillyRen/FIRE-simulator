@@ -138,6 +138,9 @@ export function SimulatorClient() {
     try {
       const res = await runSimBatchBacktest({
         ...params,
+        // CAPE is a /simulate-MC-only strategy; the batch backtest doesn't
+        // accept it, so fall back to fixed there.
+        withdrawal_strategy: params.withdrawal_strategy === "cape" ? "fixed" : params.withdrawal_strategy,
         initial_portfolio: portfolio,
         annual_withdrawal: withdrawal,
       });

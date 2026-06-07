@@ -96,3 +96,20 @@ class TestCapeDataLoader:
         out = cape_for_years(np.array([1870, 1990, 2025]))
         assert np.all(np.isfinite(out))
         assert np.all(out > 0)
+
+    def test_cape_for_years_all_years_after_coverage(self):
+        """Years entirely past the CAPE CSV (e.g. 2024-2025) still resolve via
+        forward-fill from the last covered year — no NaN, no silent fallback."""
+        out = cape_for_years(np.array([2024, 2025]))
+        assert np.all(np.isfinite(out))
+        assert np.all(out > 0)
+
+    def test_cape_for_years_order_independent(self):
+        """Out-of-range boundary fill must not depend on input ordering."""
+        sorted_in = np.array([1870, 1990, 2000, 2025])
+        shuffled = np.array([2025, 1870, 2000, 1990])
+        a = cape_for_years(sorted_in)
+        b = cape_for_years(shuffled)
+        order = [list(sorted_in).index(y) for y in shuffled]
+        assert np.allclose(b, a[order])
+        assert np.all(np.isfinite(b))

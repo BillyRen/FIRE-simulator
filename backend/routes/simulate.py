@@ -300,6 +300,12 @@ def api_simulate_scenarios(request: Request, req: SimulationRequest):
 
     All scenarios share a single bootstrap return matrix (Common Random Numbers).
     """
+    if req.withdrawal_strategy == "cape":
+        raise HTTPException(
+            400,
+            "CAPE-based withdrawal is not supported on the scenarios endpoint "
+            "(shared return matrix without per-year CAPE). Use /api/simulate.",
+        )
     filtered, country_dfs = resolve_data(req)
     validate_data_sufficient(filtered, country_dfs)
 
