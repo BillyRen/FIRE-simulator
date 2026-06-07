@@ -14,6 +14,7 @@ from simulator.guardrail import (
     apply_guardrail_adjustment,
     build_success_rate_table,
     run_guardrail_simulation,
+    run_historical_backtest,
 )
 
 
@@ -81,6 +82,23 @@ class TestAsymmetricAdjustment:
         assert lo == pytest.approx(wd_high + 0.10 * (twd - wd_high))
         assert lo < wd_high  # a cut, but a gentle one
 
+    def test_success_rate_mode_backward_compat(self, simple_table):
+        """None directional fractions == symmetric in success_rate mode too."""
+        table, rate_grid = simple_table
+        base = apply_guardrail_adjustment(
+            0.0, VALUE, 0.99, TARGET, 0.5, "success_rate", REMAINING, table, rate_grid,
+        )
+        none = apply_guardrail_adjustment(
+            0.0, VALUE, 0.99, TARGET, 0.5, "success_rate", REMAINING, table, rate_grid,
+            upper_adjustment_pct=None, lower_adjustment_pct=None,
+        )
+        sym = apply_guardrail_adjustment(
+            0.0, VALUE, 0.99, TARGET, 0.5, "success_rate", REMAINING, table, rate_grid,
+            upper_adjustment_pct=0.5, lower_adjustment_pct=0.5,
+        )
+        assert base == pytest.approx(none)
+        assert base == pytest.approx(sym)
+
     def test_asymmetry_is_directional(self, simple_table):
         """Same gap magnitude yields a larger up-move than down-move when 1.0/0.1."""
         table, rate_grid = simple_table
@@ -143,3 +161,20 @@ class TestRunGuardrailThreading:
         )
         # Asymmetric (full-up / gentle-down) must diverge from symmetric somewhere.
         assert not np.allclose(wd_sym, wd_asym)
+
+    def test_historical_backtest_threading_equivalence(self):
+        """run_historical_backtest: explicit symmetric == default (locks 2nd loop)."""
+        rate_grid, table = build_success_rate_table(np.zeros((400, 30)))
+        rng = np.random.default_rng(11)
+        real_returns = rng.normal(0.05, 0.15, 30)
+        common = dict(
+            real_returns=real_returns, initial_portfolio=1_000_000.0,
+            annual_withdrawal=40_000.0, target_success=0.85,
+            upper_guardrail=0.99, lower_guardrail=0.60, adjustment_pct=0.3,
+            retirement_years=30, min_remaining_years=5, baseline_rate=0.033,
+            table=table, rate_grid=rate_grid, adjustment_mode="amount",
+        )
+        a = run_historical_backtest(**common)
+        b = run_historical_backtest(**common, upper_adjustment_pct=0.3, lower_adjustment_pct=0.3)
+        np.testing.assert_allclose(a["g_portfolio"], b["g_portfolio"])
+        np.testing.assert_allclose(a["g_withdrawals"], b["g_withdrawals"])
