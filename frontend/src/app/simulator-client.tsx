@@ -28,6 +28,7 @@ import type { HistoricalEvent } from "@/lib/types";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { PdfExportButton } from "@/components/pdf-export-button";
+import { RichBrokeDeadChart } from "@/components/rich-broke-dead-chart";
 import { useSharedParams } from "@/lib/params-context";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
@@ -427,6 +428,18 @@ export function SimulatorClient() {
                         xTitle={tf("ageAxis")}
                         color={CHART_COLORS.orange.rgb}
                         showLogToggle
+                      />
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Rich / Broke / Dead 死亡率叠加图 */}
+                {result.solvency_by_year && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <RichBrokeDeadChart
+                        solvencyByYear={result.solvency_by_year}
+                        retirementAge={params.retirement_age}
                       />
                     </CardContent>
                   </Card>

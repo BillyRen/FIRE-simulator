@@ -519,6 +519,19 @@
     "yearAxis": "Year",
     "ageAxis": "Age"
   },
+  "richBrokeDead": {
+    "title": "Rich / Broke / Dead",
+    "rich": "Alive, with money",
+    "broke": "Alive, out of money",
+    "dead": "Deceased",
+    "ageAxis": "Age",
+    "probabilityAxis": "Probability",
+    "mortalityTable": "Mortality",
+    "sexBlended": "Blended",
+    "sexMale": "Male",
+    "sexFemale": "Female",
+    "footnote": "Combines your simulated solvency with SSA 2021 period-life mortality (Gompertz fit). At any age, the green band is the chance you are both alive and still funded."
+  },
   "backendKeys": {
     "指标": "Metric",
     "值": "Value",
