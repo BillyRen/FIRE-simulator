@@ -41,12 +41,14 @@ interface StressRow {
   years: number;
 }
 
-/** Pick the path for a stress year: prefer USA, else the most-complete one. */
+/** Pick the path for a stress year: prefer USA, else the most-complete one.
+ *  Match on `start_year` — the first *sampled* return year — since a batch
+ *  path's year_labels[0] is the pre-retirement label (start_year - 1). */
 function pickPath(
   paths: GuardrailBatchPathSummary[],
   year: number,
 ): GuardrailBatchPathSummary | null {
-  const matches = paths.filter((p) => p.year_labels[0] === year);
+  const matches = paths.filter((p) => p.start_year === year);
   if (matches.length === 0) return null;
   const usa = matches.find((p) => p.country === "USA");
   if (usa) return usa;
@@ -69,9 +71,13 @@ export function GuardrailStressNarrative({
       if (!(initial > 0)) continue;
       const minWd = Math.min(...p.g_withdrawals);
       const worstCutPct = Math.max(0, 1 - minWd / initial);
-      // Three states: a truly depleted plan (failed), a complete survivor, or a
-      // censored path that simply ran out of historical data (still solvent).
-      const outcome: Outcome = p.g_has_failed === true
+      // Determine true asset depletion from the portfolio trajectory rather than
+      // g_has_failed, which also flags consumption-floor breaches on solvent
+      // paths. An early-depletion path zeroes out before its last point.
+      const depletedEarly = p.g_portfolio.slice(0, -1).some((v) => v <= 0);
+      // Three states: truly depleted, a complete survivor, or a censored path
+      // that simply ran out of historical data (still solvent).
+      const outcome: Outcome = depletedEarly
         ? "depleted"
         : p.is_complete
           ? "survived"
