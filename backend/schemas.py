@@ -151,6 +151,7 @@ class SimulationResponse(BaseModel):
     percentile_trajectories: dict[str, list[float]]
     withdrawal_percentile_trajectories: dict[str, list[float]] | None = None
     withdrawal_mean_trajectory: list[float] | None = None
+    solvency_by_year: list[float] | None = None
     final_values_summary: list[dict[str, str]]
     initial_withdrawal_rate: float
     portfolio_metrics: list[dict[str, str]] = []

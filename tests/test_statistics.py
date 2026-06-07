@@ -267,6 +267,42 @@ class TestComputeStatistics:
         assert result.funded_ratio == pytest.approx(1.0)
 
 
+class TestSolvencyByYear:
+    """Tests for the per-year solvency curve (drives Rich-Broke-Dead viz)."""
+
+    def test_length_and_initial(self):
+        """Curve has retirement_years+1 entries; year 0 is fully solvent."""
+        trajectories = np.full((10, 11), 100_000.0)
+        result = compute_statistics(trajectories, 10)
+        assert result.solvency_by_year is not None
+        assert len(result.solvency_by_year) == 11
+        assert result.solvency_by_year[0] == pytest.approx(1.0)
+
+    def test_fraction_solvent(self):
+        """solvency_by_year[t] = fraction of paths with value > 0 at year t."""
+        # 4 paths, 2 years. Two paths deplete at year 1, one at year 2.
+        trajectories = np.array(
+            [
+                [100.0, 50.0, 25.0],   # solvent throughout
+                [100.0, 50.0, 0.0],    # depletes at year 2
+                [100.0, 0.0, 0.0],     # depletes at year 1
+                [100.0, 0.0, 0.0],     # depletes at year 1
+            ]
+        )
+        result = compute_statistics(trajectories, 2)
+        # year 0: 4/4 ; year 1: 2/4 ; year 2: 1/4
+        assert result.solvency_by_year[0] == pytest.approx(1.0)
+        assert result.solvency_by_year[1] == pytest.approx(0.5)
+        assert result.solvency_by_year[2] == pytest.approx(0.25)
+
+    def test_strictly_positive_counts_as_solvent(self):
+        """Exactly-zero value is broke, not solvent."""
+        trajectories = np.array([[100.0, 0.0], [100.0, 1e-9]])
+        result = compute_statistics(trajectories, 1)
+        # year 1: one path is 0 (broke), one is 1e-9 (solvent) → 0.5
+        assert result.solvency_by_year[1] == pytest.approx(0.5)
+
+
 class TestPortfolioMetrics:
     """Tests for compute_portfolio_metrics and compute_single_path_metrics."""
 

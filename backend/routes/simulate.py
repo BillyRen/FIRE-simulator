@@ -122,6 +122,12 @@ def api_simulate(request: Request, req: SimulationRequest):
         if results.withdrawal_mean_trajectory is not None:
             wd_mean_traj = results.withdrawal_mean_trajectory.tolist()
 
+        solvency_traj = (
+            results.solvency_by_year.tolist()
+            if results.solvency_by_year is not None
+            else None
+        )
+
         yield {"type": "result", "data": {
             "success_rate": results.success_rate,
             "funded_ratio": results.funded_ratio,
@@ -133,6 +139,7 @@ def api_simulate(request: Request, req: SimulationRequest):
             "percentile_trajectories": pct_traj,
             "withdrawal_percentile_trajectories": wd_pct_traj,
             "withdrawal_mean_trajectory": wd_mean_traj,
+            "solvency_by_year": solvency_traj,
             "final_values_summary": summary_df.to_dict("records"),
             "initial_withdrawal_rate": (
                 req.annual_withdrawal / req.initial_portfolio if req.initial_portfolio > 0 else 0

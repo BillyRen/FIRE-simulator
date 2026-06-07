@@ -36,6 +36,11 @@ class SimulationResults:
     withdrawal_percentile_trajectories: dict[int, np.ndarray] | None = None
     withdrawal_mean_trajectory: np.ndarray | None = None
 
+    # 逐年偿付能力曲线: shape (retirement_years+1,)，每年组合 > 0 的路径占比。
+    # 与 success_rate 的"末年耗尽=成功"口径不同：此处按字面统计 value > 0，
+    # 用于 Rich-Broke-Dead 可视化（富有/破产/离世 三态叠加）。
+    solvency_by_year: np.ndarray | None = None
+
 
 def compute_funded_ratio(
     trajectories: np.ndarray,
@@ -184,6 +189,9 @@ def compute_statistics(
     # Funded Ratio
     funded_ratio = compute_funded_ratio(trajectories, retirement_years)
 
+    # 逐年偿付能力曲线（每年组合 > 0 的路径占比）
+    solvency_by_year = (trajectories > 0).mean(axis=0)
+
     # 逐年分位数轨迹（一次计算所有分位数，避免多次遍历）
     all_pct = np.percentile(trajectories, PERCENTILES, axis=0)
     percentile_trajectories: dict[int, np.ndarray] = {
@@ -220,6 +228,7 @@ def compute_statistics(
         funded_ratio=funded_ratio,
         withdrawal_percentile_trajectories=withdrawal_pct_traj,
         withdrawal_mean_trajectory=withdrawal_mean_traj,
+        solvency_by_year=solvency_by_year,
     )
 
 
