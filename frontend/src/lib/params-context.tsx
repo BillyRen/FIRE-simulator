@@ -66,6 +66,14 @@ const SIM_COUNTS_KEY = "fire:serverSimCounts";
 const FALLBACK_HEAVY_CAP = 500;
 
 export function ParamsProvider({ children }: { children: ReactNode }) {
+  // Consume a shared-link token before any persisted state hydrates, seeding
+  // localStorage so every page-level control picks up the shared values
+  // race-free. A lazy useState initializer runs exactly once during the first
+  // render — before the usePersistedState hydration effects below — and the
+  // token is stripped from the URL on read, so it is safe under strict-mode
+  // double-invocation. The return value is unused; seeding is the effect.
+  useState(() => (typeof window !== "undefined" ? consumeSharedParams() : null));
+
   const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
   const [serverSimCounts, setServerSimCounts] = useState<ServerDefaults["recommended_sim_counts"] | null>(() => {
     if (typeof window === "undefined") return null;
@@ -74,15 +82,6 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
-
-  // On mount: a shared-link token in the URL overrides persisted state.
-  const sharedConsumed = useRef(false);
-  useEffect(() => {
-    if (sharedConsumed.current) return;
-    sharedConsumed.current = true;
-    const shared = consumeSharedParams();
-    if (shared) setParams(shared);
-  }, [setParams]);
 
   // On mount: fetch fresh server defaults
   const applied = useRef(false);
