@@ -71,8 +71,11 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
   // race-free. A lazy useState initializer runs exactly once during the first
   // render — before the usePersistedState hydration effects below — and the
   // token is stripped from the URL on read, so it is safe under strict-mode
-  // double-invocation. The return value is unused; seeding is the effect.
-  useState(() => (typeof window !== "undefined" ? consumeSharedParams() : null));
+  // double-invocation. The decoded value is also applied via setParams below
+  // as a fallback for environments where localStorage seeding fails.
+  const [sharedParams] = useState(() =>
+    typeof window !== "undefined" ? consumeSharedParams() : null,
+  );
 
   const [params, setParams] = usePersistedState<FormParams>("fire:params", DEFAULT_PARAMS);
   const [serverSimCounts, setServerSimCounts] = useState<ServerDefaults["recommended_sim_counts"] | null>(() => {
@@ -82,6 +85,17 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
+
+  // Apply a consumed shared link to the context. This runs after the
+  // usePersistedState hydration effect (declared above), so it wins, and it is
+  // the fallback path when localStorage seeding inside consumeSharedParams
+  // failed (private browsing / disabled / quota). No-op when no link present.
+  const sharedApplied = useRef(false);
+  useEffect(() => {
+    if (sharedApplied.current || !sharedParams) return;
+    sharedApplied.current = true;
+    setParams(sharedParams);
+  }, [sharedParams, setParams]);
 
   // On mount: fetch fresh server defaults
   const applied = useRef(false);
