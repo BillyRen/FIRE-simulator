@@ -36,6 +36,10 @@ function CountrySuccessTableImpl({ rows, countryLabel }: Props) {
       if ((r.successRate as number) > (best.successRate as number)) best = r;
       if ((r.successRate as number) < (worst.successRate as number)) worst = r;
     }
+    // All tied: no meaningful best/worst, suppress both badges.
+    if (best.successRate === worst.successRate) {
+      return { bestCountry: null, worstCountry: null };
+    }
     return { bestCountry: best.country, worstCountry: worst.country };
   }, [rows]);
 
