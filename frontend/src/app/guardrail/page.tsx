@@ -20,6 +20,8 @@ import { FanChart, useIsMobile, MobileChartTitle } from "@/components/fan-chart"
 import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { GuardrailStressNarrative } from "@/components/guardrail-stress-narrative";
+import { CountrySuccessTable } from "@/components/country-success-table";
+import { computeCountrySuccessStats } from "@/lib/country-success";
 import { ProgressOverlay, PreliminaryBanner, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
@@ -302,6 +304,19 @@ export default function GuardrailPage() {
     }
     return (iso: string) => map[iso] ?? iso;
   }, [countries, locale]);
+
+  // Per-country censored-aware success stats for the guardrail strategy
+  const countrySuccessRows = useMemo(() => {
+    if (!batchResult || availableCountries.length <= 1) return [];
+    return computeCountrySuccessStats(
+      batchResult.paths.map((p) => ({
+        country: p.country,
+        is_complete: p.is_complete,
+        has_failed: p.g_has_failed,
+        minWithdrawal: p.g_withdrawals.length > 0 ? Math.min(...p.g_withdrawals) : 0,
+      })),
+    );
+  }, [batchResult, availableCountries]);
 
   // Sorted & filtered paths for the table
   const sortedPaths = useMemo(() => {
@@ -868,6 +883,11 @@ export default function GuardrailPage() {
 
                     {/* ── Aggregate view ── */}
                     <TabsContent value="aggregate" className="space-y-6">
+                      {/* Per-country success rate (guardrail strategy) */}
+                      {countrySuccessRows.length > 1 && (
+                        <CountrySuccessTable rows={countrySuccessRows} countryLabel={countryLabel} />
+                      )}
+
                       {/* Guardrail portfolio fan chart */}
                       {Object.keys(batchResult.g_percentile_trajectories).length > 0 && (
                         <Card>

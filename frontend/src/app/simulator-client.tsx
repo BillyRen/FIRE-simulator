@@ -29,6 +29,8 @@ import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { PdfExportButton } from "@/components/pdf-export-button";
 import { RichBrokeDeadChart } from "@/components/rich-broke-dead-chart";
+import { CountrySuccessTable } from "@/components/country-success-table";
+import { computeCountrySuccessStats } from "@/lib/country-success";
 import { useSharedParams } from "@/lib/params-context";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
@@ -259,6 +261,19 @@ export function SimulatorClient() {
     }
     return (iso: string) => map[iso] ?? iso;
   }, [countries, locale]);
+
+  // Per-country censored-aware success stats (only meaningful for the pooled run)
+  const countrySuccessRows = useMemo(() => {
+    if (!batchResult || availableCountries.length <= 1) return [];
+    return computeCountrySuccessStats(
+      batchResult.paths.map((p) => ({
+        country: p.country,
+        is_complete: p.is_complete,
+        has_failed: p.has_failed,
+        minWithdrawal: p.withdrawals.length > 0 ? Math.min(...p.withdrawals) : 0,
+      })),
+    );
+  }, [batchResult, availableCountries]);
 
   // Sorted & filtered paths for the table
   const sortedPaths = useMemo(() => {
@@ -610,6 +625,11 @@ export function SimulatorClient() {
                           />
                         </CardContent>
                       </Card>
+                    )}
+
+                    {/* Per-country success rate */}
+                    {countrySuccessRows.length > 1 && (
+                      <CountrySuccessTable rows={countrySuccessRows} countryLabel={countryLabel} />
                     )}
 
                     {/* Stats summary */}
