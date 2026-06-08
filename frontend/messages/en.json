@@ -541,16 +541,23 @@
   },
   "richBrokeDead": {
     "title": "Rich / Broke / Dead",
+    "titleConditional": "Success / Failure (given alive)",
     "rich": "Alive, with money",
     "broke": "Alive, out of money",
     "dead": "Deceased",
+    "condSuccess": "Success (still funded)",
+    "condFailure": "Failure (depleted)",
     "ageAxis": "Age",
     "probabilityAxis": "Probability",
     "mortalityTable": "Mortality",
     "sexBlended": "Blended",
     "sexMale": "Male",
     "sexFemale": "Female",
-    "footnote": "Combines your simulated solvency with SSA 2021 period-life mortality (Gompertz fit). At any age, the green band is the chance you are both alive and still funded."
+    "viewMode": "View",
+    "modeCombined": "Combined (with mortality)",
+    "modeConditional": "Conditional on alive",
+    "footnote": "Combines your simulated solvency with SSA 2021 period-life mortality (Gompertz fit). At any age, the green band is the chance you are both alive and still funded.",
+    "footnoteConditional": "Drops the deceased band and renormalizes the remaining two to 100% — showing, given you are still alive, the conditional probability the plan succeeds (still funded) vs. fails (depleted) at each age. This view is independent of the mortality table."
   },
   "backendKeys": {
     "指标": "Metric",

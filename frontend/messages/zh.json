@@ -541,16 +541,23 @@
   },
   "richBrokeDead": {
     "title": "富有 / 破产 / 离世",
+    "titleConditional": "成功 / 失败（在世前提下）",
     "rich": "在世且有钱",
     "broke": "在世但钱已花光",
     "dead": "已离世",
+    "condSuccess": "成功（钱还够）",
+    "condFailure": "失败（钱花光）",
     "ageAxis": "年龄",
     "probabilityAxis": "概率",
     "mortalityTable": "死亡率表",
     "sexBlended": "综合",
     "sexMale": "男性",
     "sexFemale": "女性",
-    "footnote": "将你的模拟偿付能力与 SSA 2021 期间生命表死亡率（Gompertz 拟合）结合。任一年龄下，绿色区域代表你既在世又仍有钱的概率。"
+    "viewMode": "视图",
+    "modeCombined": "综合（含离世）",
+    "modeConditional": "在世前提下",
+    "footnote": "将你的模拟偿付能力与 SSA 2021 期间生命表死亡率（Gompertz 拟合）结合。任一年龄下，绿色区域代表你既在世又仍有钱的概率。",
+    "footnoteConditional": "剔除离世概率后，将剩余两类归一化到 100%——显示在「你仍在世」的前提下，计划在每个年龄成功（钱还够）与失败（钱花光）的条件概率。此视图与死亡率表无关。"
   },
   "backendKeys": {
     "指标": "指标",

@@ -32,6 +32,10 @@ export function RichBrokeDeadChart({
   const t = useTranslations("richBrokeDead");
   const isMobile = useIsMobile();
   const [sex, setSex] = usePersistedState<MortalitySex>("fire:rbd:sex", "blended");
+  const [view, setView] = usePersistedState<"combined" | "conditional">(
+    "fire:rbd:view",
+    "combined",
+  );
 
   const series = useMemo(
     () => richBrokeDeadSeries(solvencyByYear, retirementAge, sex),
@@ -41,57 +45,101 @@ export function RichBrokeDeadChart({
   const ages = series.map((p) => p.age);
   const toPct = (v: number) => Math.round(v * 1000) / 10;
 
-  // Stacked from bottom: dead → broke → rich, so "rich" sits on top and the
-  // shrinking green band reads as the chance of a money-and-life success.
-  const traces = [
-    {
-      x: ages,
-      y: series.map((p) => toPct(p.dead)),
-      name: t("dead"),
-      stackgroup: "one",
-      mode: "none" as const,
-      fillcolor: `rgba(${CHART_COLORS.neutral.rgb},0.75)`,
-      hovertemplate: `%{x}: %{y:.1f}% ${t("dead")}<extra></extra>`,
-    },
-    {
-      x: ages,
-      y: series.map((p) => toPct(p.broke)),
-      name: t("broke"),
-      stackgroup: "one",
-      mode: "none" as const,
-      fillcolor: `rgba(${CHART_COLORS.warning.rgb},0.8)`,
-      hovertemplate: `%{x}: %{y:.1f}% ${t("broke")}<extra></extra>`,
-    },
-    {
-      x: ages,
-      y: series.map((p) => toPct(p.solvent)),
-      name: t("rich"),
-      stackgroup: "one",
-      mode: "none" as const,
-      fillcolor: `rgba(${CHART_COLORS.secondary.rgb},0.8)`,
-      hovertemplate: `%{x}: %{y:.1f}% ${t("rich")}<extra></extra>`,
-    },
-  ];
+  // Conditional-on-alive view: dropping the "dead" band and renormalizing the
+  // remaining two to 100% is exactly the raw per-year solvency curve, since
+  // P(rich | alive) = solvent/alive = solventFrac (mortality cancels out).
+  const conditional = view === "conditional";
+
+  const traces = conditional
+    ? [
+        {
+          x: ages,
+          y: solvencyByYear.map((f) => toPct(1 - f)),
+          name: t("condFailure"),
+          stackgroup: "one",
+          mode: "none" as const,
+          fillcolor: `rgba(${CHART_COLORS.warning.rgb},0.8)`,
+          hovertemplate: `%{x}: %{y:.1f}% ${t("condFailure")}<extra></extra>`,
+        },
+        {
+          x: ages,
+          y: solvencyByYear.map((f) => toPct(f)),
+          name: t("condSuccess"),
+          stackgroup: "one",
+          mode: "none" as const,
+          fillcolor: `rgba(${CHART_COLORS.secondary.rgb},0.8)`,
+          hovertemplate: `%{x}: %{y:.1f}% ${t("condSuccess")}<extra></extra>`,
+        },
+      ]
+    : [
+        // Stacked from bottom: dead → broke → rich, so "rich" sits on top and
+        // the shrinking green band reads as a money-and-life success.
+        {
+          x: ages,
+          y: series.map((p) => toPct(p.dead)),
+          name: t("dead"),
+          stackgroup: "one",
+          mode: "none" as const,
+          fillcolor: `rgba(${CHART_COLORS.neutral.rgb},0.75)`,
+          hovertemplate: `%{x}: %{y:.1f}% ${t("dead")}<extra></extra>`,
+        },
+        {
+          x: ages,
+          y: series.map((p) => toPct(p.broke)),
+          name: t("broke"),
+          stackgroup: "one",
+          mode: "none" as const,
+          fillcolor: `rgba(${CHART_COLORS.warning.rgb},0.8)`,
+          hovertemplate: `%{x}: %{y:.1f}% ${t("broke")}<extra></extra>`,
+        },
+        {
+          x: ages,
+          y: series.map((p) => toPct(p.solvent)),
+          name: t("rich"),
+          stackgroup: "one",
+          mode: "none" as const,
+          fillcolor: `rgba(${CHART_COLORS.secondary.rgb},0.8)`,
+          hovertemplate: `%{x}: %{y:.1f}% ${t("rich")}<extra></extra>`,
+        },
+      ];
 
   return (
     <div>
-      <div className="flex items-center justify-end gap-2 mb-1">
-        <Label className="text-xs text-muted-foreground">{t("mortalityTable")}</Label>
-        <Select value={sex} onValueChange={(v) => setSex(v as MortalitySex)}>
-          <SelectTrigger className="h-7 text-xs w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="blended">{t("sexBlended")}</SelectItem>
-            <SelectItem value="male">{t("sexMale")}</SelectItem>
-            <SelectItem value="female">{t("sexFemale")}</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="flex items-center justify-end gap-4 mb-1">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground">{t("viewMode")}</Label>
+          <Select value={view} onValueChange={(v) => setView(v as "combined" | "conditional")}>
+            <SelectTrigger className="h-7 text-xs w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="combined">{t("modeCombined")}</SelectItem>
+              <SelectItem value="conditional">{t("modeConditional")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {!conditional && (
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-muted-foreground">{t("mortalityTable")}</Label>
+            <Select value={sex} onValueChange={(v) => setSex(v as MortalitySex)}>
+              <SelectTrigger className="h-7 text-xs w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="blended">{t("sexBlended")}</SelectItem>
+                <SelectItem value="male">{t("sexMale")}</SelectItem>
+                <SelectItem value="female">{t("sexFemale")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
       <PlotlyChart
         data={traces}
         layout={{
-          title: isMobile ? undefined : { text: t("title"), font: { size: 14 } },
+          title: isMobile
+            ? undefined
+            : { text: conditional ? t("titleConditional") : t("title"), font: { size: 14 } },
           xaxis: { title: { text: t("ageAxis") } },
           yaxis: {
             title: { text: t("probabilityAxis") },
@@ -106,7 +154,9 @@ export function RichBrokeDeadChart({
         }}
         config={{ displayModeBar: false }}
       />
-      <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{t("footnote")}</p>
+      <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
+        {conditional ? t("footnoteConditional") : t("footnote")}
+      </p>
     </div>
   );
 }
