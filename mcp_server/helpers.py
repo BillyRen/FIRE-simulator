@@ -21,7 +21,6 @@ from deps import (
     get_combined_df,
     filter_df,
 )
-from simulator.config import get_gdp_weights
 
 
 def safe_call(func: Callable) -> Callable:
@@ -142,12 +141,12 @@ def _resolve_data(
     country: str,
     data_source: str,
     data_start_year: int = 1900,
-    pooling_method: str = "gdp_sqrt",
 ) -> tuple[Any, dict | None, dict | None]:
     """Resolve (filtered_df, country_dfs, country_weights) without Pydantic req.
 
     Mirrors backend.deps.resolve_data + resolve_country_weights but takes
     plain args. ISO codes are validated up-front with helpful suggestions.
+    Pooled sampling (country=ALL) always uses equal probability (weights=None).
     """
     country = _validate_country(country, data_source)
     if data_source == "fire_dataset" and country == "ALL":
@@ -161,11 +160,7 @@ def _resolve_data(
                 f"data_start_year={data_start_year}"
             )
         combined = get_combined_df(data_start_year, data_source)
-        weights = (
-            get_gdp_weights(list(country_dfs.keys()))
-            if pooling_method == "gdp_sqrt" else None
-        )
-        return combined, country_dfs, weights
+        return combined, country_dfs, None
     else:
         filtered = filter_df(country, data_start_year, data_source)
         if len(filtered) < 2:

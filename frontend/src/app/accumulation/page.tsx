@@ -93,7 +93,6 @@ export default function AccumulationPage() {
         num_simulations: getSimCount("default"),
         data_start_year: params.data_start_year,
         country: params.country,
-        pooling_method: params.pooling_method,
         data_source: params.data_source,
         leverage: params.leverage,
         borrowing_spread: params.borrowing_spread,

@@ -18,7 +18,6 @@ from simulator.cashflow import (
     enumerate_cf_per_group,
     enumerate_cf_scenarios,
 )
-from simulator.config import get_gdp_weights
 from simulator.data_loader import (
     filter_by_country,
     filter_housing_data,
@@ -292,25 +291,16 @@ def resolve_data(req):
 
 
 def resolve_country_weights(req, country_dfs: dict | None) -> dict[str, float] | None:
-    """Compute sampling weights based on pooling_method.
+    """Pooled sampling weights. Always None = equal probability (each country 1/N).
 
-    Only effective when country=ALL and country_dfs is not None.
+    Returning None makes the bootstrap draw countries uniformly, which is the
+    single supported pooling scheme for ``country=ALL``.
     """
-    if country_dfs is None:
-        return None
-    if req.pooling_method == "gdp_sqrt":
-        return get_gdp_weights(list(country_dfs.keys()))
     return None
 
 
 def resolve_country_weights_for_housing(req, country_dfs: dict) -> dict[str, float] | None:
-    """Compute pooling weights for countries with housing data."""
-    if req.pooling_method == "gdp_sqrt":
-        all_weights = get_gdp_weights(list(country_dfs.keys()))
-        weights = {iso: all_weights.get(iso, 1.0) for iso in country_dfs}
-        total = sum(weights.values())
-        if total > 0:
-            return {iso: w / total for iso, w in weights.items()}
+    """Pooled housing-country weights. Always None = equal probability."""
     return None
 
 

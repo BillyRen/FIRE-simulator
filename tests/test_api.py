@@ -172,7 +172,7 @@ class TestSimulation:
         assert r.status_code == 400 or r.status_code == 422
 
     def test_simulate_all_countries(self, client):
-        params = {**self.BASE_PARAMS, "country": "ALL", "pooling_method": "gdp_sqrt"}
+        params = {**self.BASE_PARAMS, "country": "ALL"}
         r = client.post("/api/simulate", json=params)
         assert r.status_code == 200
         parse_ndjson(r)  # should not raise

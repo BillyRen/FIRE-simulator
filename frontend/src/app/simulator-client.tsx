@@ -167,7 +167,6 @@ export function SimulatorClient() {
         retirement_years: params.retirement_years,
         data_start_year: params.data_start_year,
         country: btCountry,
-        pooling_method: params.pooling_method,
         data_source: params.data_source,
         // CAPE is a Monte-Carlo-only strategy; the single-path backtest doesn't
         // support it, so fall back to fixed there.

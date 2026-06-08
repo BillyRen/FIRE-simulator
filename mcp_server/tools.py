@@ -104,7 +104,7 @@ def fire_simulate(
 
     Common usage:
       - Default args = 1M portfolio, 40K/yr (4% rule), USA, 65 years
-      - country='ALL' enables GDP-sqrt-weighted pooled bootstrap across
+      - country='ALL' enables equal-probability pooled bootstrap across
         16 JST countries (preferred for globally diversified investors)
       - stock_pct=0.8 auto-splits to ds=40% / gs=40% / db=20%. For full
         control, pass allocation={'domestic_stock':..., 'global_stock':..., 'domestic_bond':...}
@@ -514,7 +514,7 @@ def fire_list_countries(
 
     Use this to discover correct 3-letter ISO codes — JST uses 'CHN' not 'CN',
     'GBR' not 'UK', 'JPN' not 'JP', etc. The special code 'ALL' means
-    GDP-sqrt-weighted pooled bootstrap across all available countries
+    equal-probability pooled bootstrap across all available countries
     (recommended for globally diversified investors).
 
     data_source='jst' has 16 countries from 1871-2025 (Jorda-Schularick-Taylor
@@ -535,8 +535,8 @@ def fire_list_countries(
     ]
     items.append({
         "iso": "ALL",
-        "name_en": "Pooled (GDP-sqrt weighted)",
-        "name_zh": "全球池化（GDP-sqrt 加权）",
+        "name_en": "Pooled (equal probability)",
+        "name_zh": "全球池化（等概率）",
         "min_year": min(c["min_year"] for c in countries) if countries else 0,
         "max_year": max(c["max_year"] for c in countries) if countries else 0,
         "n_years": sum(c["n_years"] for c in countries),
