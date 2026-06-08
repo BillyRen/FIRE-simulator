@@ -331,8 +331,12 @@ export default function AllocationPage() {
                         },
                       ]}
                       layout={{
-                        xaxis: { title: { text: t("paretoAxisFR") } },
-                        yaxis: { title: { text: t("paretoAxisMedian") } },
+                        // Pin axis types: both are continuous numeric quantities
+                        // (coverage % and median final $). Leaving them to Plotly's
+                        // autotype risks degrading into a category axis with unsorted,
+                        // full-precision tick labels when the data sample is unusual.
+                        xaxis: { type: "linear", title: { text: t("paretoAxisFR") } },
+                        yaxis: { type: "linear", title: { text: t("paretoAxisMedian") } },
                         margin: isMobile ? { t: 20, b: 50, l: 60, r: 20 } : { t: 30, b: 50, l: 80, r: 30 },
                         showlegend: true,
                         legend: { x: 0.02, y: 0.98, bgcolor: "rgba(255,255,255,0.7)" },
