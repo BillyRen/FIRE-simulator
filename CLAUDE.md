@@ -100,6 +100,10 @@ pytest tests/test_core.py::TestBlockBootstrap::test_output_shape  # single test
 - Language: code and comments in English; UI text via i18n (zh/en)
 - Backend: Python 3.x, numpy for vectorized computation, avoid Python loops on large arrays
 - Frontend: TypeScript strict, functional components, React hooks
+- Staging: always `git add <explicit paths>`; never `git add -A`/`.`/`commit -am` (a broad add can sweep in another session's uncommitted hunks). Run `git diff --cached --stat` before committing.
+
+## Concurrent sessions (IMPORTANT)
+Two sessions sharing this one working directory corrupt each other: git's working tree / index / HEAD are directory-global, so one session's `git add` sweeps in the other's uncommitted edits, and a branch revert can silently delete the other's work (this happened — a frontend feature was lost in an unrelated merge revert). **If a second concurrent session is needed, run it in its own git worktree, not this directory.** Helper: `scripts/worktree.sh new <topic>` (creates `../FIRE_<topic>` on `feat/<topic>` with isolated dev-server ports `3000+n`/`8888+n` and a symlinked `node_modules`); `dev <topic>` / `stop <topic>` / `rm <topic>` manage its servers and teardown. Signs another session is active: `M` files you didn't touch, commits/branch changes you didn't make — stop and re-check `git status`/`git log`/`git branch` before any checkout/reset/commit.
 
 ## Environment Variables
 - Backend: `ALLOWED_ORIGINS` (CORS), `PYTHON_VERSION`
