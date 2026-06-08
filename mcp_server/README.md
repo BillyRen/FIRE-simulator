@@ -62,7 +62,7 @@ All tools have sensible defaults (1M portfolio, 40K/yr, USA, 65 years, fixed str
 ## Gotchas
 
 - ISO codes are 3-letter: `CHN` not `CN`, `GBR` not `UK`, `JPN` not `JP`. Use `fire_list_countries` to discover.
-- `country="ALL"` enables GDP-sqrt-weighted pooled bootstrap (recommended for globally diversified investors). With `data_source="fire_dataset"`, `"ALL"` silently coerces to `"USA"`.
+- `country="ALL"` enables equal-probability pooled bootstrap (recommended for globally diversified investors). With `data_source="fire_dataset"`, `"ALL"` silently coerces to `"USA"`.
 - v1 does NOT expose cash flows (CFs). Use the web UI at fire.rens.ai for CF scenarios.
 - `fire_guardrail` num_simulations capped at 5000 (memory); others at 20000.
 - `leverage > 1.0` applies borrowing at 2% real spread.
