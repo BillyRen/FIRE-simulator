@@ -56,11 +56,6 @@ class BaseSimulationParams(BaseModel):
     num_simulations: int = Field(2_000, ge=100, le=50_000)
     data_start_year: int = Field(1900, ge=1871, le=2100)
     country: str = Field("USA", description="ISO country code or 'ALL'")
-    pooling_method: str = Field(
-        "gdp_sqrt",
-        pattern="^(equal|gdp_sqrt)$",
-        description="池化采样权重方式: 'equal'=等概率 1/N, 'gdp_sqrt'=sqrt(GDP) 加权",
-    )
     seed: int | None = Field(None, ge=0, description="Random seed for reproducibility")
     data_source: str = Field(
         "jst",
@@ -613,7 +608,6 @@ class BuyVsRentMCRequest(BuyVsRentBaseParams):
     num_simulations: int = Field(2_000, ge=100, le=20_000)
     data_start_year: int = Field(1900, ge=1871, le=2100)
     country: str = Field("USA", description="ISO 国家代码或 'ALL'")
-    pooling_method: str = Field("gdp_sqrt", pattern="^(equal|gdp_sqrt)$")
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     override_home_appreciation: float | None = Field(None, ge=-0.2, le=0.3, description="手动房价增值率")
@@ -678,7 +672,6 @@ class BreakevenMCRequest(BuyVsRentBaseParams):
     num_simulations: int = Field(1_000, ge=100, le=10_000)
     data_start_year: int = Field(1900, ge=1871, le=2100)
     country: str = Field("USA")
-    pooling_method: str = Field("gdp_sqrt", pattern="^(equal|gdp_sqrt)$")
     leverage: float = Field(1.0, ge=1.0, le=5.0)
     borrowing_spread: float = Field(0.02, ge=0, le=0.2)
     override_home_appreciation: float | None = Field(None, ge=-0.2, le=0.3)

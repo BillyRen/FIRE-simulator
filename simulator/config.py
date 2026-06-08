@@ -76,6 +76,11 @@ TARGET_SUCCESS_RATES = [
 # 池化采样权重（基于 2015-2020 年平均 GDP 的平方根，归一化）
 # weight_i = sqrt(GDP_i) / sum(sqrt(GDP_j))
 # GDP 数据来源：World Bank, 单位万亿美元
+#
+# 注意：产品（backend / MCP / 前端）的池化采样已统一为等概率 (1/N)，不再使用
+# sqrt(GDP) 加权——两者对取款率曲线的差异 <1.5pp 成功率，不值得作为用户参数暴露，
+# 且等概率对"全球历史 regime 库"的定位更直观、更保守。以下 GDP 权重仅保留给
+# analysis/ 研究脚本和 test_perf_equivalence 的加权-路径等价性测试使用。
 # ---------------------------------------------------------------------------
 _GDP_TRILLION: dict[str, float] = {
     "USA": 20.9, "JPN": 5.1, "DEU": 3.8, "GBR": 2.8, "FRA": 2.7,

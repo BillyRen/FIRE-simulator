@@ -193,7 +193,7 @@ export const SidebarForm = memo(function SidebarForm({
         (k) => JSON.stringify(p[k]) !== JSON.stringify(DEFAULT_PARAMS[k])
       );
     return {
-      dataRange: check(["data_source", "country", "pooling_method", "data_start_year"]),
+      dataRange: check(["data_source", "country", "data_start_year"]),
       allocation: check(["allocation", "expense_ratios"]),
       simulation: check(["num_simulations", "min_block", "max_block"]),
       withdrawal: check(["withdrawal_strategy", "dynamic_ceiling", "dynamic_floor"]),
@@ -644,34 +644,6 @@ export const SidebarForm = memo(function SidebarForm({
               </div>
             )}
 
-            {p.data_source === "jst" && p.country === "ALL" && (
-              <div className="mb-2">
-                <Label className="text-xs inline-flex items-center gap-1">
-                  {t("poolingMethod")}
-                  <InfoTip
-                    text={
-                      p.pooling_method === "gdp_sqrt"
-                        ? t("poolingGdpSqrtHelp")
-                        : t("poolingEqualHelp")
-                    }
-                  />
-                </Label>
-                <Select
-                  value={p.pooling_method}
-                  onValueChange={(v) =>
-                    set("pooling_method", v as "equal" | "gdp_sqrt")
-                  }
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="equal">{t("poolingEqual")}</SelectItem>
-                    <SelectItem value="gdp_sqrt">{t("poolingGdpSqrt")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
 
             <NumberField
               label={t("dataStartYear")}

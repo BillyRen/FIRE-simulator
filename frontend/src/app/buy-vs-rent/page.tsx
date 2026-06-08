@@ -196,7 +196,6 @@ export default function BuyVsRentPage() {
   // MC mode params
   const [mortgageRateSpread, setMortgageRateSpread] = usePersistedState("fire:bvr:mortgageRateSpread", 1.7);
   const [mcCountry, setMcCountry] = usePersistedState("fire:bvr:mcCountry", "USA");
-  const [mcPooling, setMcPooling] = usePersistedState<"equal" | "gdp_sqrt">("fire:bvr:mcPooling", "gdp_sqrt");
   const [mcDataStartYear, setMcDataStartYear] = usePersistedState("fire:bvr:mcDataStartYear", 1900);
   const [mcNumSim, setMcNumSim] = usePersistedState("fire:bvr:mcNumSim", 2000);
   const [mcMinBlock, setMcMinBlock] = usePersistedState("fire:bvr:mcMinBlock", 5);
@@ -280,7 +279,6 @@ export default function BuyVsRentPage() {
         num_simulations: mcNumSim,
         data_start_year: mcDataStartYear,
         country: mcCountry,
-        pooling_method: mcPooling,
         leverage: params.leverage,
         borrowing_spread: params.borrowing_spread,
         override_home_appreciation: overrideHA ? overrideHAVal / 100 : null,
@@ -351,7 +349,6 @@ export default function BuyVsRentPage() {
         num_simulations: Math.min(mcNumSim, 1000),
         data_start_year: mcDataStartYear,
         country: mcCountry,
-        pooling_method: mcPooling,
         leverage: params.leverage,
         borrowing_spread: params.borrowing_spread,
         override_home_appreciation: overrideHA ? overrideHAVal / 100 : null,
@@ -505,19 +502,6 @@ export default function BuyVsRentPage() {
                     </SelectContent>
                   </Select>
                 </div>
-
-                {mcCountry === "ALL" && (
-                  <div>
-                    <Label className="text-xs">{ts("poolingMethod")}</Label>
-                    <Select value={mcPooling} onValueChange={(v) => setMcPooling(v as "equal" | "gdp_sqrt")}>
-                      <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="equal">{ts("poolingEqual")}</SelectItem>
-                        <SelectItem value="gdp_sqrt">{ts("poolingGdpSqrt")}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
 
                 <NumberField label={ts("dataStartYear")} value={mcDataStartYear} onChange={setMcDataStartYear} min={1871} max={2025} step={1} />
                 <NumberField label={ts("numSimulations")} value={mcNumSim} onChange={setMcNumSim} min={100} max={20000} step={100} />
