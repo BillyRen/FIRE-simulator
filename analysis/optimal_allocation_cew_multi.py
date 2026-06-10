@@ -75,6 +75,7 @@ GR_TARGET, GR_LOWER = 0.85, 0.75
 GR_UPPER, GR_ADJ, GR_MODE, GR_MIN_REMAIN = 0.99, 0.05, "amount", 1
 SR_FLOOR = 0.90
 TOP_K_CONFIRM = 8
+TOP_TAIL_CONFIRM = 3  # best p10_cew among feasible, added to phase-2 set
 
 GOLD_IDX = ASSETS.index("gold")
 EXPENSE_VEC = np.full(N_ASSETS, FIN_EXPENSE)
@@ -205,7 +206,12 @@ def run_phase1(arrays, sigma_real) -> pd.DataFrame:
 def run_phase2(arrays, sigma_real, df: pd.DataFrame) -> pd.DataFrame:
     feas = df[df.success_rate >= SR_FLOOR].sort_values(
         "median_cew", ascending=False)
-    cand = feas.head(TOP_K_CONFIRM)
+    # Top-K by CEW plus the best tail candidates (p10_cew) so that
+    # tail-robust alternatives (e.g. gold sleeves) are also seed-confirmed.
+    cand = pd.concat([
+        feas.head(TOP_K_CONFIRM),
+        feas.sort_values("p10_cew", ascending=False).head(TOP_TAIL_CONFIRM),
+    ]).drop_duplicates(subset="alloc")
     if cand.empty:
         print("[phase2] no feasible candidates; confirming top-3 by success")
         cand = df.sort_values("success_rate", ascending=False).head(3)
