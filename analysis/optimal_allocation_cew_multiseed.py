@@ -109,6 +109,9 @@ def main() -> None:
         sr_min=("success_rate", "min"),
         sr_max=("success_rate", "max"),
         seeds_above_090=("success_rate", lambda s: int((s >= 0.90).sum())),
+        seeds_tail_ok=("severe_fail_prob", lambda s: int((s <= 0.01).sum())),
+        severe_min=("severe_fail_prob", "min"),
+        severe_max=("severe_fail_prob", "max"),
         cew_mean=("median_cew", "mean"),
         cew_min=("median_cew", "min"),
         p10cew_mean=("p10_cew", "mean"),
@@ -118,6 +121,9 @@ def main() -> None:
         p10wd_mean=("p10_min_wd", "mean"),
     ).sort_values("cew_mean", ascending=False)
     print()
+    print("Feasibility requires BOTH seeds_above_090 == n_seeds AND "
+          "seeds_tail_ok == n_seeds; CEW ranking below is informational "
+          "for candidates failing either gate.")
     print(agg.to_string(formatters={
         "cew_mean": "{:,.0f}".format, "cew_min": "{:,.0f}".format,
         "p10cew_mean": "{:,.0f}".format, "p10wd_mean": "{:,.0f}".format,
