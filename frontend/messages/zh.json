@@ -49,7 +49,13 @@
     "successRateDenominator": "成功率分母 = 完整路径 {complete} 条 + 已确定失败的不完整路径 {failed} 条；另有 {excluded} 条数据不足以判定（已排除）",
     "statusSuccess": "成功（完整退休期）",
     "statusFailed": "失败（已观测到耗尽或跌破地板）",
-    "statusCensored": "数据不足以判定（截尾）"
+    "statusCensored": "数据不足以判定（截尾）",
+    "eventCategory": {
+      "crisis": "金融危机",
+      "war": "战争",
+      "bubble": "资产泡沫",
+      "policy": "政策事件"
+    }
   },
   "scenarioManager": {
     "save": "保存",

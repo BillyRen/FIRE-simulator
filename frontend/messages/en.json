@@ -49,7 +49,13 @@
     "successRateDenominator": "Denominator = {complete} complete paths + {failed} incomplete paths with confirmed failure; {excluded} more paths excluded (insufficient data)",
     "statusSuccess": "Success (full retirement period)",
     "statusFailed": "Failed (observed depletion or sub-floor withdrawal)",
-    "statusCensored": "Insufficient data (censored)"
+    "statusCensored": "Insufficient data (censored)",
+    "eventCategory": {
+      "crisis": "Financial crisis",
+      "war": "War",
+      "bubble": "Asset bubble",
+      "policy": "Policy event"
+    }
   },
   "scenarioManager": {
     "save": "Save",

@@ -23,7 +23,8 @@ import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { Pin, PinOff } from "lucide-react";
 import { runSimulation, runSimBatchBacktest, runSimBacktest, runSimScenarios, runSimSensitivity, fetchCountries, fetchHistoricalEvents } from "@/lib/api";
-import { filterEvents, eventShapes, eventAnnotations } from "@/lib/historical-events";
+import { filterEvents, buildEventOverlay, EVENT_MARKER_AXIS } from "@/lib/historical-events";
+import { EventLegend } from "@/components/event-legend";
 import type { HistoricalEvent } from "@/lib/types";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
@@ -826,33 +827,36 @@ export function SimulatorClient() {
                       const startY = selectedPath.year_labels[0];
                       const endY = selectedPath.year_labels[selectedPath.year_labels.length - 1];
                       const filtered = filterEvents(historicalEvents, pathCountry, startY, endY);
-                      const yMax = Math.max(...selectedPath.portfolio);
+                      const overlay = buildEventOverlay(filtered, locale, startY, endY);
                       return (
-                        <PlotlyChart
-                          data={[{
-                            x: selectedPath.year_labels,
-                            y: selectedPath.portfolio,
-                            type: "scatter", mode: "lines",
-                            name: t("portfolioHistory"),
-                            line: { color: CHART_COLORS.primary.hex, width: 2 },
-                            hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
-                          }]}
-                          layout={{
-                            title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
-                            xaxis: { title: { text: tc("year") } },
-                            yaxis: {
-                              title: { text: tc("amount") },
-                              type: btLogScale ? "log" : "linear",
-                              tickformat: btLogScale ? "$~s" : "$,.0f",
-                            },
-                            margin: MARGINS.withTitle(isMobile),
-                            height: isMobile ? 260 : 380,
-                            showlegend: false,
-                            shapes: eventShapes(filtered, yMax) as Plotly.Layout["shapes"],
-                            annotations: eventAnnotations(filtered, locale, yMax) as Plotly.Layout["annotations"],
-                          }}
-                          config={{ displayModeBar: false }}
-                        />
+                        <>
+                          <PlotlyChart
+                            data={[{
+                              x: selectedPath.year_labels,
+                              y: selectedPath.portfolio,
+                              type: "scatter", mode: "lines",
+                              name: t("portfolioHistory"),
+                              line: { color: CHART_COLORS.primary.hex, width: 2 },
+                              hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
+                            }, ...overlay.traces]}
+                            layout={{
+                              title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
+                              xaxis: { title: { text: tc("year") } },
+                              yaxis: {
+                                title: { text: tc("amount") },
+                                type: btLogScale ? "log" : "linear",
+                                tickformat: btLogScale ? "$~s" : "$,.0f",
+                              },
+                              yaxis2: EVENT_MARKER_AXIS,
+                              margin: MARGINS.withTitle(isMobile),
+                              height: isMobile ? 260 : 380,
+                              showlegend: false,
+                              shapes: overlay.shapes as Plotly.Layout["shapes"],
+                            }}
+                            config={{ displayModeBar: false }}
+                          />
+                          <EventLegend items={overlay.legendItems} />
+                        </>
                       );
                     })()}
                   </CardContent>

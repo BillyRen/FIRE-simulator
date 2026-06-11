@@ -27,7 +27,8 @@ import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
 import { Pin, PinOff } from "lucide-react";
 import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries, runGuardrailScenarios, runGuardrailSensitivity, fetchHistoricalEvents } from "@/lib/api";
-import { filterEvents, eventShapes, eventAnnotations } from "@/lib/historical-events";
+import { filterEvents, buildEventOverlay, EVENT_MARKER_AXIS } from "@/lib/historical-events";
+import { EventLegend } from "@/components/event-legend";
 import { downloadTrajectories } from "@/lib/csv";
 import { DownloadButton } from "@/components/download-button";
 import { PdfExportButton } from "@/components/pdf-export-button";
@@ -1111,49 +1112,53 @@ export default function GuardrailPage() {
                         const startYear = selectedPath.year_labels[0];
                         const endYear = selectedPath.year_labels[selectedPath.year_labels.length - 1];
                         const filtered = filterEvents(historicalEvents, pathCountry, startYear, endYear);
-                        const yMax = Math.max(...selectedPath.g_portfolio, ...selectedPath.b_portfolio);
+                        const overlay = buildEventOverlay(filtered, locale, startYear, endYear);
                         return (
-                          <PlotlyChart
-                            data={[
-                              {
-                                x: selectedPath.year_labels,
-                                y: selectedPath.g_portfolio,
-                                type: "scatter", mode: "lines",
-                                name: "Guardrail",
-                                line: { color: CHART_COLORS.primary.hex, width: 2 },
-                              },
-                              {
-                                x: selectedPath.year_labels,
-                                y: selectedPath.b_portfolio,
-                                type: "scatter", mode: "lines",
-                                name: tc("baseline"),
-                                line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
-                              },
-                            ]}
-                            layout={{
-                              title: isMobile ? undefined : {
-                                text: t("historicalPortfolioComparison"), font: { size: 14 },
-                                y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "top" as const,
-                              },
-                              xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
-                              yaxis: {
-                                title: isMobile ? undefined : { text: t("assetAxis") },
-                                type: btLogScale ? "log" : "linear",
-                                tickformat: btLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
-                                tickfont: { size: isMobile ? 9 : 12 },
-                              },
-                              height: isMobile ? 280 : 400,
-                              margin: MARGINS.withTitle(isMobile),
-                              legend: isMobile
-                                ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 8 } }
-                                : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
-                              shapes: eventShapes(filtered, yMax) as Plotly.Layout["shapes"],
-                              annotations: eventAnnotations(filtered, locale, yMax) as Plotly.Layout["annotations"],
-                            }}
-                            config={{
-                              displayModeBar: isMobile ? false : ("hover" as const),
-                            }}
-                          />
+                          <>
+                            <PlotlyChart
+                              data={[
+                                {
+                                  x: selectedPath.year_labels,
+                                  y: selectedPath.g_portfolio,
+                                  type: "scatter", mode: "lines",
+                                  name: "Guardrail",
+                                  line: { color: CHART_COLORS.primary.hex, width: 2 },
+                                },
+                                {
+                                  x: selectedPath.year_labels,
+                                  y: selectedPath.b_portfolio,
+                                  type: "scatter", mode: "lines",
+                                  name: tc("baseline"),
+                                  line: { color: CHART_COLORS.orange.hex, width: 2, dash: "dash" },
+                                },
+                                ...overlay.traces,
+                              ]}
+                              layout={{
+                                title: isMobile ? undefined : {
+                                  text: t("historicalPortfolioComparison"), font: { size: 14 },
+                                  y: 0.98, x: 0.5, xanchor: "center" as const, yanchor: "top" as const,
+                                },
+                                xaxis: { title: { text: t("yearAxis") }, tickfont: { size: isMobile ? 9 : 12 } },
+                                yaxis: {
+                                  title: isMobile ? undefined : { text: t("assetAxis") },
+                                  type: btLogScale ? "log" : "linear",
+                                  tickformat: btLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
+                                  tickfont: { size: isMobile ? 9 : 12 },
+                                },
+                                yaxis2: EVENT_MARKER_AXIS,
+                                height: isMobile ? 280 : 400,
+                                margin: MARGINS.withTitle(isMobile),
+                                legend: isMobile
+                                  ? { x: 0.5, y: 1.02, xanchor: "center" as const, yanchor: "bottom" as const, orientation: "h" as const, font: { size: 8 } }
+                                  : { x: 0, y: 1.0, yanchor: "bottom" as const, orientation: "h" as const },
+                                shapes: overlay.shapes as Plotly.Layout["shapes"],
+                              }}
+                              config={{
+                                displayModeBar: isMobile ? false : ("hover" as const),
+                              }}
+                            />
+                            <EventLegend items={overlay.legendItems} />
+                          </>
                         );
                       })()}
                     </CardContent>
