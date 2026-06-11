@@ -1006,3 +1006,111 @@ class TestFundedRatioConsistency:
         fr = compute_funded_ratio(trajectories, n_years)
         assert sr == 1.0
         assert fr == pytest.approx(1.0)
+
+
+class TestDepletionYearWithdrawalCap:
+    """Depletion-year withdrawals must be capped at available wealth.
+
+    Convention shared with monte_carlo/sweep: actual_wd =
+    min(planned_wd, max(value_after_growth, 0)). The recorded withdrawal
+    in the failure year is what the retiree can actually consume;
+    trajectories and depletion timing are unchanged by the cap.
+    """
+
+    @staticmethod
+    def _assert_capped(traj, wds, returns):
+        """No-CF invariant: wd[t] <= max(traj[t] * (1+r[t]), 0) + eps."""
+        available = np.maximum(traj[:, :-1] * (1.0 + returns), 0.0)
+        assert np.all(wds <= available + 1e-6), (
+            f"max excess: {np.max(wds - available):.2f}"
+        )
+
+    def test_guardrail_simulation_capped(self):
+        from simulator.guardrail import (
+            build_success_rate_table, run_guardrail_simulation,
+        )
+
+        rng = np.random.default_rng(7)
+        # Volatile returns + high initial rate -> plenty of depletions
+        scenarios = rng.normal(-0.05, 0.25, size=(300, 25))
+        rate_grid, table = build_success_rate_table(scenarios)
+        _, _, traj, wds = run_guardrail_simulation(
+            scenarios=scenarios,
+            target_success=0.85,
+            upper_guardrail=0.99,
+            lower_guardrail=0.75,
+            adjustment_pct=0.05,
+            retirement_years=25,
+            min_remaining_years=1,
+            table=table, rate_grid=rate_grid,
+            adjustment_mode="amount",
+            initial_portfolio=1_000_000.0,
+        )
+        depleted = (traj[:, -1] <= 0).sum()
+        assert depleted > 0, "test setup must produce depleted paths"
+        self._assert_capped(traj, wds, scenarios)
+
+    def test_fixed_baseline_fast_path_capped(self):
+        from simulator.guardrail import run_fixed_baseline
+
+        rng = np.random.default_rng(11)
+        scenarios = rng.normal(-0.10, 0.20, size=(200, 20))
+        traj, wds = run_fixed_baseline(scenarios, 1_000_000.0, 0.08, 20)
+        assert (traj[:, -1] <= 0).sum() > 0
+        self._assert_capped(traj, wds, scenarios)
+        # Depletion year consumes exactly what is left (less than planned)
+        for i in range(traj.shape[0]):
+            dep = np.where(traj[i, 1:] <= 0)[0]
+            if len(dep) == 0:
+                continue
+            y = dep[0]
+            avail = traj[i, y] * (1.0 + scenarios[i, y])
+            if avail < 80_000.0:
+                assert wds[i, y] == pytest.approx(max(avail, 0.0))
+
+    def test_fixed_baseline_cf_path_capped(self):
+        from simulator.guardrail import run_fixed_baseline
+
+        rng = np.random.default_rng(13)
+        scenarios = rng.normal(-0.10, 0.20, size=(150, 20))
+        cfs = [CashFlowItem(
+            name="boost", amount=5_000.0, start_year=2, duration=9,
+            inflation_adjusted=True,
+        )]
+        traj, wds = run_fixed_baseline(
+            scenarios, 1_000_000.0, 0.08, 20, cash_flows=cfs,
+        )
+        assert (traj[:, -1] <= 0).sum() > 0
+        # cf_expense is zero for income-only CFs, so the no-CF bound holds
+        self._assert_capped(traj, wds, scenarios)
+
+    def test_historical_backtest_capped(self):
+        from simulator.guardrail import (
+            build_success_rate_table, run_historical_backtest,
+        )
+
+        rng = np.random.default_rng(17)
+        table_scen = rng.normal(0.0, 0.18, size=(200, 30))
+        rate_grid, table = build_success_rate_table(table_scen)
+        # Crash path that forces depletion under both strategies
+        real_returns = np.full(30, -0.20)
+        result = run_historical_backtest(
+            real_returns=real_returns,
+            initial_portfolio=1_000_000.0,
+            annual_withdrawal=60_000.0,
+            target_success=0.85,
+            upper_guardrail=0.99,
+            lower_guardrail=0.75,
+            adjustment_pct=0.05,
+            retirement_years=30,
+            min_remaining_years=1,
+            table=table, rate_grid=rate_grid,
+            adjustment_mode="amount",
+            baseline_rate=0.06,
+        )
+        for key_p, key_w in [("g_portfolio", "g_withdrawals"),
+                             ("b_portfolio", "b_withdrawals")]:
+            traj = result[key_p][np.newaxis, :]
+            wds = result[key_w][np.newaxis, :]
+            assert traj[0, -1] <= 0, f"{key_p} should deplete"
+            self._assert_capped(traj, wds, real_returns[np.newaxis, :])

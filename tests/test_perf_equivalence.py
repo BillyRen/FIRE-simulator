@@ -159,8 +159,10 @@ def _run_fixed_baseline_scalar(scenarios, initial_portfolio, baseline_rate, reti
     for i in range(num_sims):
         value = initial_portfolio
         for year in range(retirement_years):
-            withdrawals[i, year] = annual_wd
-            value = value * (1.0 + scenarios[i, year]) - annual_wd
+            value_after_growth = value * (1.0 + scenarios[i, year])
+            actual_wd = min(annual_wd, max(value_after_growth, 0.0))
+            withdrawals[i, year] = actual_wd
+            value = value_after_growth - actual_wd
             if value <= 0:
                 value = 0.0
                 trajectories[i, year + 1:] = 0.0

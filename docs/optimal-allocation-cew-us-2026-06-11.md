@@ -194,10 +194,12 @@ pooled run answers "what if the US is not guaranteed to repeat as the winner".
 2. Guardrail initial rate is calibrated on the same scenario set it is
    evaluated on (product semantics, shared by all runs compared here);
    rankings unaffected, absolute success rates slightly flattered.
-3. Guardrail failure-year withdrawals are recorded before depletion clipping
-   (`simulator/guardrail.py` withdrawal loop) — may slightly inflate CEW on
-   failed paths (~8% of paths, one year). Affects all allocations equally;
-   flagged as product-level follow-up.
+3. ~~Guardrail failure-year withdrawals are recorded before depletion
+   clipping~~ — **fixed 2026-06-11** (depletion-year withdrawal now capped at
+   available wealth, matching monte_carlo/sweep). Re-running the N=10,000
+   confirm with the fixed engine: success/severe-fail identical, median CEW
+   −0.01%, p10 CEW −0.2%, p10_min_wd −2~3% (80/20/00: $22,816 -> $22,257).
+   No conclusion changes.
 4. Median CEW + p10 CEW + tail constraints per the agreed framework; expected
    utility across paths not separately optimized.
 5. LTC tail risk not modeled — ring-fence 10-15% separately (2026-05-27

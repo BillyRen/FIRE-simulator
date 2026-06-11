@@ -926,8 +926,13 @@ def run_guardrail_simulation(
                             lower_adjustment_pct=lower_adjustment_pct,
                         )
 
-            withdrawals[i, year] = wd
-            value = value * (1.0 + scenarios[i, year]) - wd
+            # Cap the depletion-year withdrawal at available wealth (same
+            # convention as monte_carlo/sweep); wd keeps the planned amount
+            # for next year's guardrail logic.
+            value_after_growth = value * (1.0 + scenarios[i, year])
+            actual_wd = min(wd, max(value_after_growth, 0.0))
+            withdrawals[i, year] = actual_wd
+            value = value_after_growth - actual_wd
 
             # Apply expenses before depletion check
             if cf_schedule is not None and cf_schedule[year] < 0:
@@ -997,7 +1002,9 @@ def run_fixed_baseline(
 
         for year in range(retirement_years):
             grown = values[alive] * (1.0 + scenarios[alive, year])
-            values[alive] = grown - annual_wd
+            actual_wd = np.minimum(annual_wd, np.maximum(grown, 0.0))
+            values[alive] = grown - actual_wd
+            withdrawals[alive, year] = actual_wd
 
             newly_failed = alive & (values <= 0)
             if np.any(newly_failed):
@@ -1076,8 +1083,10 @@ def run_fixed_baseline(
             cf_income = None
 
         for year in range(retirement_years):
-            withdrawals[i, year] = annual_wd
-            value = value * (1.0 + scenarios[i, year]) - annual_wd
+            value_after_growth = value * (1.0 + scenarios[i, year])
+            actual_wd = min(annual_wd, max(value_after_growth, 0.0))
+            withdrawals[i, year] = actual_wd
+            value = value_after_growth - actual_wd
 
             # Apply expenses before depletion check
             if cf_schedule is not None and cf_schedule[year] < 0:
@@ -1282,8 +1291,10 @@ def run_historical_backtest(
         else:
             g_success_rates[year] = 0.0
 
-        g_withdrawals[year] = wd
-        value = value * (1.0 + real_returns[year]) - wd
+        value_after_growth = value * (1.0 + real_returns[year])
+        actual_wd = min(wd, max(value_after_growth, 0.0))
+        g_withdrawals[year] = actual_wd
+        value = value_after_growth - actual_wd
 
         # Apply expenses before depletion check
         if cf_schedule is not None and cf_schedule[year] < 0:
@@ -1310,9 +1321,11 @@ def run_historical_backtest(
 
     value = initial_portfolio
     for year in range(n_years):
-        b_withdrawals[year] = baseline_wd if value > 0 else 0.0
         if value > 0:
-            value = value * (1.0 + real_returns[year]) - baseline_wd
+            value_after_growth = value * (1.0 + real_returns[year])
+            actual_wd = min(baseline_wd, max(value_after_growth, 0.0))
+            b_withdrawals[year] = actual_wd
+            value = value_after_growth - actual_wd
 
             # Apply expenses before depletion check
             if cf_schedule is not None and cf_schedule[year] < 0:
