@@ -33,6 +33,7 @@ analysis/output/
 # Raw data files (large, not committed)
 data/raw/
 data/cme_raw/
+data/factors/raw/
 
 # Per-worktree port metadata (scripts/worktree.sh)
 .worktree-meta
