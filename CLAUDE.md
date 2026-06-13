@@ -95,6 +95,11 @@ pytest tests/test_core.py::TestBlockBootstrap::test_output_shape  # single test
 - Extension scripts: `scripts/extend_jst_2021_2025.py` -> `scripts/build_dataset_from_jst.py` -> `scripts/validate_jst_extension.py`
 - **Critical methodology**: see `scripts/DATA_UPDATE_GUIDE.md` for annual-average equity pricing, Eurozone legacy currency conversion, and other pitfalls
 
+### US REIT data & real-estate analyses
+- US listed-REIT total returns (FTSE Nareit, 1972+) in `data/reit_returns.csv` (import: `scripts/import_nareit_reits.py`; a parallel layout also exists at `data/reits/`).
+- REIT vs JST direct-housing studies: `docs/reit-housing-allocation-2026-06-13.md` (4-asset optimal allocation, UPI + funded-ratio), plus `docs/reit-vs-jst-housing-2026-06-13.md` and `docs/reit-real-estate-convergence-2026-06-13.md`.
+- Key finding: REIT ≈ levered, market-priced real-estate beta — short-term stock-like, long-term real-estate-like. The raw JST housing index is appraisal-smoothed (σ≈4%, lag-1 autocorr≈0.7), so optimizers over-allocate to it unless it is desmoothed / cost-adjusted, after which it converges to the REIT answer.
+
 ## Conventions
 - Commit messages: concise, prefixed with type (`feat:`, `fix:`, `perf:`, `refactor:`, `test:`, `docs:`)
 - Language: code and comments in English; UI text via i18n (zh/en)
