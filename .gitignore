@@ -37,3 +37,4 @@ data/factors/raw/
 
 # Per-worktree port metadata (scripts/worktree.sh)
 .worktree-meta
+data/reits/raw/
