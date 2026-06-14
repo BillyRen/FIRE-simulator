@@ -427,8 +427,13 @@ def run_guardrail_batch_backtest(
     last_cf_year: int = -1,
     consumption_floor: float = 0.50,
     consumption_floor_amount: float = 0.0,
+    enforce_consumption_floor: bool = False,
 ) -> dict:
     """遍历所有有效 (国家, 起始年) 运行 guardrail 历史回测。
+
+    当 enforce_consumption_floor=True 时：guardrail 路径施加硬消费下限（clamp），
+    且失败判定 / 成功率聚合改用纯耗尽口径（与 baseline 一致），不再把"低于
+    floor"算作失败。同时输出"卡地板"暴露度（g_pct_paths_floored 等）。
 
     Returns
     -------
@@ -488,32 +493,48 @@ def run_guardrail_batch_backtest(
                 cf_scale_grid=cf_scale_grid,
                 cf_ref=cf_ref,
                 last_cf_year=last_cf_year,
+                enforce_consumption_floor=enforce_consumption_floor,
+                consumption_floor=consumption_floor,
+                consumption_floor_amount=consumption_floor_amount,
             )
 
             pm = compute_single_path_metrics(real_returns, inflation_series)
             year_labels = [int(start_year - 1)] + years_arr[i:i + n_years].tolist()
 
-            _path_floor = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
-            _path_below_floor = any(w < _path_floor for w in result["g_withdrawals"])
-
-            # Legacy survived: backward-compatible (no early depletion, above floor).
-            # has_failed: deterministic failure within observation window AND
-            # fail_year < retirement_years. Drives success-rate aggregation.
             g_port = result["g_portfolio"]
             b_port = result["b_portfolio"]
             _g_early_depleted = any(g_port[y] <= 0 for y in range(1, len(g_port) - 1))
             _b_early_depleted = any(b_port[y] <= 0 for y in range(1, len(b_port) - 1))
+
+            if enforce_consumption_floor:
+                # 硬下限模式：纯耗尽口径（与 baseline 一致）。clamp 保证计划提取额
+                # 不低于 floor；耗尽年的 partial withdrawal 可能 < floor，故绝不能
+                # 再用 below-floor 判失败，否则会误杀。
+                _path_below_floor = False
+                g_has_failed = _has_failed_depletion(
+                    np.asarray(result["g_portfolio"], dtype=float),
+                    n_years, retirement_years,
+                )
+                _g_floored = result.get("g_floored")
+                _g_floored_count = int(np.sum(_g_floored)) if _g_floored is not None else 0
+            else:
+                # Legacy: failure = depletion OR withdrawal below floor (effective
+                # classifier), drives censored-aware success-rate aggregation.
+                _path_floor = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
+                _path_below_floor = any(w < _path_floor for w in result["g_withdrawals"])
+                g_has_failed = _has_failed_guardrail(
+                    np.asarray(result["g_portfolio"], dtype=float),
+                    np.asarray(result["g_withdrawals"], dtype=float),
+                    n_years, _path_floor, retirement_years,
+                )
+                _g_floored_count = 0
+
             _g_survived = (
                 n_years >= retirement_years
                 and not _g_early_depleted
                 and not _path_below_floor
             )
 
-            g_has_failed = _has_failed_guardrail(
-                np.asarray(result["g_portfolio"], dtype=float),
-                np.asarray(result["g_withdrawals"], dtype=float),
-                n_years, _path_floor, retirement_years,
-            )
             b_has_failed = _has_failed_depletion(
                 np.asarray(result["b_portfolio"], dtype=float),
                 n_years, retirement_years,
@@ -528,6 +549,7 @@ def run_guardrail_batch_backtest(
                 "b_survived": n_years >= retirement_years and not _b_early_depleted,
                 "g_has_failed": g_has_failed,
                 "b_has_failed": b_has_failed,
+                "g_floored_count": _g_floored_count,
                 "g_final_portfolio": float(result["g_portfolio"][-1]),
                 "b_final_portfolio": float(result["b_portfolio"][-1]),
                 "g_total_consumption": result["g_total_consumption"],
@@ -576,14 +598,29 @@ def run_guardrail_batch_backtest(
         g_wd_elig = np.array([
             _pad_withdrawals_to(p["g_withdrawals"], retirement_years) for p in g_eligible
         ])
-        g_fr, g_success = compute_effective_funded_ratio(
-            g_wd_elig, annual_withdrawal, retirement_years,
-            consumption_floor=consumption_floor,
-            trajectories=g_traj_elig,
-            consumption_floor_amount=consumption_floor_amount,
-        )
+        if enforce_consumption_floor:
+            # 纯耗尽口径（与 baseline 一致）；below-floor 不再算失败
+            g_success = compute_success_rate(g_traj_elig, retirement_years)
+            g_fr = compute_funded_ratio(g_traj_elig, retirement_years)
+        else:
+            g_fr, g_success = compute_effective_funded_ratio(
+                g_wd_elig, annual_withdrawal, retirement_years,
+                consumption_floor=consumption_floor,
+                trajectories=g_traj_elig,
+                consumption_floor_amount=consumption_floor_amount,
+            )
     else:
         g_fr, g_success = 0.0, 0.0
+
+    # "卡地板"暴露度（仅 enforce 模式；基于 eligible 路径的 g_floored_count）
+    if enforce_consumption_floor and g_eligible:
+        _floored_counts = np.array([p["g_floored_count"] for p in g_eligible])
+        g_pct_paths_floored: float | None = float(np.mean(_floored_counts > 0))
+        _pinned = _floored_counts[_floored_counts > 0]
+        g_median_floored_years: float | None = float(np.median(_pinned)) if _pinned.size else 0.0
+    else:
+        g_pct_paths_floored = None
+        g_median_floored_years = None
 
     if b_eligible:
         b_traj_elig = np.array([
@@ -624,6 +661,8 @@ def run_guardrail_batch_backtest(
         "g_funded_ratio": g_fr,
         "b_success_rate": b_success,
         "b_funded_ratio": b_fr,
+        "g_pct_paths_floored": g_pct_paths_floored,
+        "g_median_floored_years": g_median_floored_years,
         "g_percentile_trajectories": g_pct_traj,
         "b_percentile_trajectories": b_pct_traj,
         "g_withdrawal_percentiles": g_wd_pcts,
@@ -644,6 +683,8 @@ def _empty_guardrail_batch_result() -> dict:
         "g_funded_ratio": 0.0,
         "b_success_rate": 0.0,
         "b_funded_ratio": 0.0,
+        "g_pct_paths_floored": None,
+        "g_median_floored_years": None,
         "g_percentile_trajectories": {},
         "b_percentile_trajectories": {},
         "g_withdrawal_percentiles": {},

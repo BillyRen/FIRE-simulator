@@ -212,6 +212,9 @@ class GuardrailRequest(BaseSimulationParams):
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     consumption_floor: float = Field(0.50, gt=0, le=1)
     consumption_floor_amount: float = Field(0.0, ge=0)
+    # 硬消费下限：True=把 consumption_floor/amount 作为行为下限 clamp 提取额，
+    # 成功率改纯耗尽口径（与其它策略一致）；False（默认）=维持事后分类器口径。
+    enforce_consumption_floor: bool = Field(False)
     # 现金流情景分解的组合方式：auto=自动（超阈值回退逐组）/ full=强制全交叉 / per_group=强制逐组
     scenario_mode: str = Field("auto", pattern="^(auto|full|per_group)$")
 
@@ -232,6 +235,9 @@ class GuardrailResponse(BaseModel):
     # Guardrail MC
     g_success_rate: float
     g_funded_ratio: float
+    # 硬下限"卡地板"暴露度（仅 enforce_consumption_floor=True 时非 null）
+    g_pct_paths_floored: float | None = None
+    g_median_floored_years: float | None = None
     g_percentile_trajectories: dict[str, list[float]]
     g_withdrawal_percentiles: dict[str, list[float]]
     # Baseline MC
@@ -268,6 +274,9 @@ class BacktestRequest(BaseSimulationParams):
     lower_adjustment_pct: float | None = Field(None, gt=0, le=1, description="不对称：下护栏回归比例（None→用 adjustment_pct）")
     min_remaining_years: int = Field(5, ge=1, le=30)
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
+    consumption_floor: float = Field(0.50, gt=0, le=1)
+    consumption_floor_amount: float = Field(0.0, ge=0)
+    enforce_consumption_floor: bool = Field(False)
     hist_start_year: int = Field(1990, ge=1871, le=2100)
     backtest_country: str | None = Field(None, description="回测用的具体国家 ISO（当 country=ALL 时必填）")
 
@@ -301,6 +310,8 @@ class BacktestResponse(BaseModel):
     b_total_consumption: float
     adjustment_events: list[AdjustmentEvent] = []
     path_metrics: list[dict[str, str]] = []
+    # 硬下限：逐年"被地板卡住"标记（仅 enforce_consumption_floor=True 时非 null）
+    g_floored: list[bool] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +402,7 @@ class GuardrailBatchBacktestRequest(BaseSimulationParams):
     baseline_rate: float = Field(0.033, gt=0, le=0.5)
     consumption_floor: float = Field(0.50, gt=0, le=1)
     consumption_floor_amount: float = Field(0.0, ge=0)
+    enforce_consumption_floor: bool = Field(False)
 
     @model_validator(mode="after")
     def check_guardrails(self) -> "GuardrailBatchBacktestRequest":
@@ -437,6 +449,8 @@ class GuardrailBatchBacktestResponse(BaseModel):
     g_funded_ratio: float
     b_success_rate: float
     b_funded_ratio: float
+    g_pct_paths_floored: float | None = None
+    g_median_floored_years: float | None = None
     g_percentile_trajectories: dict[str, list[float]]
     b_percentile_trajectories: dict[str, list[float]]
     g_withdrawal_percentiles: dict[str, list[float]]

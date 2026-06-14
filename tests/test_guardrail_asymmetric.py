@@ -144,8 +144,8 @@ class TestRunGuardrailThreading:
 
     def test_explicit_symmetric_matches_default(self, scenarios):
         rate_grid, table = build_success_rate_table(np.zeros((400, 30)))
-        _, _, traj_a, wd_a = self._run(scenarios, table, rate_grid)
-        _, _, traj_b, wd_b = self._run(
+        _, _, traj_a, wd_a, _ = self._run(scenarios, table, rate_grid)
+        _, _, traj_b, wd_b, _ = self._run(
             scenarios, table, rate_grid,
             upper_adjustment_pct=0.3, lower_adjustment_pct=0.3,
         )
@@ -154,8 +154,8 @@ class TestRunGuardrailThreading:
 
     def test_asymmetric_changes_behavior(self, scenarios):
         rate_grid, table = build_success_rate_table(np.zeros((400, 30)))
-        _, _, _, wd_sym = self._run(scenarios, table, rate_grid)
-        _, _, _, wd_asym = self._run(
+        _, _, _, wd_sym, _ = self._run(scenarios, table, rate_grid)
+        _, _, _, wd_asym, _ = self._run(
             scenarios, table, rate_grid,
             upper_adjustment_pct=1.0, lower_adjustment_pct=0.05,
         )

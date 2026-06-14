@@ -742,7 +742,10 @@ def run_guardrail_simulation(
     last_cf_year: int = -1,
     upper_adjustment_pct: float | None = None,
     lower_adjustment_pct: float | None = None,
-) -> tuple[float, float, np.ndarray, np.ndarray]:
+    enforce_consumption_floor: bool = False,
+    consumption_floor: float = 0.50,
+    consumption_floor_amount: float = 0.0,
+) -> tuple[float, float, np.ndarray, np.ndarray, np.ndarray | None]:
     """运行 Risk-based Guardrail 模拟。
 
     提供 initial_portfolio 或 annual_withdrawal 中的一个，函数根据
@@ -751,10 +754,16 @@ def run_guardrail_simulation(
     当提供 cf_table 时，对 year <= last_cf_year 使用 3D 表精确查找成功率；
     之后的年份回退到标准 2D 表。
 
+    当 enforce_consumption_floor=True 时，对每年的计划提取额施加一个硬下限
+    floor_val = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
+    （仅作用于组合提取额，不含现金流）。下限只约束下行，上行不受限。返回的
+    floored 矩阵记录"clamp 实际起作用（未 clamp 的 wd < floor_val）"的存活年份。
+
     Returns
     -------
-    tuple[float, float, np.ndarray, np.ndarray]
-        (initial_portfolio, annual_withdrawal, trajectories, withdrawals)
+    tuple[float, float, np.ndarray, np.ndarray, np.ndarray | None]
+        (initial_portfolio, annual_withdrawal, trajectories, withdrawals, floored)
+        floored: enforce 时为 (num_sims, retirement_years) 的 bool 矩阵，否则 None。
     """
     if initial_portfolio is None and annual_withdrawal is None:
         raise ValueError("必须提供 initial_portfolio 或 annual_withdrawal 之一")
@@ -858,11 +867,19 @@ def run_guardrail_simulation(
     trajectories[:, 0] = initial_portfolio
     withdrawals = np.zeros((num_sims, retirement_years))
 
+    # 硬消费下限（仅作用于组合提取额，不含现金流）。floor_val 用反算后的
+    # annual_withdrawal 作百分比基准，整段模拟恒定（实际/通胀调整口径）。
+    floor_val = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
+    use_floor = enforce_consumption_floor and floor_val > 0
+    floored = np.zeros((num_sims, retirement_years), dtype=bool) if use_floor else None
+    # floored 起始计划提取额（若下限高于初始计划，第 0 年查表就用 floored rate）
+    initial_wd = max(annual_withdrawal, floor_val) if use_floor else annual_withdrawal
+
     has_3d = cf_table is not None and cf_rate_grid is not None and cf_scale_grid is not None and last_cf_year >= 0
 
     for i in range(num_sims):
         value = initial_portfolio
-        wd = annual_withdrawal
+        wd = initial_wd
 
         cf_schedule = cf_matrix[i] if cf_matrix is not None else None
         cf_expense = cf_expense_matrix[i] if cf_expense_matrix is not None else None
@@ -926,6 +943,12 @@ def run_guardrail_simulation(
                             lower_adjustment_pct=lower_adjustment_pct,
                         )
 
+                # 硬下限 clamp（仅下行；clamped wd 成为下一年护栏状态基准）。
+                # 在 value > 0 的存活年记录 clamp 实际起作用的年份。
+                if use_floor and wd < floor_val:
+                    floored[i, year] = True
+                    wd = floor_val
+
             # Cap the depletion-year withdrawal at available wealth (same
             # convention as monte_carlo/sweep); wd keeps the planned amount
             # for next year's guardrail logic.
@@ -944,6 +967,9 @@ def run_guardrail_simulation(
                 value = 0.0
                 trajectories[i, year + 1:] = 0.0
                 withdrawals[i, year + 1:] = 0.0
+                # 排除耗尽年（floored 仅计完整资助的存活年，不依赖 break 顺序）
+                if floored is not None:
+                    floored[i, year] = False
                 break
 
             # Apply income after depletion check
@@ -951,7 +977,7 @@ def run_guardrail_simulation(
                 value += cf_schedule[year]
             trajectories[i, year + 1] = value
 
-    return initial_portfolio, annual_withdrawal, trajectories, withdrawals
+    return initial_portfolio, annual_withdrawal, trajectories, withdrawals, floored
 
 
 def run_fixed_baseline(
@@ -1135,6 +1161,9 @@ def run_historical_backtest(
     last_cf_year: int = -1,
     upper_adjustment_pct: float | None = None,
     lower_adjustment_pct: float | None = None,
+    enforce_consumption_floor: bool = False,
+    consumption_floor: float = 0.50,
+    consumption_floor_amount: float = 0.0,
 ) -> dict:
     """在单条历史回报路径上运行 guardrail 策略和固定基准策略。
 
@@ -1209,8 +1238,13 @@ def run_historical_backtest(
     g_success_rates = np.zeros(n_years)
     adjustment_events: list[dict] = []
 
+    # 硬消费下限（仅作用于组合提取额，不含现金流），口径同 run_guardrail_simulation
+    floor_val = max(consumption_floor * annual_withdrawal, consumption_floor_amount)
+    use_floor = enforce_consumption_floor and floor_val > 0
+    g_floored = np.zeros(n_years, dtype=bool) if use_floor else None
+
     value = initial_portfolio
-    wd = annual_withdrawal
+    wd = max(annual_withdrawal, floor_val) if use_floor else annual_withdrawal
 
     for year in range(n_years):
         remaining = max(min_remaining_years, retirement_years - year)
@@ -1281,6 +1315,10 @@ def run_historical_backtest(
                     new_success = lookup_success_rate(
                         table, rate_grid, new_effective_rate, remaining
                     )
+                # 硬下限 clamp（仅下行；在记录事件前应用，使 new_wd 反映 floor 后值）
+                if use_floor and wd < floor_val:
+                    g_floored[year] = True
+                    wd = floor_val
                 adjustment_events.append({
                     "year": year,
                     "old_wd": float(old_wd),
@@ -1306,6 +1344,9 @@ def run_historical_backtest(
             value = 0.0
             g_portfolio[year + 1:] = 0.0
             g_withdrawals[year + 1:] = 0.0
+            # 排除耗尽年（floored 仅计完整资助的存活年，不依赖 break 顺序）
+            if g_floored is not None:
+                g_floored[year] = False
             break
 
         # Apply income after depletion check
@@ -1354,4 +1395,5 @@ def run_historical_backtest(
         "g_total_consumption": float(np.sum(g_withdrawals)),
         "b_total_consumption": float(np.sum(b_withdrawals)),
         "adjustment_events": adjustment_events,
+        "g_floored": g_floored,
     }

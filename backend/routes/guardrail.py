@@ -59,6 +59,7 @@ from simulator.guardrail import (
 from simulator.portfolio import compute_real_portfolio_returns
 from simulator.statistics import (
     compute_effective_funded_ratio,
+    compute_floor_exposure,
     compute_funded_ratio,
     compute_portfolio_metrics,
     compute_single_path_metrics,
@@ -102,24 +103,33 @@ def _run_guardrail_and_build_result(
         cash_flows=cash_flows, inflation_matrix=inflation_matrix,
         cf_table=_cf_tbl, cf_rate_grid=_cf_rg,
         cf_scale_grid=_cf_sg, cf_ref=_cf_ref, last_cf_year=_last_cf_y,
+        enforce_consumption_floor=req.enforce_consumption_floor,
+        consumption_floor=req.consumption_floor,
+        consumption_floor_amount=req.consumption_floor_amount,
     )
     if req.input_mode == "withdrawal":
         sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
     else:
         sim_kwargs["initial_portfolio"] = req.initial_portfolio
 
-    init_portfolio, annual_wd, traj_g, wd_g = run_guardrail_simulation(**sim_kwargs)
+    init_portfolio, annual_wd, traj_g, wd_g, g_floored = run_guardrail_simulation(**sim_kwargs)
 
     traj_b, wd_b = run_fixed_baseline(
         scenarios, init_portfolio, req.baseline_rate, req.retirement_years,
         cash_flows=cash_flows, inflation_matrix=inflation_matrix,
     )
 
-    g_fr, g_success = compute_effective_funded_ratio(
-        wd_g, annual_wd, req.retirement_years,
-        consumption_floor=req.consumption_floor, trajectories=traj_g,
-        consumption_floor_amount=req.consumption_floor_amount,
-    )
+    if req.enforce_consumption_floor:
+        # 硬下限模式：纯耗尽口径（与 baseline / 其它策略一致）+ "卡地板"暴露度
+        g_success = compute_success_rate(traj_g, req.retirement_years)
+        g_fr = compute_funded_ratio(traj_g, req.retirement_years)
+    else:
+        g_fr, g_success = compute_effective_funded_ratio(
+            wd_g, annual_wd, req.retirement_years,
+            consumption_floor=req.consumption_floor, trajectories=traj_g,
+            consumption_floor_amount=req.consumption_floor_amount,
+        )
+    g_pct_floored, g_median_floored = compute_floor_exposure(g_floored)
     b_success = compute_success_rate(traj_b, req.retirement_years)
     b_fr = compute_funded_ratio(traj_b, req.retirement_years)
     initial_rate = annual_wd / init_portfolio if init_portfolio > 0 else 0
@@ -230,6 +240,8 @@ def _run_guardrail_and_build_result(
         "initial_rate": initial_rate,
         "g_success_rate": g_success,
         "g_funded_ratio": g_fr,
+        "g_pct_paths_floored": g_pct_floored,
+        "g_median_floored_years": g_median_floored,
         "g_percentile_trajectories": g_pct_traj,
         "g_withdrawal_percentiles": g_wd_pcts,
         "b_success_rate": b_success,
@@ -391,20 +403,27 @@ def api_guardrail_scenarios(request: Request, req: GuardrailRequest):
                 cf_scale_grid=_cf_s,
                 cf_ref=_cf_ref,
                 last_cf_year=_last_y,
+                enforce_consumption_floor=req.enforce_consumption_floor,
+                consumption_floor=req.consumption_floor,
+                consumption_floor_amount=req.consumption_floor_amount,
             )
             if req.input_mode == "withdrawal":
                 sim_kwargs["annual_withdrawal"] = req.annual_withdrawal
             else:
                 sim_kwargs["initial_portfolio"] = req.initial_portfolio
 
-            ip, aw, traj, wd = run_guardrail_simulation(**sim_kwargs)
+            ip, aw, traj, wd, _ = run_guardrail_simulation(**sim_kwargs)
 
-            g_fr, g_sr = compute_effective_funded_ratio(
-                wd, aw, req.retirement_years,
-                consumption_floor=req.consumption_floor,
-                trajectories=traj,
-                consumption_floor_amount=req.consumption_floor_amount,
-            )
+            if req.enforce_consumption_floor:
+                g_sr = compute_success_rate(traj, req.retirement_years)
+                g_fr = compute_funded_ratio(traj, req.retirement_years)
+            else:
+                g_fr, g_sr = compute_effective_funded_ratio(
+                    wd, aw, req.retirement_years,
+                    consumption_floor=req.consumption_floor,
+                    trajectories=traj,
+                    consumption_floor_amount=req.consumption_floor_amount,
+                )
             g_total = np.sum(wd, axis=1)
             return ScenarioResult(
                 label=label,
@@ -533,6 +552,9 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
                 cf_scale_grid=cf_sg,
                 cf_ref=cf_ref,
                 last_cf_year=cf_ly,
+                enforce_consumption_floor=req.enforce_consumption_floor,
+                consumption_floor=req.consumption_floor,
+                consumption_floor_amount=req.consumption_floor_amount,
             )
             if ip_override is not None:
                 sim_kw["initial_portfolio"] = ip_override
@@ -543,13 +565,17 @@ def api_guardrail_sensitivity(request: Request, req: GuardrailRequest):
             else:
                 sim_kw["initial_portfolio"] = req.initial_portfolio
 
-            r_ip, r_aw, r_traj, r_wd = run_guardrail_simulation(**sim_kw)
-            _, r_sr = compute_effective_funded_ratio(
-                r_wd, r_aw, years,
-                consumption_floor=req.consumption_floor,
-                trajectories=r_traj,
-                consumption_floor_amount=req.consumption_floor_amount,
-            )
+            r_ip, r_aw, r_traj, r_wd, _ = run_guardrail_simulation(**sim_kw)
+            if req.enforce_consumption_floor:
+                # 硬下限模式：success 用纯耗尽（r_fr 本就是纯口径）
+                r_sr = compute_success_rate(r_traj, years)
+            else:
+                _, r_sr = compute_effective_funded_ratio(
+                    r_wd, r_aw, years,
+                    consumption_floor=req.consumption_floor,
+                    trajectories=r_traj,
+                    consumption_floor_amount=req.consumption_floor_amount,
+                )
             r_fr = compute_funded_ratio(r_traj, years)
             return r_ip, r_aw, r_sr, r_fr
 
@@ -736,6 +762,9 @@ def api_backtest(request: Request, req: BacktestRequest):
         cf_scale_grid=_bt_cf_sg,
         cf_ref=_bt_cf_ref,
         last_cf_year=_bt_last_cf_y,
+        enforce_consumption_floor=req.enforce_consumption_floor,
+        consumption_floor=req.consumption_floor,
+        consumption_floor_amount=req.consumption_floor_amount,
     )
 
     n = result["years_simulated"]
@@ -758,6 +787,7 @@ def api_backtest(request: Request, req: BacktestRequest):
         b_total_consumption=result["b_total_consumption"],
         adjustment_events=result.get("adjustment_events", []),
         path_metrics=path_metrics,
+        g_floored=result["g_floored"].tolist() if result.get("g_floored") is not None else None,
     )
 
 
@@ -836,6 +866,7 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         last_cf_year=_batch_last_cf_y,
         consumption_floor=req.consumption_floor,
         consumption_floor_amount=req.consumption_floor_amount,
+        enforce_consumption_floor=req.enforce_consumption_floor,
     )
 
     path_summaries = []
@@ -875,6 +906,8 @@ def api_guardrail_batch_backtest(request: Request, req: GuardrailBatchBacktestRe
         g_funded_ratio=result["g_funded_ratio"],
         b_success_rate=result["b_success_rate"],
         b_funded_ratio=result["b_funded_ratio"],
+        g_pct_paths_floored=result.get("g_pct_paths_floored"),
+        g_median_floored_years=result.get("g_median_floored_years"),
         g_percentile_trajectories=result["g_percentile_trajectories"],
         b_percentile_trajectories=result["b_percentile_trajectories"],
         g_withdrawal_percentiles=result["g_withdrawal_percentiles"],
