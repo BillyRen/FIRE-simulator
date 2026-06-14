@@ -88,31 +88,52 @@ the most self-consistent.
 
 ### 1. Behavior — the floor clamp
 
+`floor_val = max(consumption_floor * annual_wd, consumption_floor_amount)` is
+computed once per simulation (uses `annual_wd`, the initial withdrawal), not per
+year.
+
 In both `simulator/guardrail.py::run_guardrail_simulation` and
-`run_historical_backtest`, inside the per-year loop, **after**
+`run_historical_backtest`:
+
+**(a) Floored initialization (fixes year-0 binding).** When
+`enforce_consumption_floor`, initialize the per-path planned withdrawal to
+`wd = max(annual_wd, floor_val)` instead of `annual_wd`. This guarantees the
+year-0 success-rate lookup (`rate = wd / value`) reflects the *actual* (floored)
+spending. Without this, if the floor sits above the initial plan
+(`floor_val > annual_wd`), the first-year guardrail decision would be based on a
+too-low rate and under-react. (Codex CRITICAL #2.)
+
+**(b) Post-adjustment clamp.** Inside the per-year loop, **after**
 `apply_guardrail_adjustment` produces the new planned `wd`:
 
 ```python
-floor_val = max(consumption_floor * annual_wd, consumption_floor_amount)
-if enforce_consumption_floor:
+if enforce_consumption_floor and value > 0:        # only for solvent years
     wd_unclamped = wd
     wd = max(wd, floor_val)
-    floored_year = wd_unclamped < floor_val   # record for the companion metric
+    floored_year[i, year] = wd_unclamped < floor_val   # clamp actually bound
 ```
 
 - Lower bound only — **upside is unrestricted**; the upper guardrail still raises
   `wd` normally when markets recover.
-- The clamped `wd` becomes the state basis for the next year's guardrail logic
-  (the retiree actually spends the floored amount; next year adjusts relative to
-  it).
+- **Intentional**: the clamped `wd` becomes the state basis for the next year's
+  guardrail logic. The retiree genuinely spends the floored amount, so next
+  year's `rate = wd/value` is higher and the guardrail keeps wanting to cut — the
+  floor holds spending up and the *portfolio* absorbs the stress. This is the
+  whole point of the mode, not a side effect.
 - The depletion-year cap `actual_wd = min(wd, max(value_after_growth, 0))` is
   retained — the floor bounds the *planned* withdrawal; if wealth genuinely runs
   out, `actual_wd` is still capped by available wealth and the path depletes.
 - CFs unchanged: expense CFs applied before the depletion check, income CFs
   after; neither enters `floor_val`.
-
-`floor_val` is computed once per simulation (uses `annual_wd`, the initial
-withdrawal), not per year.
+- **Zero-floor guard**: if `floor_val <= 0` (e.g. `annual_wd` resolves to 0 and
+  no `consumption_floor_amount`), the clamp is a harmless no-op (`max(wd, 0)`);
+  documented, not an error. (Codex MODERATE Q3.)
+- **3D→2D fallback note**: a floored `wd` held against a falling portfolio can
+  push `rate` past the 3D CF-aware grid, triggering the *existing* 3D→2D fallback
+  (guardrail.py ~879-885). That fallback is pre-existing and deliberately
+  conservative (avoids overestimating success at high rates); the clamp merely
+  exercises it more often in stressed years. No new code, but noted. (Codex
+  MODERATE Q1.)
 
 ### 2. Success rate + "pinned at floor" companion metric
 
@@ -123,15 +144,24 @@ When `enforce_consumption_floor` is on:
   `compute_effective_funded_ratio(...)` as the headline; in this mode it switches
   to the pure-depletion value. `funded_ratio` likewise uses the plain
   `compute_funded_ratio`.
-- **Companion (new fields)**: from a per-path-year boolean `floored_year`
-  (clamp actually bound, i.e. `wd_unclamped < floor_val`, counted only for years
-  before the path depletes):
+- **Companion (new fields)** — *lifestyle-pinning exposure among solvent years*,
+  NOT a severity measure of the worst tail (the catastrophic tail is the
+  depletion rate). From a per-path-year boolean `floored_year` (clamp actually
+  bound, i.e. `wd_unclamped < floor_val`), **masked to solvent years only**
+  (`value > 0` at the time of the clamp; the depletion year and everything after
+  are excluded explicitly so the count does not depend on loop break ordering —
+  Codex MODERATE Q2):
   - `pct_paths_floored`: fraction of paths with ≥1 floored year.
   - `median_floored_years`: median number of floored years among the paths that
     were ever floored (0 reported when no path is floored).
+- **Interpretation caveat (documented)**: an early-depleting path has *few*
+  floored years yet is the *worst* outcome, so this metric understates the worst
+  tail — that is by design; depletion rate carries the tail, this carries
+  "solvent but pinned." Always present the two side by side.
 
 When off: headline + funded_ratio stay on the effective classifier exactly as
-today; no companion fields populated (or returned as null/0).
+today; companion fields are returned as **null** (Optional, default None) — the
+frontend reads them only when the mode is on. (Codex MODERATE Q5.)
 
 The aggregation helper lives in `simulator/statistics.py` (e.g.
 `compute_floor_exposure(floored_matrix, depletion_info)`), taking the boolean
@@ -144,8 +174,22 @@ matrix produced by the sim loop.
   (`/api/guardrail/backtest-batch`) — all route through
   `run_guardrail_simulation` / `run_historical_backtest`. The fixed-rate baseline
   comparator (`run_fixed_baseline`) is unaffected.
-- **Sensitivity / scenarios endpoints**: pass the flag through so behavior is
-  consistent, but the headline-metric switch follows the same rule.
+- **Batch censored-aware failure detection (Codex CRITICAL #1)**:
+  `simulator/backtest_batch.py` aggregates a censored-aware success rate where
+  `_has_failed_guardrail` flags a path as failed. Today that helper's failure
+  notion must align with the headline. When `enforce_consumption_floor` is on,
+  the batch's failure/eligibility detection MUST switch to **pure depletion**
+  (portfolio hit \$0 before horizon), not below-floor — otherwise the batch
+  numerator/denominator stay polluted by the effective classifier and the
+  pure-depletion headline silently breaks on the batch endpoint. The flag is
+  threaded into `run_guardrail_batch_backtest` and `_has_failed_guardrail`.
+- **Sensitivity / scenarios endpoints**: thread the flag through. NOTE the
+  sensitivity endpoint is *already* internally inconsistent today (success uses
+  the effective classifier while `funded_ratio` already uses plain
+  `compute_funded_ratio`, routes/guardrail.py ~547). We do **not** fix that
+  pre-existing inconsistency here: when off, preserve today's exact behavior
+  (warts included); when on, switch success to pure depletion like the other
+  endpoints. (Codex MODERATE Q4.)
 - **Known limitation (documented, not fixed)**: the engine treats depletion as
   **terminal** — after the portfolio hits \$0, income CFs (pensions) also stop,
   so for a retiree with a pension "depletion" is modeled as \$0 total consumption,
@@ -178,15 +222,31 @@ matrix produced by the sim loop.
 ### 6. Testing
 
 - **Equivalence / regression**: with `enforce_consumption_floor=False`, outputs
-  are element-wise identical to current behavior (protects the default path).
+  are element-wise identical to current behavior. Cover all five call paths
+  (main / scenarios / sensitivity / single backtest / batch backtest). Use
+  **deterministic (non-probabilistic) cash flows or no CFs** for bit-for-bit
+  equivalence — probabilistic CF groups use an unseeded `default_rng`
+  (guardrail.py ~768-775) so they are not reproducible bit-for-bit. (Codex
+  MODERATE Q6.)
 - **Clamp active**: a crash-sequence fixture where the unconstrained guardrail
   would cut below the floor — assert `wd` never drops below `floor_val`, and that
   the path depletes earlier than the free-cutting variant (the intended
   trade-off).
+- **Year-0 binding (Codex CRITICAL #2)**: `consumption_floor_amount > annual_wd`
+  so the floor binds from year 0 — assert spending starts at `floor_val` and the
+  year-0 lookup uses the floored rate.
 - **`floor_val = max(pct, amount)`**: cases where the percentage binds and where
   the absolute amount binds.
 - **Companion metric**: `pct_paths_floored` / `median_floored_years` match a
-  hand-computed fixture.
+  hand-computed fixture; explicitly assert `pct_paths_floored == 0` for a
+  never-floored (benign) fixture; assert the depletion year is excluded from the
+  floored count.
+- **Clamp × direction guard**: a fixture exercising the guardrail direction guard
+  (guardrail.py ~523-530) with the clamp active — confirm deterministic, correct
+  interaction.
+- **Batch pure-depletion failure**: under enforce mode, `_has_failed_guardrail`
+  uses depletion (not below-floor); verify the batch censored-aware numerator /
+  denominator match the pure-depletion partition.
 - **Historical backtest**: single-path + batch paths honor the clamp too.
 - Run full `pytest tests/` and `(cd frontend && npx next build)` before merge.
 
