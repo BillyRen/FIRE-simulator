@@ -10,8 +10,7 @@
     "guardrail": "🛡️ 支出护栏",
     "allocation": "🎯 资产配置",
     "buyVsRent": "🏠 买房租房",
-    "accumulation": "💰 FIRE 规划",
-    "dashboard": "📋 总览"
+    "accumulation": "💰 FIRE 规划"
   },
   "common": {
     "year": "年",
@@ -187,6 +186,10 @@
     "statsSummary": "统计摘要",
     "downloadPortfolioTrajectory": "下载资产轨迹",
     "downloadWithdrawalTrajectory": "下载提取轨迹",
+    "verdictGreat": "退休计划稳健 — 成功率很高，资产大概率能支撑到底。",
+    "verdictGood": "计划整体良好，但仍有优化空间 — 可微调提取额或资产配置。",
+    "verdictCaution": "计划存在一定风险 — 建议降低年提取额、增加储蓄或调整投资策略。",
+    "verdictDanger": "计划风险较高 — 强烈建议降低提取金额或延长工作年限。",
     "placeholder": "配置参数后点击「运行模拟」查看结果",
     "tabMonteCarlo": "蒙特卡洛模拟",
     "tabBacktest": "历史回测",
@@ -765,29 +768,6 @@
     "annualExpense": "年支出 ($)",
     "noFireWarning": "在当前参数下，模拟显示无法在工作期内达到 FIRE。请尝试增加收入、减少支出，或调整风险偏好。",
     "placeholder": "设置参数后点击「计算 FIRE」查看结果"
-  },
-  "dashboard": {
-    "title": "FIRE 总览仪表盘",
-    "subtitle": "一键查看退休计划综合评估",
-    "runAnalysis": "运行分析",
-    "scoreLabel": "FIRE 就绪评分",
-    "scoreDescription": "综合成功率、资金覆盖率和安全提取率的加权评分",
-    "successRate": "成功率",
-    "fundedRatio": "资金覆盖率",
-    "medianFinal": "中位数终值",
-    "safeWithdrawalRate": "安全提取率",
-    "initialPortfolio": "初始资产",
-    "annualWithdrawal": "年提取额",
-    "retirementYears": "退休年限",
-    "stockAllocation": "股票配置",
-    "paramSummary": "参数概要",
-    "keyInsights": "关键洞察",
-    "insightGreat": "恭喜！您的退休计划非常稳健，综合就绪评分优秀。",
-    "insightGood": "计划整体良好，但仍有优化空间。考虑调整提取额或资产配置。",
-    "insightCaution": "计划存在一定风险。建议降低年提取额、增加储蓄或调整投资策略。",
-    "insightDanger": "计划风险较高。强烈建议降低提取金额或延长工作年限。",
-    "portfolioMini": "资产轨迹 (P10-P90)",
-    "withdrawalMini": "提取轨迹 (P10-P90)"
   },
   "methodology": {
     "title": "方法论",

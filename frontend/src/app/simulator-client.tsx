@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, memo } from "react";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations, useLocale } from "next-intl";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,37 @@ import { useSharedParams } from "@/lib/params-context";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
+
+/**
+ * Plain-language verdict banner keyed off the Monte Carlo success rate
+ * (probability the portfolio is not depleted before the horizon ends).
+ * Replaces the old dashboard's composite "readiness score", which summed
+ * incommensurable quantities (probability + funded ratio + a 4%-threshold
+ * penalty) with hand-picked weights and is not financially defensible.
+ */
+const PlanVerdict = memo(function PlanVerdict({ successRate }: { successRate: number }) {
+  const t = useTranslations("simulator");
+  const tier =
+    successRate >= 0.9 ? "Great"
+    : successRate >= 0.8 ? "Good"
+    : successRate >= 0.65 ? "Caution"
+    : "Danger";
+  const cls =
+    tier === "Great" || tier === "Good"
+      ? "border-green-200 bg-green-50/60 text-green-900 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-200"
+      : tier === "Caution"
+        ? "border-amber-200 bg-amber-50/60 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+        : "border-red-200 bg-red-50/60 text-red-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200";
+  return (
+    <div className={`rounded-lg border px-4 py-3 ${cls}`}>
+      <div className="flex items-baseline gap-2">
+        <span className="text-2xl font-bold tabular-nums">{pct(successRate)}</span>
+        <span className="text-sm font-medium opacity-80">{t("successRate")}</span>
+      </div>
+      <p className="text-sm mt-1 leading-snug">{t(`verdict${tier}`)}</p>
+    </div>
+  );
+});
 
 export function SimulatorClient() {
   const t = useTranslations("simulator");
@@ -385,6 +416,9 @@ export function SimulatorClient() {
 
             {result && !loading && (
               <div id="sim-results" className="space-y-4">
+                {/* 计划结论横幅(基于成功率) */}
+                <PlanVerdict successRate={result.success_rate} />
+
                 {/* 下载按钮组 */}
                 <div className="flex flex-wrap gap-2">
                   <PdfExportButton targetId="sim-results" filename="fire-simulation-report.pdf" />
