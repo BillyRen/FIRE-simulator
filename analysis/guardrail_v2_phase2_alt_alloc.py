@@ -103,7 +103,7 @@ def main():
     rows = []
     t_start = time.time()
     for i, p in enumerate(grid):
-        init_p, ann_wd, traj, wds = run_guardrail_simulation(
+        init_p, ann_wd, traj, wds, _ = run_guardrail_simulation(
             scenarios=scenarios,
             target_success=p["target"], upper_guardrail=p["upper"], lower_guardrail=p["lower"],
             adjustment_pct=p["adj"], retirement_years=RETIREMENT_YEARS,

@@ -1315,10 +1315,24 @@ def run_historical_backtest(
                     new_success = lookup_success_rate(
                         table, rate_grid, new_effective_rate, remaining
                     )
-                # 硬下限 clamp（仅下行；在记录事件前应用，使 new_wd 反映 floor 后值）
+                # 硬下限 clamp（仅下行；在记录事件前应用，使 new_wd / success_after
+                # 都反映 floor 后的实际提取额）
                 if use_floor and wd < floor_val:
                     g_floored[year] = True
                     wd = floor_val
+                    if use_3d_year:
+                        new_success = lookup_cf_aware_success_rate(
+                            cf_table, cf_rate_grid, cf_scale_grid,
+                            wd / value, cf_ref / value, year,
+                        )
+                    else:
+                        if cf_schedule is not None:
+                            _ner = max((wd - future_cf_avg) / value, 0.0)
+                        else:
+                            _ner = wd / value
+                        new_success = lookup_success_rate(
+                            table, rate_grid, _ner, remaining
+                        )
                 adjustment_events.append({
                     "year": year,
                     "old_wd": float(old_wd),

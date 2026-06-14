@@ -160,7 +160,7 @@ def main():
     print("[2/3] 运行护栏模拟...")
     rate_grid, table = build_success_rate_table(scenarios)
 
-    init_portfolio, annual_wd, trajectories, withdrawals = run_guardrail_simulation(
+    init_portfolio, annual_wd, trajectories, withdrawals, _ = run_guardrail_simulation(
         scenarios=scenarios,
         target_success=TARGET_SUCCESS,
         upper_guardrail=UPPER_GUARDRAIL,

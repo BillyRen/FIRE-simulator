@@ -187,7 +187,7 @@ def main():
             scenarios[i] = compute_real_portfolio_returns(sampled, ALLOCATION, EXPENSE_RATIOS)
 
     rate_grid, table = build_success_rate_table(scenarios)
-    init_portfolio, annual_wd, trajectories, withdrawals = run_guardrail_simulation(
+    init_portfolio, annual_wd, trajectories, withdrawals, _ = run_guardrail_simulation(
         scenarios=scenarios,
         target_success=TARGET_SUCCESS,
         upper_guardrail=UPPER_GUARDRAIL,

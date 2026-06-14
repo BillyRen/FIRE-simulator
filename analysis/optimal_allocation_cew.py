@@ -152,7 +152,7 @@ def main() -> None:
         rate_grid, table = build_success_rate_table(real_returns)
 
         for target, lower in GR_VARIANTS:
-            _, init_wd, traj, wds = run_guardrail_simulation(
+            _, init_wd, traj, wds, _ = run_guardrail_simulation(
                 scenarios=real_returns,
                 target_success=target,
                 upper_guardrail=GR_UPPER,

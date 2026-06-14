@@ -66,7 +66,7 @@ def build_scenarios_for_source(source: str, returns_df, country_dfs, weights) ->
 
 
 def evaluate(scenarios, table, rate_grid, params) -> dict:
-    init_p, ann_wd, traj, wds = run_guardrail_simulation(
+    init_p, ann_wd, traj, wds, _ = run_guardrail_simulation(
         scenarios=scenarios,
         target_success=params["target"],
         upper_guardrail=params["upper"],

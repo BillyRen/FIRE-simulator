@@ -98,7 +98,7 @@ def build_scenarios(seed: int, returns_df, country_dfs, weights) -> np.ndarray:
 
 def evaluate_one(scenarios, table, rate_grid, params: dict) -> dict:
     """Run one guardrail config and return metrics dict."""
-    init_p, ann_wd, traj, wds = run_guardrail_simulation(
+    init_p, ann_wd, traj, wds, _ = run_guardrail_simulation(
         scenarios=scenarios,
         target_success=params["target"],
         upper_guardrail=params["upper"],

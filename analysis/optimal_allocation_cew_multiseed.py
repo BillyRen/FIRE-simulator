@@ -74,7 +74,7 @@ def main() -> None:
                 leverage=1.0,
             )
             rate_grid, table = build_success_rate_table(real_returns)
-            _, init_wd, traj, wds = run_guardrail_simulation(
+            _, init_wd, traj, wds, _ = run_guardrail_simulation(
                 scenarios=real_returns,
                 target_success=TARGET,
                 upper_guardrail=GR_UPPER,

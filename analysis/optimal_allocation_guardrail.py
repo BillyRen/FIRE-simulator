@@ -166,7 +166,7 @@ def alloc_metrics(
     # Guardrail success-rate table is per-allocation (depends on real_returns)
     rate_grid, table = build_success_rate_table(real_returns)
 
-    init_p, init_wd, traj, wds = run_guardrail_simulation(
+    init_p, init_wd, traj, wds, _ = run_guardrail_simulation(
         scenarios=real_returns,
         target_success=GR_TARGET,
         upper_guardrail=GR_UPPER,
