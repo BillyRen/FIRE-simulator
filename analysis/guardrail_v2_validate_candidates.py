@@ -59,7 +59,7 @@ OUT_DIR = Path(__file__).resolve().parent / "output" / "guardrail_v2"
 
 
 def run_one(scenarios, table, rate_grid, params, retirement_years, floor, cfs, inflation_matrix):
-    init_p, ann_wd, traj, wds = run_guardrail_simulation(
+    init_p, ann_wd, traj, wds, _ = run_guardrail_simulation(
         scenarios=scenarios,
         target_success=params["target"],
         upper_guardrail=params["upper"],

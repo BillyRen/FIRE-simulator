@@ -1034,7 +1034,7 @@ class TestDepletionYearWithdrawalCap:
         # Volatile returns + high initial rate -> plenty of depletions
         scenarios = rng.normal(-0.05, 0.25, size=(300, 25))
         rate_grid, table = build_success_rate_table(scenarios)
-        _, _, traj, wds = run_guardrail_simulation(
+        _, _, traj, wds, _ = run_guardrail_simulation(
             scenarios=scenarios,
             target_success=0.85,
             upper_guardrail=0.99,

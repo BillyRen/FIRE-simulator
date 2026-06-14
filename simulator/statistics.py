@@ -157,6 +157,32 @@ def compute_effective_funded_ratio(
     return funded, success
 
 
+def compute_floor_exposure(floored: np.ndarray | None) -> tuple[float | None, float | None]:
+    """硬消费下限的"卡地板"暴露度指标（生活水平受压程度，非灾难尾部）。
+
+    Parameters
+    ----------
+    floored : np.ndarray or None
+        shape (num_sims, retirement_years) 的 bool 矩阵，True 表示该存活年
+        clamp 实际起作用（护栏想砍到 floor 以下、被下限顶住）。耗尽年已被
+        排除。None 表示未启用硬下限。
+
+    Returns
+    -------
+    (pct_paths_floored, median_floored_years)
+        pct_paths_floored: 曾被地板卡住（≥1 年）的路径占比 [0,1]。
+        median_floored_years: 在"曾被卡住"的路径中，卡住年数的中位数；
+        无任何路径被卡住时为 0.0。None 表示未启用。
+    """
+    if floored is None:
+        return None, None
+    per_path = floored.sum(axis=1)
+    pct_paths = float(np.mean(per_path > 0))
+    pinned = per_path[per_path > 0]
+    median_years = float(np.median(pinned)) if pinned.size > 0 else 0.0
+    return pct_paths, median_years
+
+
 def compute_statistics(
     trajectories: np.ndarray,
     retirement_years: int,

@@ -417,7 +417,7 @@ def fire_guardrail(
     if annual_withdrawal is not None:
         sim_kwargs["annual_withdrawal"] = annual_withdrawal
 
-    init_p, ann_wd, traj_g, wd_g = run_guardrail_simulation(**sim_kwargs)
+    init_p, ann_wd, traj_g, wd_g, _ = run_guardrail_simulation(**sim_kwargs)
 
     traj_b, wd_b = run_fixed_baseline(
         scenarios, init_p, baseline_rate, retirement_years,

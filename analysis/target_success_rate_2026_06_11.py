@@ -376,7 +376,7 @@ def run_guardrail_scan() -> pd.DataFrame:
                   f"({time.time()-t0:.0f}s)")
             for tgt in targets:
                 t1 = time.time()
-                _, wd0, traj, wds = run_guardrail_simulation(
+                _, wd0, traj, wds, _ = run_guardrail_simulation(
                     scenarios=R, target_success=tgt,
                     upper_guardrail=GR_UPPER, lower_guardrail=round(tgt - 0.10, 2),
                     adjustment_pct=GR_ADJ, retirement_years=YEARS,

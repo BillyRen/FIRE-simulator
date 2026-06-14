@@ -96,7 +96,7 @@ def build_scenarios(
 def evaluate(
     scenarios, table, rate_grid, params, retirement_years, floor, cfs, inflation_matrix,
 ) -> dict:
-    init_p, ann_wd, traj, wds = run_guardrail_simulation(
+    init_p, ann_wd, traj, wds, _ = run_guardrail_simulation(
         scenarios=scenarios,
         target_success=params["target"],
         upper_guardrail=params["upper"],

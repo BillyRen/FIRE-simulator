@@ -173,7 +173,7 @@ def universe_of(w: np.ndarray) -> str:
 
 def guardrail_metrics(rr: np.ndarray, horizon: int) -> dict:
     rate_grid, table = build_success_rate_table(rr)
-    _, init_wd, traj, wds = run_guardrail_simulation(
+    _, init_wd, traj, wds, _ = run_guardrail_simulation(
         scenarios=rr, target_success=GR_TARGET, upper_guardrail=GR_UPPER,
         lower_guardrail=GR_LOWER, adjustment_pct=GR_ADJ, retirement_years=horizon,
         min_remaining_years=GR_MIN_REMAIN, table=table, rate_grid=rate_grid,

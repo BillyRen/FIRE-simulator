@@ -63,6 +63,7 @@ export default function GuardrailPage() {
     guardrailBaselineRate: baselineRate, setGuardrailBaselineRate: setBaselineRate,
     guardrailConsumptionFloor: consumptionFloor, setGuardrailConsumptionFloor: setConsumptionFloor,
     guardrailConsumptionFloorAmount: consumptionFloorAmount, setGuardrailConsumptionFloorAmount: setConsumptionFloorAmount,
+    guardrailEnforceConsumptionFloor: enforceConsumptionFloor, setGuardrailEnforceConsumptionFloor: setEnforceConsumptionFloor,
     histStartYear, setHistStartYear,
     singleCountry, setSingleCountry,
     getSimCount,
@@ -147,6 +148,7 @@ export default function GuardrailPage() {
     baseline_rate: baselineRate,
     consumption_floor: consumptionFloor,
     consumption_floor_amount: consumptionFloorAmount,
+    enforce_consumption_floor: enforceConsumptionFloor,
     leverage: params.leverage,
     borrowing_spread: params.borrowing_spread,
     cash_flows: params.cash_flows,
@@ -503,6 +505,20 @@ export default function GuardrailPage() {
                     min={1}
                     max={30}
                   />
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={enforceConsumptionFloor}
+                      onChange={(e) => setEnforceConsumptionFloor(e.target.checked)}
+                      className="h-3.5 w-3.5"
+                    />
+                    {t("enforceConsumptionFloorLabel")}
+                  </label>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    {enforceConsumptionFloor
+                      ? t("enforceConsumptionFloorOnHelp")
+                      : t("enforceConsumptionFloorOffHelp")}
+                  </p>
                   <NumberField
                     label={t("consumptionFloor")}
                     value={+(consumptionFloor * 100).toFixed(0)}
@@ -611,6 +627,14 @@ export default function GuardrailPage() {
                   tooltip={tc("fundedRatioHelp")}
                   delta={pinnedResult ? deltaPct(mcResult.g_funded_ratio, pinnedResult.g_funded_ratio) : undefined}
                 />
+                {enforceConsumptionFloor && mcResult.g_pct_paths_floored != null && (
+                  <MetricCard
+                    label={t("pinnedAtFloor")}
+                    value={pct(mcResult.g_pct_paths_floored)}
+                    sub={t("pinnedMedianYears", { years: (mcResult.g_median_floored_years ?? 0).toFixed(0) })}
+                    tooltip={t("pinnedAtFloorHelp")}
+                  />
+                )}
                 <MetricCard
                   label={t("baselineSuccess")}
                   value={pct(mcResult.b_success_rate)}
@@ -858,6 +882,14 @@ export default function GuardrailPage() {
                     <MetricCard label={t("guardrailFundedRatio")} value={pct(batchResult.g_funded_ratio)} tooltip={tc("fundedRatioHelp")} />
                     <MetricCard label={t("baselineSuccess")} value={pct(batchResult.b_success_rate)} tooltip={tc("successRateHelp")} />
                     <MetricCard label={t("baselineFundedRatio")} value={pct(batchResult.b_funded_ratio)} tooltip={tc("fundedRatioHelp")} />
+                    {enforceConsumptionFloor && batchResult.g_pct_paths_floored != null && (
+                      <MetricCard
+                        label={t("pinnedAtFloor")}
+                        value={pct(batchResult.g_pct_paths_floored)}
+                        sub={t("pinnedMedianYears", { years: (batchResult.g_median_floored_years ?? 0).toFixed(0) })}
+                        tooltip={t("pinnedAtFloorHelp")}
+                      />
+                    )}
                   </div>
                   {(batchResult.num_incomplete_failed_g ?? 0) > 0 || (batchResult.num_excluded_g ?? 0) > 0 ? (
                     <p className="text-xs text-muted-foreground">

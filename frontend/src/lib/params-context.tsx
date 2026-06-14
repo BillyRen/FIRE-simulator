@@ -37,6 +37,8 @@ interface SharedParamsState {
   setGuardrailConsumptionFloor: (v: number) => void;
   guardrailConsumptionFloorAmount: number;
   setGuardrailConsumptionFloorAmount: (v: number) => void;
+  guardrailEnforceConsumptionFloor: boolean;
+  setGuardrailEnforceConsumptionFloor: (v: boolean) => void;
 
   // Sensitivity
   sensitivityRateMax: number;
@@ -133,6 +135,7 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
   const [guardrailBaselineRate, setGuardrailBaselineRate] = usePersistedState("fire:guardrailBaselineRate", 0.033);
   const [guardrailConsumptionFloor, setGuardrailConsumptionFloor] = usePersistedState("fire:guardrailConsumptionFloor", 0.50);
   const [guardrailConsumptionFloorAmount, setGuardrailConsumptionFloorAmount] = usePersistedState("fire:guardrailConsumptionFloorAmount", 0);
+  const [guardrailEnforceConsumptionFloor, setGuardrailEnforceConsumptionFloor] = usePersistedState("fire:guardrailEnforceConsumptionFloor", false);
 
   // Sensitivity
   const [sensitivityRateMax, setSensitivityRateMax] = usePersistedState("fire:sensitivityRateMax", 0.12);
@@ -160,6 +163,7 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
         guardrailBaselineRate, setGuardrailBaselineRate,
         guardrailConsumptionFloor, setGuardrailConsumptionFloor,
         guardrailConsumptionFloorAmount, setGuardrailConsumptionFloorAmount,
+        guardrailEnforceConsumptionFloor, setGuardrailEnforceConsumptionFloor,
         sensitivityRateMax, setSensitivityRateMax,
         sensitivityRateStep, setSensitivityRateStep,
         sensitivityMetric, setSensitivityMetric,

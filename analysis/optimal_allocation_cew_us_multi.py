@@ -184,7 +184,7 @@ def make_scenario_builder(tensor: np.ndarray, sigma_real: float, noise_seed: int
 
 def alloc_metrics(real_returns: np.ndarray) -> dict:
     rate_grid, table = build_success_rate_table(real_returns)
-    _, init_wd, traj, wds = run_guardrail_simulation(
+    _, init_wd, traj, wds, _ = run_guardrail_simulation(
         scenarios=real_returns,
         target_success=GR_TARGET,
         upper_guardrail=GR_UPPER,
