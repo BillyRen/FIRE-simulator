@@ -212,6 +212,36 @@ class TestHistoricalBacktestFloor:
         )
         assert res["g_floored"] is None
 
+    def test_matches_single_path_mc(self, table):
+        """Lock structural parity: run_historical_backtest's floored/withdrawals
+        must equal single-path run_guardrail_simulation on the same return path
+        (the clamp sits at different nesting levels in the two functions)."""
+        rate_grid, tbl = table
+        rng = np.random.default_rng(99)
+        real_returns = rng.normal(-0.02, 0.18, 30)  # volatile so guardrail fires
+        common = self._common(table, real_returns)
+        res = run_historical_backtest(
+            **common, enforce_consumption_floor=True, consumption_floor=0.7,
+        )
+        _, _, traj, wd, floored = run_guardrail_simulation(
+            scenarios=real_returns.reshape(1, -1),
+            target_success=common["target_success"],
+            upper_guardrail=common["upper_guardrail"],
+            lower_guardrail=common["lower_guardrail"],
+            adjustment_pct=common["adjustment_pct"],
+            retirement_years=common["retirement_years"],
+            min_remaining_years=common["min_remaining_years"],
+            table=tbl, rate_grid=rate_grid,
+            adjustment_mode="amount",
+            initial_portfolio=common["initial_portfolio"],
+            annual_withdrawal=common["annual_withdrawal"],
+            enforce_consumption_floor=True, consumption_floor=0.7,
+        )
+        n = res["years_simulated"]
+        np.testing.assert_allclose(res["g_withdrawals"][:n], wd[0, :n])
+        np.testing.assert_allclose(res["g_portfolio"][:n + 1], traj[0, :n + 1])
+        np.testing.assert_array_equal(res["g_floored"][:n], floored[0, :n])
+
 
 # ---------------------------------------------------------------------------
 # Batch failure-detection switch (pure depletion under enforce)
