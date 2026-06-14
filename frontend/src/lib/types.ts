@@ -167,6 +167,7 @@ export interface GuardrailRequest {
   baseline_rate: number;
   consumption_floor: number;
   consumption_floor_amount: number;
+  enforce_consumption_floor?: boolean;
   leverage: number;
   borrowing_spread: number;
   cash_flows: CashFlowItem[];
@@ -179,6 +180,8 @@ export interface GuardrailResponse {
   initial_rate: number;
   g_success_rate: number;
   g_funded_ratio: number;
+  g_pct_paths_floored?: number | null;
+  g_median_floored_years?: number | null;
   g_percentile_trajectories: Record<string, number[]>;
   g_withdrawal_percentiles: Record<string, number[]>;
   b_success_rate: number;
@@ -218,6 +221,9 @@ export interface BacktestRequest {
   lower_adjustment_pct?: number | null;
   min_remaining_years: number;
   baseline_rate: number;
+  consumption_floor?: number;
+  consumption_floor_amount?: number;
+  enforce_consumption_floor?: boolean;
   leverage: number;
   borrowing_spread: number;
   initial_portfolio: number;
@@ -246,6 +252,7 @@ export interface BacktestResponse {
   b_total_consumption: number;
   adjustment_events: AdjustmentEvent[];
   path_metrics: Array<Record<string, string>>;
+  g_floored?: boolean[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +367,8 @@ export interface GuardrailBatchBacktestResponse {
   g_funded_ratio: number;
   b_success_rate: number;
   b_funded_ratio: number;
+  g_pct_paths_floored?: number | null;
+  g_median_floored_years?: number | null;
   g_percentile_trajectories: Record<string, number[]>;
   b_percentile_trajectories: Record<string, number[]>;
   g_withdrawal_percentiles: Record<string, number[]>;
