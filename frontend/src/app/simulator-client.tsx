@@ -36,7 +36,7 @@ import { useSharedParams } from "@/lib/params-context";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
-import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
+import { fmt, pct, countryFlag, deltaPct, deltaFmt, formatParamValue } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 
 /**
@@ -1053,39 +1053,35 @@ export function SimulatorClient() {
 
                         {/* Scenario table */}
                         <Card>
-                          <CardContent className="pt-4 overflow-x-auto">
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b">
-                                  <th className="text-left py-2 px-2 font-medium">{t("scenarioLabel")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioProbability")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioSuccessRate")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioFundedRatio")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianFinal")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianConsumption")}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                <tr className="border-b bg-muted/50 font-medium">
-                                  <td className="py-1.5 px-2">{t("scenarioBaseCase")}</td>
-                                  <td className="text-right py-1.5 px-2">—</td>
-                                  <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.success_rate)}</td>
-                                  <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.funded_ratio)}</td>
-                                  <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_final_portfolio)}</td>
-                                  <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_total_consumption)}</td>
-                                </tr>
-                                {scenarioResult.scenarios.map((s, i) => (
-                                  <tr key={i} className="border-b hover:bg-muted/30">
-                                    <td className="py-1.5 px-2 max-w-[200px] truncate" title={s.label}>{s.label}</td>
-                                    <td className="text-right py-1.5 px-2">{(s.probability * 100).toFixed(1)}%</td>
-                                    <td className="text-right py-1.5 px-2">{pct(s.success_rate)}</td>
-                                    <td className="text-right py-1.5 px-2">{pct(s.funded_ratio)}</td>
-                                    <td className="text-right py-1.5 px-2">{fmt(s.median_final_portfolio)}</td>
-                                    <td className="text-right py-1.5 px-2">{fmt(s.median_total_consumption)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <CardContent className="pt-4">
+                            {(() => {
+                              type ScenRow = { isBase: boolean; label: string; probability: number | null; success_rate: number; funded_ratio: number; median_final: number; median_consumption: number };
+                              const bc = scenarioResult.base_case;
+                              const scenRows: ScenRow[] = [
+                                { isBase: true, label: t("scenarioBaseCase"), probability: null, success_rate: bc.success_rate, funded_ratio: bc.funded_ratio, median_final: bc.median_final_portfolio, median_consumption: bc.median_total_consumption },
+                                ...scenarioResult.scenarios.map((s) => ({ isBase: false, label: s.label, probability: s.probability, success_rate: s.success_rate, funded_ratio: s.funded_ratio, median_final: s.median_final_portfolio, median_consumption: s.median_total_consumption })),
+                              ];
+                              const scenCols: DataTableColumn<ScenRow>[] = [
+                                { key: "label", header: t("scenarioLabel"), csvValue: (r) => r.label,
+                                  render: (r) => <span className="block max-w-[220px] truncate" title={r.label}>{r.label}</span> },
+                                { key: "probability", header: t("scenarioProbability"), align: "right",
+                                  csvValue: (r) => (r.probability === null ? "—" : pct(r.probability)),
+                                  render: (r) => (r.probability === null ? "—" : pct(r.probability)) },
+                                { key: "success_rate", header: t("scenarioSuccessRate"), align: "right", csvValue: (r) => pct(r.success_rate), render: (r) => pct(r.success_rate) },
+                                { key: "funded_ratio", header: t("scenarioFundedRatio"), align: "right", csvValue: (r) => pct(r.funded_ratio), render: (r) => pct(r.funded_ratio) },
+                                { key: "median_final", header: t("scenarioMedianFinal"), align: "right", csvValue: (r) => String(Math.round(r.median_final)), render: (r) => fmt(r.median_final) },
+                                { key: "median_consumption", header: t("scenarioMedianConsumption"), align: "right", csvValue: (r) => String(Math.round(r.median_consumption)), render: (r) => fmt(r.median_consumption) },
+                              ];
+                              return (
+                                <DataTable
+                                  columns={scenCols}
+                                  rows={scenRows}
+                                  getRowKey={(_r, i) => i}
+                                  rowClassName={(r) => (r.isBase ? "bg-muted/50 font-medium" : "")}
+                                  downloadName="scenarios"
+                                />
+                              );
+                            })()}
                           </CardContent>
                         </Card>
                       </>
@@ -1165,43 +1161,41 @@ export function SimulatorClient() {
 
                         {/* Parameter table */}
                         <Card>
-                          <CardContent className="pt-4 overflow-x-auto">
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b">
-                                  <th className="text-left py-2 px-2 font-medium">{t("sensitivityParam")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityBaseValue")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityRange")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityImpact")}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {sensitivityResult.deltas.map((d, i) => {
-                                  const fmtVal = (v: number, key: string) => {
-                                    if (key === "initial_portfolio" || key === "annual_withdrawal")
-                                      return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-                                    if (key === "retirement_years") return `${v.toFixed(0)}`;
-                                    if (key === "stock_allocation" || key === "target_success")
-                                      return `${(v * 100).toFixed(0)}%`;
-                                    return v.toFixed(2);
-                                  };
-                                  const loD = ((d.low_success_rate - sensitivityResult.base_success_rate) * 100).toFixed(1);
-                                  const hiD = ((d.high_success_rate - sensitivityResult.base_success_rate) * 100).toFixed(1);
-                                  return (
-                                    <tr key={i} className="border-b hover:bg-muted/30">
-                                      <td className="py-1.5 px-2">{d.param_label}</td>
-                                      <td className="text-right py-1.5 px-2">{fmtVal(d.base_value, d.param_key)}</td>
-                                      <td className="text-right py-1.5 px-2">{fmtVal(d.low_value, d.param_key)} ~ {fmtVal(d.high_value, d.param_key)}</td>
-                                      <td className="text-right py-1.5 px-2">
-                                        <span className={Number(loD) < 0 ? "text-red-500" : "text-green-500"}>{loD}pp</span>
-                                        {" / "}
-                                        <span className={Number(hiD) < 0 ? "text-red-500" : "text-green-500"}>{hiD}pp</span>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                          <CardContent className="pt-4">
+                            {(() => {
+                              type SensRow = (typeof sensitivityResult.deltas)[number];
+                              const base = sensitivityResult.base_success_rate;
+                              const ppClass = (v: number) =>
+                                v < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400";
+                              const loPp = (d: SensRow) => (d.low_success_rate - base) * 100;
+                              const hiPp = (d: SensRow) => (d.high_success_rate - base) * 100;
+                              const sensCols: DataTableColumn<SensRow>[] = [
+                                { key: "param_label", header: t("sensitivityParam"), csvValue: (d) => d.param_label, render: (d) => d.param_label },
+                                { key: "base_value", header: t("sensitivityBaseValue"), align: "right",
+                                  csvValue: (d) => formatParamValue(d.base_value, d.param_key),
+                                  render: (d) => formatParamValue(d.base_value, d.param_key) },
+                                { key: "range", header: t("sensitivityRange"), align: "right",
+                                  csvValue: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}`,
+                                  render: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}` },
+                                { key: "impact", header: t("sensitivityImpact"), align: "right",
+                                  csvValue: (d) => `${loPp(d).toFixed(1)}pp / ${hiPp(d).toFixed(1)}pp`,
+                                  render: (d) => (
+                                    <>
+                                      <span className={ppClass(loPp(d))}>{loPp(d).toFixed(1)}pp</span>
+                                      {" / "}
+                                      <span className={ppClass(hiPp(d))}>{hiPp(d).toFixed(1)}pp</span>
+                                    </>
+                                  ) },
+                              ];
+                              return (
+                                <DataTable
+                                  columns={sensCols}
+                                  rows={sensitivityResult.deltas}
+                                  getRowKey={(_d, i) => i}
+                                  downloadName="sensitivity"
+                                />
+                              );
+                            })()}
                           </CardContent>
                         </Card>
                       </>

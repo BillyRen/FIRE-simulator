@@ -44,7 +44,7 @@ import type {
   ScenarioAnalysisResponse,
   SensitivityAnalysisResponse,
 } from "@/lib/types";
-import { fmt, pct, countryFlag, deltaPct } from "@/lib/utils";
+import { fmt, pct, countryFlag, deltaPct, formatParamValue } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 
 export default function GuardrailPage() {
@@ -1268,38 +1268,44 @@ export default function GuardrailPage() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="max-h-[400px] overflow-auto">
-                          <table className="w-full text-sm">
-                            <thead className="sticky top-0 bg-background border-b">
-                              <tr>
-                                <th className="text-left px-2 py-1.5">{t("adjHeaderYear")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderOldWithdrawal")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderNewWithdrawal")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderChange")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderOldSuccess")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderNewSuccess")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {selectedPath.adjustment_events.map((e, i) => {
-                                const change = (e.new_wd / e.old_wd - 1) * 100;
-                                const isUp = change > 0;
+                        {(() => {
+                          const path = selectedPath;
+                          type AdjRow = (typeof path.adjustment_events)[number];
+                          const changePct = (e: AdjRow) => (e.new_wd / e.old_wd - 1) * 100;
+                          const adjCols: DataTableColumn<AdjRow>[] = [
+                            { key: "year", header: t("adjHeaderYear"),
+                              csvValue: (e) => String(path.year_labels[e.year + 1]),
+                              render: (e) => path.year_labels[e.year + 1] },
+                            { key: "old_wd", header: t("adjHeaderOldWithdrawal"), align: "right",
+                              csvValue: (e) => String(Math.round(e.old_wd)), render: (e) => fmt(e.old_wd) },
+                            { key: "new_wd", header: t("adjHeaderNewWithdrawal"), align: "right",
+                              csvValue: (e) => String(Math.round(e.new_wd)), render: (e) => fmt(e.new_wd) },
+                            { key: "change", header: t("adjHeaderChange"), align: "right",
+                              csvValue: (e) => `${changePct(e).toFixed(1)}%`,
+                              render: (e) => {
+                                const c = changePct(e);
+                                const isUp = c > 0;
                                 return (
-                                  <tr key={i} className="border-b hover:bg-accent/50">
-                                    <td className="px-2 py-1">{selectedPath.year_labels[e.year + 1]}</td>
-                                    <td className="text-right px-2 py-1">{fmt(e.old_wd)}</td>
-                                    <td className="text-right px-2 py-1">{fmt(e.new_wd)}</td>
-                                    <td className={`text-right px-2 py-1 font-medium ${isUp ? "text-green-600" : "text-red-600"}`}>
-                                      {isUp ? "+" : ""}{change.toFixed(1)}%
-                                    </td>
-                                    <td className="text-right px-2 py-1">{pct(e.success_before)}</td>
-                                    <td className="text-right px-2 py-1">{pct(e.success_after)}</td>
-                                  </tr>
+                                  <span className={`font-medium ${isUp ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                                    {isUp ? "+" : ""}{c.toFixed(1)}%
+                                  </span>
                                 );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                              } },
+                            { key: "success_before", header: t("adjHeaderOldSuccess"), align: "right",
+                              csvValue: (e) => pct(e.success_before), render: (e) => pct(e.success_before) },
+                            { key: "success_after", header: t("adjHeaderNewSuccess"), align: "right",
+                              csvValue: (e) => pct(e.success_after), render: (e) => pct(e.success_after) },
+                          ];
+                          return (
+                            <DataTable
+                              columns={adjCols}
+                              rows={path.adjustment_events}
+                              getRowKey={(_e, i) => i}
+                              downloadName="adjustment_events"
+                              maxHeight={400}
+                            />
+                          );
+                        })()}
                       </CardContent>
                     </Card>
                   )}
@@ -1462,43 +1468,36 @@ export default function GuardrailPage() {
 
                   {/* Results table */}
                   <Card>
-                    <CardContent className="pt-4 overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left py-2 px-2 font-medium">{t("scenarioLabel")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioProbability")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioSuccessRate")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioFundedRatio")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioAnnualWD")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianFinal")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianConsumption")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {/* Base case row */}
-                          <tr className="border-b bg-muted/50 font-medium">
-                            <td className="py-1.5 px-2">{t("scenarioBaseCase")}</td>
-                            <td className="text-right py-1.5 px-2">—</td>
-                            <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.success_rate)}</td>
-                            <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.funded_ratio)}</td>
-                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.annual_withdrawal)}</td>
-                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_final_portfolio)}</td>
-                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_total_consumption)}</td>
-                          </tr>
-                          {scenarioResult.scenarios.map((s, i) => (
-                            <tr key={i} className="border-b hover:bg-muted/30">
-                              <td className="py-1.5 px-2 max-w-[200px] truncate" title={s.label}>{s.label}</td>
-                              <td className="text-right py-1.5 px-2">{(s.probability * 100).toFixed(1)}%</td>
-                              <td className="text-right py-1.5 px-2">{pct(s.success_rate)}</td>
-                              <td className="text-right py-1.5 px-2">{pct(s.funded_ratio)}</td>
-                              <td className="text-right py-1.5 px-2">{fmt(s.annual_withdrawal)}</td>
-                              <td className="text-right py-1.5 px-2">{fmt(s.median_final_portfolio)}</td>
-                              <td className="text-right py-1.5 px-2">{fmt(s.median_total_consumption)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <CardContent className="pt-4">
+                      {(() => {
+                        type GScenRow = { isBase: boolean; label: string; probability: number | null; success_rate: number; funded_ratio: number; annual_withdrawal: number; median_final: number; median_consumption: number };
+                        const bc = scenarioResult.base_case;
+                        const gScenRows: GScenRow[] = [
+                          { isBase: true, label: t("scenarioBaseCase"), probability: null, success_rate: bc.success_rate, funded_ratio: bc.funded_ratio, annual_withdrawal: bc.annual_withdrawal, median_final: bc.median_final_portfolio, median_consumption: bc.median_total_consumption },
+                          ...scenarioResult.scenarios.map((s) => ({ isBase: false, label: s.label, probability: s.probability, success_rate: s.success_rate, funded_ratio: s.funded_ratio, annual_withdrawal: s.annual_withdrawal, median_final: s.median_final_portfolio, median_consumption: s.median_total_consumption })),
+                        ];
+                        const gScenCols: DataTableColumn<GScenRow>[] = [
+                          { key: "label", header: t("scenarioLabel"), csvValue: (r) => r.label,
+                            render: (r) => <span className="block max-w-[220px] truncate" title={r.label}>{r.label}</span> },
+                          { key: "probability", header: t("scenarioProbability"), align: "right",
+                            csvValue: (r) => (r.probability === null ? "—" : pct(r.probability)),
+                            render: (r) => (r.probability === null ? "—" : pct(r.probability)) },
+                          { key: "success_rate", header: t("scenarioSuccessRate"), align: "right", csvValue: (r) => pct(r.success_rate), render: (r) => pct(r.success_rate) },
+                          { key: "funded_ratio", header: t("scenarioFundedRatio"), align: "right", csvValue: (r) => pct(r.funded_ratio), render: (r) => pct(r.funded_ratio) },
+                          { key: "annual_withdrawal", header: t("scenarioAnnualWD"), align: "right", csvValue: (r) => String(Math.round(r.annual_withdrawal)), render: (r) => fmt(r.annual_withdrawal) },
+                          { key: "median_final", header: t("scenarioMedianFinal"), align: "right", csvValue: (r) => String(Math.round(r.median_final)), render: (r) => fmt(r.median_final) },
+                          { key: "median_consumption", header: t("scenarioMedianConsumption"), align: "right", csvValue: (r) => String(Math.round(r.median_consumption)), render: (r) => fmt(r.median_consumption) },
+                        ];
+                        return (
+                          <DataTable
+                            columns={gScenCols}
+                            rows={gScenRows}
+                            getRowKey={(_r, i) => i}
+                            rowClassName={(r) => (r.isBase ? "bg-muted/50 font-medium" : "")}
+                            downloadName="guardrail_scenarios"
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 </>
@@ -1642,54 +1641,40 @@ export default function GuardrailPage() {
 
                   {/* Sensitivity detail table — withdrawal delta */}
                   <Card>
-                    <CardContent className="pt-4 overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left py-2 px-2 font-medium">{t("sensitivityParam")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityBaseValue")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityRange")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityImpact")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sensitivityResult.deltas.map((d, i) => {
-                            const baseWD = sensitivityResult.base_withdrawal ?? 0;
-                            const fmtVal = (v: number, key: string) => {
-                              if (key === "initial_portfolio" || key === "annual_withdrawal")
-                                return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-                              if (key === "retirement_years") return `${v.toFixed(0)}`;
-                              if (key === "stock_allocation" || key === "target_success")
-                                return `${(v * 100).toFixed(0)}%`;
-                              return v.toFixed(2);
-                            };
-                            const loD = (d.low_withdrawal ?? baseWD) - baseWD;
-                            const hiD = (d.high_withdrawal ?? baseWD) - baseWD;
-                            const fmtDelta = (v: number) => {
-                              const sign = v >= 0 ? "+" : "";
-                              return `${sign}${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-                            };
-                            return (
-                              <tr key={i} className="border-b hover:bg-muted/30">
-                                <td className="py-1.5 px-2">{d.param_label}</td>
-                                <td className="text-right py-1.5 px-2">{fmtVal(d.base_value, d.param_key)}</td>
-                                <td className="text-right py-1.5 px-2">
-                                  {fmtVal(d.low_value, d.param_key)} ~ {fmtVal(d.high_value, d.param_key)}
-                                </td>
-                                <td className="text-right py-1.5 px-2">
-                                  <span className={loD < 0 ? "text-red-600" : "text-green-600"}>
-                                    {fmtDelta(loD)}
-                                  </span>
-                                  {" / "}
-                                  <span className={hiD < 0 ? "text-red-600" : "text-green-600"}>
-                                    {fmtDelta(hiD)}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                    <CardContent className="pt-4">
+                      {(() => {
+                        type GSensRow = (typeof sensitivityResult.deltas)[number];
+                        const baseWD = sensitivityResult.base_withdrawal ?? 0;
+                        const loDelta = (d: GSensRow) => (d.low_withdrawal ?? baseWD) - baseWD;
+                        const hiDelta = (d: GSensRow) => (d.high_withdrawal ?? baseWD) - baseWD;
+                        const fmtDelta = (v: number) => `${v >= 0 ? "+" : ""}${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                        const deltaClass = (v: number) => (v < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400");
+                        const gSensCols: DataTableColumn<GSensRow>[] = [
+                          { key: "param_label", header: t("sensitivityParam"), csvValue: (d) => d.param_label, render: (d) => d.param_label },
+                          { key: "base_value", header: t("sensitivityBaseValue"), align: "right",
+                            csvValue: (d) => formatParamValue(d.base_value, d.param_key), render: (d) => formatParamValue(d.base_value, d.param_key) },
+                          { key: "range", header: t("sensitivityRange"), align: "right",
+                            csvValue: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}`,
+                            render: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}` },
+                          { key: "impact", header: t("sensitivityImpact"), align: "right",
+                            csvValue: (d) => `${fmtDelta(loDelta(d))} / ${fmtDelta(hiDelta(d))}`,
+                            render: (d) => (
+                              <>
+                                <span className={deltaClass(loDelta(d))}>{fmtDelta(loDelta(d))}</span>
+                                {" / "}
+                                <span className={deltaClass(hiDelta(d))}>{fmtDelta(hiDelta(d))}</span>
+                              </>
+                            ) },
+                        ];
+                        return (
+                          <DataTable
+                            columns={gSensCols}
+                            rows={sensitivityResult.deltas}
+                            getRowKey={(_d, i) => i}
+                            downloadName="guardrail_sensitivity"
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 </>
