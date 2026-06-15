@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
 import { useApiCall } from "@/lib/use-api-call";
@@ -20,8 +19,8 @@ import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { runAllocationSweep } from "@/lib/api";
-import { downloadCSV } from "@/lib/csv";
-import { DownloadButton } from "@/components/download-button";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import type { AllocationResult } from "@/lib/types";
 import { useSharedParams } from "@/lib/params-context";
 import { fmt, pct } from "@/lib/utils";
 
@@ -39,8 +38,6 @@ export default function AllocationPage() {
   const [withdrawal, setWithdrawal] = usePersistedState("fire:allocation:withdrawal", params.annual_withdrawal);
   const { data: result, loading, error, progress, run: handleRun } = useApiCall(runAllocationSweep);
 
-  const [sortKey, setSortKey] = useState<string>("funded_ratio");
-  const [sortAsc, setSortAsc] = useState(false);
 
   const STEP_OPTIONS = [
     { value: "0.05", label: t("stepOption5") },
@@ -48,24 +45,32 @@ export default function AllocationPage() {
     { value: "0.2", label: t("stepOption20") },
   ];
 
-  const sortedResults = result
-    ? [...result.results].sort((a, b) => {
-        const va = (a as unknown as Record<string, number | null>)[sortKey];
-        const vb = (b as unknown as Record<string, number | null>)[sortKey];
-        const na = va ?? Infinity;
-        const nb = vb ?? Infinity;
-        return sortAsc ? na - nb : nb - na;
-      })
-    : [];
-
-  const handleSort = (key: string) => {
-    if (key === sortKey) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortKey(key);
-      setSortAsc(false);
-    }
-  };
+  const allocPct = (v: number) => (v * 100).toFixed(0);
+  const allocColumns: DataTableColumn<AllocationResult>[] = [
+    { key: "domestic_stock", header: t("colDomStock"), align: "right", sortable: true,
+      sortValue: (r) => r.domestic_stock, csvValue: (r) => allocPct(r.domestic_stock), render: (r) => allocPct(r.domestic_stock) },
+    { key: "global_stock", header: t("colGlobalStock"), align: "right", sortable: true,
+      sortValue: (r) => r.global_stock, csvValue: (r) => allocPct(r.global_stock), render: (r) => allocPct(r.global_stock) },
+    { key: "domestic_bond", header: t("colDomBond"), align: "right", sortable: true,
+      sortValue: (r) => r.domestic_bond, csvValue: (r) => allocPct(r.domestic_bond), render: (r) => allocPct(r.domestic_bond) },
+    { key: "funded_ratio", header: t("colFundedRatio"), align: "right", sortable: true,
+      sortValue: (r) => r.funded_ratio, csvValue: (r) => pct(r.funded_ratio),
+      render: (r) => <span className="font-medium">{pct(r.funded_ratio)}</span> },
+    { key: "success_rate", header: t("colSuccessRate"), align: "right", sortable: true,
+      sortValue: (r) => r.success_rate, csvValue: (r) => pct(r.success_rate), render: (r) => pct(r.success_rate) },
+    { key: "cvar_10", header: t("colCvar10"), align: "right", sortable: true,
+      sortValue: (r) => r.cvar_10, csvValue: (r) => String(Math.round(r.cvar_10)), render: (r) => fmt(r.cvar_10) },
+    { key: "median_final", header: t("colMedianFinal"), align: "right", sortable: true,
+      sortValue: (r) => r.median_final, csvValue: (r) => String(Math.round(r.median_final)), render: (r) => fmt(r.median_final) },
+    { key: "p90_final", header: t("colP90Final"), align: "right", sortable: true,
+      sortValue: (r) => r.p90_final, csvValue: (r) => String(Math.round(r.p90_final)), render: (r) => fmt(r.p90_final) },
+    { key: "mean_final", header: t("colMeanFinal"), align: "right", sortable: true,
+      sortValue: (r) => r.mean_final, csvValue: (r) => String(Math.round(r.mean_final)), render: (r) => fmt(r.mean_final) },
+    { key: "p10_depletion_year", header: t("colP10Depletion"), align: "right", sortable: true,
+      sortValue: (r) => r.p10_depletion_year,
+      csvValue: (r) => (r.p10_depletion_year ? String(r.p10_depletion_year) : tc("notDepleted")),
+      render: (r) => (r.p10_depletion_year ? tc("yearN", { n: r.p10_depletion_year }) : tc("notDepleted")) },
+  ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
@@ -360,113 +365,29 @@ export default function AllocationPage() {
 
             {/* 排序表格 */}
             <Card>
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm">
                   {t("allResultsTitle", { count: result.results.length })}
                 </CardTitle>
-                <DownloadButton
-                  label={t("downloadCSV")}
-                  onClick={() => {
-                    const headers = [
-                      t("colDomStock"),
-                      t("colGlobalStock"),
-                      t("colDomBond"),
-                      t("colFundedRatio"),
-                      t("colSuccessRate"),
-                      t("colCvar10"),
-                      t("colMedianFinal"),
-                      t("colP90Final"),
-                      t("colMeanFinal"),
-                      t("colP10Depletion"),
-                    ];
-                    const rows = sortedResults.map((r) => [
-                      (r.domestic_stock * 100).toFixed(0),
-                      (r.global_stock * 100).toFixed(0),
-                      (r.domestic_bond * 100).toFixed(0),
-                      (r.funded_ratio * 100).toFixed(1) + "%",
-                      (r.success_rate * 100).toFixed(1) + "%",
-                      Math.round(r.cvar_10),
-                      Math.round(r.median_final),
-                      Math.round(r.p90_final),
-                      Math.round(r.mean_final),
-                      r.p10_depletion_year ?? tc("notDepleted"),
-                    ]);
-                    downloadCSV("allocation_sweep", headers, rows);
-                  }}
-                />
               </CardHeader>
               <CardContent>
-                <div className="max-h-[500px] overflow-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-background border-b">
-                      <tr>
-                        {[
-                          { key: "domestic_stock", label: t("colDomStock") },
-                          { key: "global_stock", label: t("colGlobalStock") },
-                          { key: "domestic_bond", label: t("colDomBond") },
-                          { key: "funded_ratio", label: t("colFundedRatio") },
-                          { key: "success_rate", label: t("colSuccessRate") },
-                          { key: "cvar_10", label: t("colCvar10") },
-                          { key: "median_final", label: t("colMedianFinal") },
-                          { key: "p90_final", label: t("colP90Final") },
-                          { key: "mean_final", label: t("colMeanFinal") },
-                          { key: "p10_depletion_year", label: t("colP10Depletion") },
-                        ].map((col) => (
-                          <th
-                            key={col.key}
-                            className="text-left px-2 py-1.5 cursor-pointer hover:bg-accent select-none"
-                            onClick={() => handleSort(col.key)}
-                          >
-                            {col.label}
-                            {sortKey === col.key && (
-                              <span className="ml-1">{sortAsc ? "↑" : "↓"}</span>
-                            )}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedResults.map((r, i) => {
-                        const isBest =
-                          r.domestic_stock === result.best.domestic_stock &&
-                          r.global_stock === result.best.global_stock &&
-                          r.domestic_bond === result.best.domestic_bond;
-                        const rowClass = isBest
-                          ? "bg-green-50 font-medium"
-                          : r.is_near_optimal
-                            ? "bg-amber-50"
-                            : "hover:bg-accent/50";
-                        return (
-                          <tr
-                            key={i}
-                            className={`border-b ${rowClass}`}
-                          >
-                            <td className="px-2 py-1">
-                              {(r.domestic_stock * 100).toFixed(0)}
-                            </td>
-                            <td className="px-2 py-1">
-                              {(r.global_stock * 100).toFixed(0)}
-                            </td>
-                            <td className="px-2 py-1">
-                              {(r.domestic_bond * 100).toFixed(0)}
-                            </td>
-                            <td className="px-2 py-1 font-medium">{pct(r.funded_ratio)}</td>
-                            <td className="px-2 py-1">{pct(r.success_rate)}</td>
-                            <td className="px-2 py-1">{fmt(r.cvar_10)}</td>
-                            <td className="px-2 py-1">{fmt(r.median_final)}</td>
-                            <td className="px-2 py-1">{fmt(r.p90_final)}</td>
-                            <td className="px-2 py-1">{fmt(r.mean_final)}</td>
-                            <td className="px-2 py-1">
-                              {r.p10_depletion_year
-                                ? tc("yearN", { n: r.p10_depletion_year })
-                                : tc("notDepleted")}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  columns={allocColumns}
+                  rows={result.results}
+                  getRowKey={(_r, i) => i}
+                  defaultSort={{ key: "funded_ratio", dir: -1 }}
+                  downloadName="allocation_sweep"
+                  maxHeight={500}
+                  rowClassName={(r) =>
+                    r.domestic_stock === result.best.domestic_stock &&
+                    r.global_stock === result.best.global_stock &&
+                    r.domestic_bond === result.best.domestic_bond
+                      ? "bg-emerald-500/10 font-medium"
+                      : r.is_near_optimal
+                        ? "bg-amber-500/10"
+                        : ""
+                  }
+                />
               </CardContent>
             </Card>
           </>
