@@ -154,7 +154,7 @@ export default function AllocationPage() {
       </aside>
 
       {/* ── 右侧结果区 ── */}
-      <main className="flex-1 space-y-6 relative">
+      <main className="flex-1 space-y-6 relative min-w-0">
         {loading && <ProgressOverlay progress={progress} />}
 
         {error && (
