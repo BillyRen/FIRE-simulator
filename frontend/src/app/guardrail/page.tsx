@@ -21,6 +21,8 @@ import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { GuardrailStressNarrative } from "@/components/guardrail-stress-narrative";
 import { CountrySuccessTable } from "@/components/country-success-table";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { computeCountrySuccessStats } from "@/lib/country-success";
 import { ProgressOverlay, PreliminaryBanner, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
@@ -92,8 +94,6 @@ export default function GuardrailPage() {
   const [selectedPath, setSelectedPath] = useState<GuardrailBatchPathSummary | null>(null);
   const [btLogScale, setBtLogScale] = useState(false);
   const [btWdLogScale, setBtWdLogScale] = useState(false);
-  const [sortCol, setSortCol] = useState<string>("start_year");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Path list filters
   const [filterCountries, setFilterCountries] = useState<Set<string>>(new Set());
   const [filterMinStartYear, setFilterMinStartYear] = useState(0);
@@ -320,45 +320,62 @@ export default function GuardrailPage() {
     );
   }, [batchResult, availableCountries]);
 
-  // Sorted & filtered paths for the table
-  const sortedPaths = useMemo(() => {
+  // Filtered paths for the table (DataTable owns sorting)
+  const filteredPaths = useMemo(() => {
     if (!batchResult) return [];
-    const paths = batchResult.paths.filter((p) => {
+    return batchResult.paths.filter((p) => {
       if (filterCountries.size > 0 && !filterCountries.has(p.country)) return false;
       if (filterMinStartYear > 0 && p.start_year < filterMinStartYear) return false;
       if (filterMinYears > 0 && p.years_simulated < filterMinYears) return false;
       return true;
     });
-    paths.sort((a, b) => {
-      let va: number | string, vb: number | string;
-      switch (sortCol) {
-        case "country": va = a.country; vb = b.country; break;
-        case "start_year": va = a.start_year; vb = b.start_year; break;
-        case "years_simulated": va = a.years_simulated; vb = b.years_simulated; break;
-        case "g_final_portfolio": va = a.g_final_portfolio; vb = b.g_final_portfolio; break;
-        case "min_withdrawal": va = Math.min(...a.g_withdrawals); vb = Math.min(...b.g_withdrawals); break;
-        case "g_survived": va = a.g_survived ? 1 : 0; vb = b.g_survived ? 1 : 0; break;
-        default: va = a.start_year; vb = b.start_year;
-      }
-      if (va < vb) return sortDir === "asc" ? -1 : 1;
-      if (va > vb) return sortDir === "asc" ? 1 : -1;
-      if (a.country !== b.country) return a.country < b.country ? -1 : 1;
-      return a.start_year - b.start_year;
-    });
-    return paths;
-  }, [batchResult, sortCol, sortDir, filterCountries, filterMinStartYear, filterMinYears]);
+  }, [batchResult, filterCountries, filterMinStartYear, filterMinYears]);
 
-  const handleSort = (col: string) => {
-    if (sortCol === col) {
-      setSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setSortCol(col);
-      setSortDir("asc");
-    }
+  const minWithdrawal = (w: number[]): number => {
+    if (w.length === 0) return 0;
+    let m = w[0];
+    for (let i = 1; i < w.length; i++) if (w[i] < m) m = w[i];
+    return m;
   };
 
-  const sortIndicator = (col: string) =>
-    sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+  const statusBadge = (failed: boolean | undefined, complete: boolean) =>
+    failed ? (
+      <StatusBadge variant="bad" label={tc("statusFailed")} />
+    ) : complete ? (
+      <StatusBadge variant="ok" label={tc("statusSuccess")} />
+    ) : (
+      <StatusBadge variant="censored" label={tc("statusCensored")} />
+    );
+
+  const statusText = (failed: boolean | undefined, complete: boolean) =>
+    failed ? tc("statusFailed") : complete ? tc("statusSuccess") : tc("statusCensored");
+
+  const pathColumns: DataTableColumn<GuardrailBatchPathSummary>[] = [
+    { key: "country", header: t("backtestCountry"), sortable: true, sortValue: (p) => p.country,
+      csvValue: (p) => countryLabel(p.country), render: (p) => countryLabel(p.country) },
+    { key: "start_year", header: t("backtestStartYear"), sortable: true, sortValue: (p) => p.start_year,
+      csvValue: (p) => String(p.start_year) },
+    { key: "years_simulated", header: t("yearsSimulated"), align: "right", sortable: true,
+      sortValue: (p) => p.years_simulated, csvValue: (p) => String(p.years_simulated),
+      render: (p) => (
+        <>
+          {p.years_simulated}
+          {!p.is_complete && <span className="ml-1 text-xs text-amber-600 dark:text-amber-500">*</span>}
+        </>
+      ) },
+    { key: "g_status", header: <abbr title="Guardrail" className="no-underline">G</abbr>,
+      csvValue: (p) => statusText(p.g_has_failed, p.is_complete),
+      render: (p) => statusBadge(p.g_has_failed, p.is_complete) },
+    { key: "b_status", header: <abbr title={tc("baseline")} className="no-underline">B</abbr>,
+      csvValue: (p) => statusText(p.b_has_failed, p.is_complete),
+      render: (p) => statusBadge(p.b_has_failed, p.is_complete) },
+    { key: "min_withdrawal", header: t("minWithdrawal"), align: "right", sortable: true,
+      sortValue: (p) => minWithdrawal(p.g_withdrawals), csvValue: (p) => String(Math.round(minWithdrawal(p.g_withdrawals))),
+      render: (p) => fmt(minWithdrawal(p.g_withdrawals)) },
+    { key: "g_final_portfolio", header: t("guardrailFinalPortfolio"), align: "right", sortable: true,
+      sortValue: (p) => p.g_final_portfolio, csvValue: (p) => String(Math.round(p.g_final_portfolio)),
+      render: (p) => fmt(p.g_final_portfolio) },
+  ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
@@ -1035,74 +1052,23 @@ export default function GuardrailPage() {
                         )}
                       </div>
 
-                      <div className="rounded-md border overflow-auto max-h-[600px]">
-                        <table className="w-full text-sm">
-                          <thead className="bg-muted/50 sticky top-0">
-                            <tr>
-                              <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("country")}>
-                                {t("backtestCountry")}{sortIndicator("country")}
-                              </th>
-                              <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("start_year")}>
-                                {t("backtestStartYear")}{sortIndicator("start_year")}
-                              </th>
-                              <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("years_simulated")}>
-                                {t("yearsSimulated")}{sortIndicator("years_simulated")}
-                              </th>
-                              <th className="px-3 py-2 text-center whitespace-nowrap">G</th>
-                              <th className="px-3 py-2 text-center whitespace-nowrap">B</th>
-                              <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("min_withdrawal")}>
-                                {t("minWithdrawal")}{sortIndicator("min_withdrawal")}
-                              </th>
-                              <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("g_final_portfolio")}>
-                                {t("guardrailFinalPortfolio")}{sortIndicator("g_final_portfolio")}
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {sortedPaths.map((p) => (
-                              <tr
-                                key={`${p.country}-${p.start_year}`}
-                                className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${!p.is_complete ? "opacity-60" : ""}`}
-                                onClick={() => setSelectedPath(p)}
-                              >
-                                <td className="px-3 py-1.5">{countryLabel(p.country)}</td>
-                                <td className="px-3 py-1.5">{p.start_year}</td>
-                                <td className="px-3 py-1.5 text-right">
-                                  {p.years_simulated}
-                                  {!p.is_complete && <span className="ml-1 text-xs text-amber-600">*</span>}
-                                </td>
-                                <td className="px-3 py-1.5 text-center">
-                                  {p.g_has_failed ? (
-                                    <span className="text-red-500" title={tc("statusFailed")}>✗</span>
-                                  ) : p.is_complete ? (
-                                    <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
-                                  ) : (
-                                    <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-1.5 text-center">
-                                  {p.b_has_failed ? (
-                                    <span className="text-red-500" title={tc("statusFailed")}>✗</span>
-                                  ) : p.is_complete ? (
-                                    <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
-                                  ) : (
-                                    <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-1.5 text-right font-mono">{fmt(Math.min(...p.g_withdrawals))}</td>
-                                <td className="px-3 py-1.5 text-right font-mono">{fmt(p.g_final_portfolio)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <DataTable
+                        columns={pathColumns}
+                        rows={filteredPaths}
+                        getRowKey={(p) => `${p.country}-${p.start_year}`}
+                        onRowClick={(p) => setSelectedPath(p)}
+                        rowClassName={(p) => (!p.is_complete ? "opacity-60" : "")}
+                        defaultSort={{ key: "start_year", dir: 1 }}
+                        downloadName="guardrail_backtest_paths"
+                        maxHeight={600}
+                      />
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-muted-foreground">
                           * = {t("numIncomplete")} | G = Guardrail | B = {tc("baseline")}
                         </p>
                         {batchResult && (
                           <p className="text-xs text-muted-foreground">
-                            {t("filteredCount", { count: sortedPaths.length, total: batchResult.paths.length })}
+                            {t("filteredCount", { count: filteredPaths.length, total: batchResult.paths.length })}
                           </p>
                         )}
                       </div>
