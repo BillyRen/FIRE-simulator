@@ -99,6 +99,21 @@ export function ParamsProvider({ children }: { children: ReactNode }) {
     setParams(sharedParams);
   }, [sharedParams, setParams]);
 
+  // Keep the retirement_years invariant: it must equal life_expectancy −
+  // retirement_age (the sidebar derives it that way and the UI hint shows it).
+  // A persisted blob from an older config can carry an out-of-sync
+  // retirement_years (merged on top of a newer default life_expectancy), which
+  // would silently make the simulation run a different number of years than the
+  // UI states (e.g. age 35 + life 100 should be 65 yrs → age 100, not 110).
+  // Reconcile after hydration; only fires when age/life_expectancy change, so it
+  // never clobbers the accumulation page's own retirement_years writes.
+  useEffect(() => {
+    setParams((p) => {
+      const expected = Math.max(1, p.life_expectancy - p.retirement_age);
+      return p.retirement_years === expected ? p : { ...p, retirement_years: expected };
+    });
+  }, [params.life_expectancy, params.retirement_age, setParams]);
+
   // On mount: fetch fresh server defaults
   const applied = useRef(false);
   useEffect(() => {

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useTranslations } from "next-intl";
 import { useApiCall } from "@/lib/use-api-call";
@@ -19,9 +18,18 @@ import { MetricCard } from "@/components/metric-card";
 import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useTheme } from "next-themes";
+import {
+  CHART_COLORS,
+  FUNDED_RATIO_COLORSCALE,
+  MARKER_SIZES,
+  themedTernary,
+  themedColorbar,
+  legendBg,
+} from "@/lib/chart-theme";
 import { runAllocationSweep } from "@/lib/api";
-import { downloadCSV } from "@/lib/csv";
-import { DownloadButton } from "@/components/download-button";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import type { AllocationResult } from "@/lib/types";
 import { useSharedParams } from "@/lib/params-context";
 import { fmt, pct } from "@/lib/utils";
 
@@ -29,6 +37,10 @@ export default function AllocationPage() {
   const t = useTranslations("allocation");
   const tc = useTranslations("common");
   const isMobile = useIsMobile();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const tern = themedTernary(isDark);
+  const cbar = themedColorbar(isDark);
 
   const {
     params, setParams,
@@ -39,8 +51,6 @@ export default function AllocationPage() {
   const [withdrawal, setWithdrawal] = usePersistedState("fire:allocation:withdrawal", params.annual_withdrawal);
   const { data: result, loading, error, progress, run: handleRun } = useApiCall(runAllocationSweep);
 
-  const [sortKey, setSortKey] = useState<string>("funded_ratio");
-  const [sortAsc, setSortAsc] = useState(false);
 
   const STEP_OPTIONS = [
     { value: "0.05", label: t("stepOption5") },
@@ -48,24 +58,34 @@ export default function AllocationPage() {
     { value: "0.2", label: t("stepOption20") },
   ];
 
-  const sortedResults = result
-    ? [...result.results].sort((a, b) => {
-        const va = (a as unknown as Record<string, number | null>)[sortKey];
-        const vb = (b as unknown as Record<string, number | null>)[sortKey];
-        const na = va ?? Infinity;
-        const nb = vb ?? Infinity;
-        return sortAsc ? na - nb : nb - na;
-      })
-    : [];
-
-  const handleSort = (key: string) => {
-    if (key === sortKey) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortKey(key);
-      setSortAsc(false);
-    }
-  };
+  const allocPct = (v: number) => (v * 100).toFixed(0);
+  const allocColumns: DataTableColumn<AllocationResult>[] = [
+    { key: "domestic_stock", header: t("colDomStock"), align: "right", sortable: true,
+      sortValue: (r) => r.domestic_stock, csvValue: (r) => allocPct(r.domestic_stock), render: (r) => allocPct(r.domestic_stock) },
+    { key: "global_stock", header: t("colGlobalStock"), align: "right", sortable: true,
+      sortValue: (r) => r.global_stock, csvValue: (r) => allocPct(r.global_stock), render: (r) => allocPct(r.global_stock) },
+    { key: "domestic_bond", header: t("colDomBond"), align: "right", sortable: true,
+      sortValue: (r) => r.domestic_bond, csvValue: (r) => allocPct(r.domestic_bond), render: (r) => allocPct(r.domestic_bond) },
+    { key: "funded_ratio", header: t("colFundedRatio"), align: "right", sortable: true,
+      sortValue: (r) => r.funded_ratio, csvValue: (r) => pct(r.funded_ratio),
+      render: (r) => <span className="font-medium">{pct(r.funded_ratio)}</span> },
+    { key: "success_rate", header: t("colSuccessRate"), align: "right", sortable: true,
+      sortValue: (r) => r.success_rate, csvValue: (r) => pct(r.success_rate), render: (r) => pct(r.success_rate) },
+    { key: "cvar_10", header: t("colCvar10"), align: "right", sortable: true,
+      sortValue: (r) => r.cvar_10, csvValue: (r) => String(Math.round(r.cvar_10)), render: (r) => fmt(r.cvar_10) },
+    { key: "median_final", header: t("colMedianFinal"), align: "right", sortable: true,
+      sortValue: (r) => r.median_final, csvValue: (r) => String(Math.round(r.median_final)), render: (r) => fmt(r.median_final) },
+    { key: "p90_final", header: t("colP90Final"), align: "right", sortable: true,
+      sortValue: (r) => r.p90_final, csvValue: (r) => String(Math.round(r.p90_final)), render: (r) => fmt(r.p90_final) },
+    { key: "mean_final", header: t("colMeanFinal"), align: "right", sortable: true,
+      sortValue: (r) => r.mean_final, csvValue: (r) => String(Math.round(r.mean_final)), render: (r) => fmt(r.mean_final) },
+    { key: "p10_depletion_year", header: t("colP10Depletion"), align: "right", sortable: true,
+      // null = never depleted = best outcome → sort as +Infinity so it leads on
+      // descending (not via DataTable's default null-last, which means "missing").
+      sortValue: (r) => r.p10_depletion_year ?? Infinity,
+      csvValue: (r) => (r.p10_depletion_year ? String(r.p10_depletion_year) : tc("notDepleted")),
+      render: (r) => (r.p10_depletion_year ? tc("yearN", { n: r.p10_depletion_year }) : tc("notDepleted")) },
+  ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
@@ -134,12 +154,12 @@ export default function AllocationPage() {
       </aside>
 
       {/* ── 右侧结果区 ── */}
-      <main className="flex-1 space-y-6 relative">
+      <main className="flex-1 space-y-6 relative min-w-0">
         {loading && <ProgressOverlay progress={progress} />}
 
         {error && (
-          <Card className="border-red-300 bg-red-50">
-            <CardContent className="pt-4 text-red-700 text-sm">{error}</CardContent>
+          <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30">
+            <CardContent className="pt-4 text-red-700 dark:text-red-300 text-sm">{error}</CardContent>
           </Card>
         )}
 
@@ -198,18 +218,19 @@ export default function AllocationPage() {
                       ),
                       hoverinfo: "text",
                       marker: {
-                        size: allocStep <= 0.05 ? 8 : allocStep <= 0.1 ? 14 : 20,
+                        size: MARKER_SIZES.point(allocStep),
                         color: result.results.map((r) => r.funded_ratio * 100),
-                        colorscale: "RdYlGn",
+                        colorscale: FUNDED_RATIO_COLORSCALE,
                         cmin: Math.min(...result.results.map((r) => r.funded_ratio * 100)),
                         cmax: Math.max(...result.results.map((r) => r.funded_ratio * 100)),
                         colorbar: {
-                          title: { text: t("ternaryColorbar") },
+                          ...cbar,
+                          title: { ...cbar.title, text: t("ternaryColorbar") },
                           ticksuffix: "%",
                         },
                         line: {
                           width: result.results.map((r) => r.is_near_optimal ? 3 : 1),
-                          color: result.results.map((r) => r.is_near_optimal ? "#F59E0B" : "rgba(0,0,0,0.2)"),
+                          color: result.results.map((r) => r.is_near_optimal ? CHART_COLORS.warning.hex : `rgba(${CHART_COLORS.neutral.rgb},0.4)`),
                         },
                       },
                       showlegend: false,
@@ -224,10 +245,10 @@ export default function AllocationPage() {
                       text: [`${t("legendBest")}<br>${t("ternaryDomStock").replace(" %", "")}${(result.best.domestic_stock * 100).toFixed(0)}% ${t("ternaryGlobalStock").replace(" %", "")}${(result.best.global_stock * 100).toFixed(0)}% ${t("ternaryDomBond").replace(" %", "")}${(result.best.domestic_bond * 100).toFixed(0)}%<br>${t("colFundedRatio")}: ${(result.best.funded_ratio * 100).toFixed(1)}%`],
                       hoverinfo: "text",
                       marker: {
-                        size: allocStep <= 0.05 ? 14 : allocStep <= 0.1 ? 20 : 26,
-                        color: "#EF4444",
+                        size: MARKER_SIZES.best(allocStep),
+                        color: CHART_COLORS.danger.hex,
                         symbol: "star",
-                        line: { width: 2, color: "#991B1B" },
+                        line: { width: 2, color: CHART_COLORS.danger.hex },
                       },
                       showlegend: true,
                     } as Record<string, unknown>,
@@ -235,28 +256,14 @@ export default function AllocationPage() {
                   layout={{
                     ternary: {
                       sum: 100,
-                      aaxis: {
-                        title: { text: t("ternaryDomStock") },
-                        min: 0,
-                        linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.08)",
-                      },
-                      baxis: {
-                        title: { text: t("ternaryGlobalStock") },
-                        min: 0,
-                        linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.08)",
-                      },
-                      caxis: {
-                        title: { text: t("ternaryDomBond") },
-                        min: 0,
-                        linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.08)",
-                      },
+                      bgcolor: tern.bgcolor,
+                      aaxis: { ...tern.aaxis, title: { ...tern.aaxis.title, text: t("ternaryDomStock") }, min: 0 },
+                      baxis: { ...tern.baxis, title: { ...tern.baxis.title, text: t("ternaryGlobalStock") }, min: 0 },
+                      caxis: { ...tern.caxis, title: { ...tern.caxis.title, text: t("ternaryDomBond") }, min: 0 },
                     },
                     margin: isMobile ? { t: 20, b: 20, l: 10, r: 10 } : { t: 40, b: 40, l: 60, r: 60 },
                     showlegend: true,
-                    legend: { x: 0.02, y: 0.98, bgcolor: "rgba(255,255,255,0.7)" },
+                    legend: { x: 0.02, y: 0.98, bgcolor: legendBg(isDark) },
                     height: isMobile ? 350 : 500,
                   }}
                   config={{
@@ -266,9 +273,9 @@ export default function AllocationPage() {
                       filename: "allocation_ternary",
                       width: 1200,
                       height: 800,
+                      scale: 2,
                     },
                   }}
-                  style={{ height: isMobile ? "350px" : "500px" }}
                 />
               </CardContent>
             </Card>
@@ -296,7 +303,7 @@ export default function AllocationPage() {
                           y: regular.map((r) => r.median_final),
                           text: regular.map(hoverText),
                           hoverinfo: "text",
-                          marker: { size: 7, color: "#D1D5DB", opacity: 0.6 },
+                          marker: { size: 7, color: CHART_COLORS.neutral.hex, opacity: 0.6 },
                         },
                         {
                           type: "scatter",
@@ -306,7 +313,7 @@ export default function AllocationPage() {
                           y: nearOpt.map((r) => r.median_final),
                           text: nearOpt.map(hoverText),
                           hoverinfo: "text",
-                          marker: { size: 9, color: "#FBBF24", line: { width: 2, color: "#F59E0B" } },
+                          marker: { size: 9, color: CHART_COLORS.warning.hex, line: { width: 2, color: CHART_COLORS.warning.hex } },
                         },
                         {
                           type: "scatter",
@@ -316,8 +323,8 @@ export default function AllocationPage() {
                           y: result.pareto_frontier.map((r) => r.median_final),
                           text: result.pareto_frontier.map(hoverText),
                           hoverinfo: "text",
-                          marker: { size: 10, color: "#3B82F6", symbol: "diamond" },
-                          line: { color: "#3B82F6", width: 2, dash: "dot" },
+                          marker: { size: 10, color: CHART_COLORS.primary.hex, symbol: "diamond" },
+                          line: { color: CHART_COLORS.primary.hex, width: 2, dash: "dot" },
                         },
                         {
                           type: "scatter",
@@ -327,7 +334,7 @@ export default function AllocationPage() {
                           y: [result.best.median_final],
                           text: [hoverText(result.best)],
                           hoverinfo: "text",
-                          marker: { size: 14, color: "#EF4444", symbol: "star", line: { width: 2, color: "#991B1B" } },
+                          marker: { size: 14, color: CHART_COLORS.danger.hex, symbol: "star", line: { width: 2, color: CHART_COLORS.danger.hex } },
                         },
                       ]}
                       layout={{
@@ -339,7 +346,7 @@ export default function AllocationPage() {
                         yaxis: { type: "linear", title: { text: t("paretoAxisMedian") } },
                         margin: isMobile ? { t: 20, b: 50, l: 60, r: 20 } : { t: 30, b: 50, l: 80, r: 30 },
                         showlegend: true,
-                        legend: { x: 0.02, y: 0.98, bgcolor: "rgba(255,255,255,0.7)" },
+                        legend: { x: 0.02, y: 0.98, bgcolor: legendBg(isDark) },
                         height: isMobile ? 300 : 400,
                       }}
                       config={{
@@ -349,9 +356,9 @@ export default function AllocationPage() {
                           filename: "allocation_pareto",
                           width: 1200,
                           height: 800,
+                          scale: 2,
                         },
                       }}
-                      style={{ height: isMobile ? "300px" : "400px" }}
                     />
                   );
                 })()}
@@ -360,113 +367,29 @@ export default function AllocationPage() {
 
             {/* 排序表格 */}
             <Card>
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm">
                   {t("allResultsTitle", { count: result.results.length })}
                 </CardTitle>
-                <DownloadButton
-                  label={t("downloadCSV")}
-                  onClick={() => {
-                    const headers = [
-                      t("colDomStock"),
-                      t("colGlobalStock"),
-                      t("colDomBond"),
-                      t("colFundedRatio"),
-                      t("colSuccessRate"),
-                      t("colCvar10"),
-                      t("colMedianFinal"),
-                      t("colP90Final"),
-                      t("colMeanFinal"),
-                      t("colP10Depletion"),
-                    ];
-                    const rows = sortedResults.map((r) => [
-                      (r.domestic_stock * 100).toFixed(0),
-                      (r.global_stock * 100).toFixed(0),
-                      (r.domestic_bond * 100).toFixed(0),
-                      (r.funded_ratio * 100).toFixed(1) + "%",
-                      (r.success_rate * 100).toFixed(1) + "%",
-                      Math.round(r.cvar_10),
-                      Math.round(r.median_final),
-                      Math.round(r.p90_final),
-                      Math.round(r.mean_final),
-                      r.p10_depletion_year ?? tc("notDepleted"),
-                    ]);
-                    downloadCSV("allocation_sweep", headers, rows);
-                  }}
-                />
               </CardHeader>
               <CardContent>
-                <div className="max-h-[500px] overflow-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-background border-b">
-                      <tr>
-                        {[
-                          { key: "domestic_stock", label: t("colDomStock") },
-                          { key: "global_stock", label: t("colGlobalStock") },
-                          { key: "domestic_bond", label: t("colDomBond") },
-                          { key: "funded_ratio", label: t("colFundedRatio") },
-                          { key: "success_rate", label: t("colSuccessRate") },
-                          { key: "cvar_10", label: t("colCvar10") },
-                          { key: "median_final", label: t("colMedianFinal") },
-                          { key: "p90_final", label: t("colP90Final") },
-                          { key: "mean_final", label: t("colMeanFinal") },
-                          { key: "p10_depletion_year", label: t("colP10Depletion") },
-                        ].map((col) => (
-                          <th
-                            key={col.key}
-                            className="text-left px-2 py-1.5 cursor-pointer hover:bg-accent select-none"
-                            onClick={() => handleSort(col.key)}
-                          >
-                            {col.label}
-                            {sortKey === col.key && (
-                              <span className="ml-1">{sortAsc ? "↑" : "↓"}</span>
-                            )}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedResults.map((r, i) => {
-                        const isBest =
-                          r.domestic_stock === result.best.domestic_stock &&
-                          r.global_stock === result.best.global_stock &&
-                          r.domestic_bond === result.best.domestic_bond;
-                        const rowClass = isBest
-                          ? "bg-green-50 font-medium"
-                          : r.is_near_optimal
-                            ? "bg-amber-50"
-                            : "hover:bg-accent/50";
-                        return (
-                          <tr
-                            key={i}
-                            className={`border-b ${rowClass}`}
-                          >
-                            <td className="px-2 py-1">
-                              {(r.domestic_stock * 100).toFixed(0)}
-                            </td>
-                            <td className="px-2 py-1">
-                              {(r.global_stock * 100).toFixed(0)}
-                            </td>
-                            <td className="px-2 py-1">
-                              {(r.domestic_bond * 100).toFixed(0)}
-                            </td>
-                            <td className="px-2 py-1 font-medium">{pct(r.funded_ratio)}</td>
-                            <td className="px-2 py-1">{pct(r.success_rate)}</td>
-                            <td className="px-2 py-1">{fmt(r.cvar_10)}</td>
-                            <td className="px-2 py-1">{fmt(r.median_final)}</td>
-                            <td className="px-2 py-1">{fmt(r.p90_final)}</td>
-                            <td className="px-2 py-1">{fmt(r.mean_final)}</td>
-                            <td className="px-2 py-1">
-                              {r.p10_depletion_year
-                                ? tc("yearN", { n: r.p10_depletion_year })
-                                : tc("notDepleted")}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  columns={allocColumns}
+                  rows={result.results}
+                  getRowKey={(_r, i) => i}
+                  defaultSort={{ key: "funded_ratio", dir: -1 }}
+                  downloadName="allocation_sweep"
+                  maxHeight={500}
+                  rowClassName={(r) =>
+                    r.domestic_stock === result.best.domestic_stock &&
+                    r.global_stock === result.best.global_stock &&
+                    r.domestic_bond === result.best.domestic_bond
+                      ? "bg-emerald-500/10 font-medium"
+                      : r.is_near_optimal
+                        ? "bg-amber-500/10"
+                        : ""
+                  }
+                />
               </CardContent>
             </Card>
           </>

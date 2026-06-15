@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "./ui/button";
 import PlotlyChart from "./plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
+import { fmt } from "@/lib/utils";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 // Re-export for backward compatibility
@@ -34,8 +35,14 @@ interface FanChartProps {
   height?: number;
   /** 主色 */
   color?: string;
-  /** 是否显示线性/对数切换按钮 */
+  /** 是否显示线性/对数切换按钮(仅在非受控时渲染自带按钮) */
   showLogToggle?: boolean;
+  /** 受控对数刻度。提供时由父级(如 ChartFrame)控制,FanChart 不再渲染自带按钮。 */
+  logScale?: boolean;
+  /** 受控对数刻度变更回调。 */
+  onLogScaleChange?: (next: boolean) => void;
+  /** 在末端直接标注 P10/P50/P90 数值(桌面端;移动端自动关闭)。 */
+  endLabels?: boolean;
 }
 
 const BAND_PAIRS: [string, string][] = [
@@ -54,10 +61,19 @@ export const FanChart = memo(function FanChart({
   height = 450,
   color = CHART_COLORS.primary.rgb,
   showLogToggle = false,
+  logScale: logScaleProp,
+  onLogScaleChange,
+  endLabels = false,
 }: FanChartProps) {
   const t = useTranslations();
   const isMobile = useIsMobile();
-  const [logScale, setLogScale] = useState(false);
+  const [internalLog, setInternalLog] = useState(false);
+  const isControlled = logScaleProp !== undefined;
+  const logScale = isControlled ? logScaleProp : internalLog;
+  const toggleLog = () => {
+    if (isControlled) onLogScaleChange?.(!logScaleProp);
+    else setInternalLog((v) => !v);
+  };
   const n = trajectories["50"]?.length ?? 0;
   const x = xLabels ?? Array.from({ length: n }, (_, i) => i);
 
@@ -115,16 +131,50 @@ export const FanChart = memo(function FanChart({
 
   const chartHeight = isMobile ? 280 : (height ?? 450);
 
+  // Direct end-of-line labels for P10/P50/P90. Percentiles are only
+  // non-decreasing (not strictly separated): under a fixed withdrawal P50≈P90,
+  // and failed tails finish at 0. So group by terminal value and merge equal
+  // ones into a single label (e.g. "P90/P50 40,000") to avoid overlap.
+  const END_LABEL_PCTS = ["90", "50", "10"];
+  const endAnnotations = (() => {
+    if (!endLabels || isMobile || n === 0) return [];
+    const byValue = new Map<number, string[]>();
+    for (const p of END_LABEL_PCTS) {
+      if (!trajectories[p]?.length) continue;
+      const key = Math.round(trajectories[p][n - 1]);
+      const group = byValue.get(key);
+      if (group) group.push(p);
+      else byValue.set(key, [p]);
+    }
+    return Array.from(byValue.entries()).map(([, ps]) => {
+      const isMed = ps.includes("50");
+      const yv = trajectories[ps[0]][n - 1];
+      return {
+        x: x[n - 1],
+        y: yv,
+        xref: "x" as const,
+        yref: "y" as const,
+        text: `${ps.map((p) => `P${p}`).join("/")} ${fmt(yv)}`,
+        showarrow: false,
+        xanchor: "left" as const,
+        xshift: 6,
+        font: { size: isMed ? 11 : 9, color: isMed ? `rgb(${color})` : CHART_COLORS.neutral.hex },
+      };
+    });
+  })();
+  const baseMargin = MARGINS.withTitle(isMobile);
+  const margin = endLabels && !isMobile ? { ...baseMargin, r: 72 } : baseMargin;
+
   return (
     <div>
       <div className="flex items-center justify-between">
         <MobileChartTitle title={title} isMobile={isMobile} />
-        {showLogToggle && (
+        {showLogToggle && !isControlled && (
           <Button
             variant="outline"
             size="sm"
             className="h-6 px-2 text-xs mb-1"
-            onClick={() => setLogScale((v) => !v)}
+            onClick={toggleLog}
             aria-label={logScale ? t("common.linearScale") : t("common.logScale")}
           >
             {logScale ? t("common.linearScale") : t("common.logScale")}
@@ -149,7 +199,8 @@ export const FanChart = memo(function FanChart({
             tickfont: { size: isMobile ? 9 : 12 },
           },
           height: chartHeight,
-          margin: MARGINS.withTitle(isMobile),
+          margin,
+          annotations: endAnnotations,
           legend: isMobile
             ? { x: 0.5, y: 1.02, xanchor: "center", yanchor: "bottom", orientation: "h", font: { size: 8 } }
             : { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },

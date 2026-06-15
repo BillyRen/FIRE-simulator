@@ -37,6 +37,18 @@ export function deltaFmt(cur: number, pin: number): string {
   return `${sign}${fmt(d)}`;
 }
 
+/** Format a sensitivity-analysis parameter value by its key (amounts, years,
+ *  allocation/target percentages, else 2-decimal). Shared by the simulator and
+ *  guardrail sensitivity tables. */
+export function formatParamValue(v: number, key: string): string {
+  if (key === "initial_portfolio" || key === "annual_withdrawal")
+    return v.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (key === "retirement_years") return v.toFixed(0);
+  if (key === "stock_allocation" || key === "target_success")
+    return `${(v * 100).toFixed(0)}%`;
+  return v.toFixed(2);
+}
+
 const ISO3_TO_ALPHA2: Record<string, string> = {
   AUS: "AU", BEL: "BE", CHE: "CH", DEU: "DE",
   DNK: "DK", ESP: "ES", FIN: "FI", FRA: "FR",

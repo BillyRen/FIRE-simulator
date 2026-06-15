@@ -12,6 +12,26 @@
     "buyVsRent": "🏠 Buy vs Rent",
     "accumulation": "💰 FIRE Planner"
   },
+  "theme": {
+    "toggle": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "chartFrame": {
+    "downloadData": "Data (CSV)"
+  },
+  "distributionStrip": {
+    "median": "Median",
+    "mean": "Mean",
+    "bankruptcyFloor": "Bankruptcy floor",
+    "highest": "Highest",
+    "bandLegend": "box = P25–P75 · light band = P10–P90 · whisker = P5–P95",
+    "meanPulled": "pulled up by the right tail",
+    "logNote": "Log scale · real (inflation-adjusted) amounts",
+    "basedOn": "based on {n} simulations",
+    "showExact": "Show exact figures"
+  },
   "common": {
     "year": "Yr",
     "years": "years",

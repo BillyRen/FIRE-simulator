@@ -21,7 +21,7 @@ import { StatsTable } from "@/components/stats-table";
 import { ProgressOverlay, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
-import { Pin, PinOff } from "lucide-react";
+import { Pin, PinOff, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { runSimulation, runSimBatchBacktest, runSimBacktest, runSimScenarios, runSimSensitivity, fetchCountries, fetchHistoricalEvents } from "@/lib/api";
 import { filterEvents, buildEventOverlay, EVENT_MARKER_AXIS } from "@/lib/historical-events";
 import { EventLegend } from "@/components/event-legend";
@@ -33,8 +33,11 @@ import { RichBrokeDeadChart } from "@/components/rich-broke-dead-chart";
 import { CountrySuccessTable } from "@/components/country-success-table";
 import { computeCountrySuccessStats } from "@/lib/country-success";
 import { useSharedParams } from "@/lib/params-context";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { DistributionStrip } from "@/components/distribution-strip";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
-import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
+import { fmt, pct, countryFlag, deltaPct, deltaFmt, formatParamValue } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 
 /**
@@ -57,9 +60,11 @@ const PlanVerdict = memo(function PlanVerdict({ successRate }: { successRate: nu
       : tier === "Caution"
         ? "border-amber-200 bg-amber-50/60 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
         : "border-red-200 bg-red-50/60 text-red-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200";
+  const Icon = tier === "Great" || tier === "Good" ? CheckCircle2 : tier === "Caution" ? AlertTriangle : XCircle;
   return (
     <div className={`rounded-lg border px-4 py-3 ${cls}`}>
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-center gap-2">
+        <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />
         <span className="text-2xl font-bold tabular-nums">{pct(successRate)}</span>
         <span className="text-sm font-medium opacity-80">{t("successRate")}</span>
       </div>
@@ -105,8 +110,6 @@ export function SimulatorClient() {
   const [btLogScale, setBtLogScale] = useState(false);
   const [btWdLogScale, setBtWdLogScale] = useState(false);
   // Path list sorting
-  const [sortCol, setSortCol] = useState<string>("start_year");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Path list filters
   const [filterCountries, setFilterCountries] = useState<Set<string>>(new Set());
   const [filterMinStartYear, setFilterMinStartYear] = useState(0);
@@ -306,46 +309,54 @@ export function SimulatorClient() {
     );
   }, [batchResult, availableCountries]);
 
-  // Sorted & filtered paths for the table
-  const sortedPaths = useMemo(() => {
+  // Filtered paths for the table (DataTable owns sorting)
+  const filteredPaths = useMemo(() => {
     if (!batchResult) return [];
-    const paths = batchResult.paths.filter((p) => {
+    return batchResult.paths.filter((p) => {
       if (filterCountries.size > 0 && !filterCountries.has(p.country)) return false;
       if (filterMinStartYear > 0 && p.start_year < filterMinStartYear) return false;
       if (filterMinYears > 0 && p.years_simulated < filterMinYears) return false;
       return true;
     });
-    paths.sort((a, b) => {
-      let va: number | string, vb: number | string;
-      switch (sortCol) {
-        case "country": va = a.country; vb = b.country; break;
-        case "start_year": va = a.start_year; vb = b.start_year; break;
-        case "years_simulated": va = a.years_simulated; vb = b.years_simulated; break;
-        case "final_portfolio": va = a.final_portfolio; vb = b.final_portfolio; break;
-        case "min_withdrawal": va = Math.min(...a.withdrawals); vb = Math.min(...b.withdrawals); break;
-        case "survived": va = a.survived ? 1 : 0; vb = b.survived ? 1 : 0; break;
-        default: va = a.start_year; vb = b.start_year;
-      }
-      if (va < vb) return sortDir === "asc" ? -1 : 1;
-      if (va > vb) return sortDir === "asc" ? 1 : -1;
-      // secondary sort by country then start_year
-      if (a.country !== b.country) return a.country < b.country ? -1 : 1;
-      return a.start_year - b.start_year;
-    });
-    return paths;
-  }, [batchResult, sortCol, sortDir, filterCountries, filterMinStartYear, filterMinYears]);
+  }, [batchResult, filterCountries, filterMinStartYear, filterMinYears]);
 
-  const handleSort = (col: string) => {
-    if (sortCol === col) {
-      setSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setSortCol(col);
-      setSortDir("asc");
-    }
+  const minWithdrawal = (w: number[]): number => {
+    if (w.length === 0) return 0;
+    let m = w[0];
+    for (let i = 1; i < w.length; i++) if (w[i] < m) m = w[i];
+    return m;
   };
 
-  const sortIndicator = (col: string) =>
-    sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+  const pathColumns: DataTableColumn<SimBatchPathSummary>[] = [
+    { key: "country", header: t("country"), sortable: true, sortValue: (p) => p.country,
+      csvValue: (p) => countryLabel(p.country), render: (p) => countryLabel(p.country) },
+    { key: "start_year", header: t("startYear"), sortable: true, sortValue: (p) => p.start_year,
+      csvValue: (p) => String(p.start_year) },
+    { key: "years_simulated", header: t("yearsSimulatedShort"), align: "right", sortable: true,
+      sortValue: (p) => p.years_simulated, csvValue: (p) => String(p.years_simulated),
+      render: (p) => (
+        <>
+          {p.years_simulated}
+          {!p.is_complete && <span className="ml-1 text-xs text-amber-600 dark:text-amber-500">*</span>}
+        </>
+      ) },
+    { key: "status", header: t("survived"),
+      csvValue: (p) => (p.has_failed ? tc("statusFailed") : p.is_complete ? tc("statusSuccess") : tc("statusCensored")),
+      render: (p) =>
+        p.has_failed ? (
+          <StatusBadge variant="bad" label={tc("statusFailed")} />
+        ) : p.is_complete ? (
+          <StatusBadge variant="ok" label={tc("statusSuccess")} />
+        ) : (
+          <StatusBadge variant="censored" label={tc("statusCensored")} />
+        ) },
+    { key: "min_withdrawal", header: t("minWithdrawal"), align: "right", sortable: true,
+      sortValue: (p) => minWithdrawal(p.withdrawals), csvValue: (p) => String(Math.round(minWithdrawal(p.withdrawals))),
+      render: (p) => fmt(minWithdrawal(p.withdrawals)) },
+    { key: "final_portfolio", header: t("finalPortfolio"), align: "right", sortable: true,
+      sortValue: (p) => p.final_portfolio, csvValue: (p) => String(Math.round(p.final_portfolio)),
+      render: (p) => fmt(p.final_portfolio) },
+  ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
@@ -467,6 +478,7 @@ export function SimulatorClient() {
                       xLabels={Array.from({ length: result.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => resultAge + i)}
                       xTitle={tf("ageAxis")}
                       showLogToggle
+                      endLabels
                       extraTraces={pinnedResult ? [{
                         x: Array.from({ length: pinnedResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => resultAge + i),
                         y: pinnedResult.percentile_trajectories["50"],
@@ -491,6 +503,7 @@ export function SimulatorClient() {
                         xTitle={tf("ageAxis")}
                         color={CHART_COLORS.orange.rgb}
                         showLogToggle
+                        endLabels
                       />
                     </CardContent>
                   </Card>
@@ -508,13 +521,27 @@ export function SimulatorClient() {
                   </Card>
                 )}
 
-                {/* 统计表 */}
+                {/* 统计摘要 — 分布优先(扇形图末端分布 + 可展开精确数值) */}
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">{t("statsSummary")}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <StatsTable rows={result.final_values_summary} downloadName="stats_summary" />
+                    <DistributionStrip
+                      data={{
+                        min: result.final_min,
+                        p5: result.final_percentiles["5"],
+                        p10: result.final_percentiles["10"],
+                        p25: result.final_percentiles["25"],
+                        p50: result.final_percentiles["50"] ?? result.final_median,
+                        p75: result.final_percentiles["75"],
+                        p90: result.final_percentiles["90"],
+                        p95: result.final_percentiles["95"],
+                        max: result.final_max,
+                        mean: result.final_mean,
+                      }}
+                      exactContent={<StatsTable rows={result.final_values_summary} downloadName="stats_summary" />}
+                    />
                   </CardContent>
                 </Card>
 
@@ -759,64 +786,23 @@ export function SimulatorClient() {
                       )}
                     </div>
 
-                    <div className="rounded-md border overflow-auto max-h-[600px]">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/50 sticky top-0">
-                          <tr>
-                            <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("country")}>
-                              {t("country")}{sortIndicator("country")}
-                            </th>
-                            <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("start_year")}>
-                              {t("startYear")}{sortIndicator("start_year")}
-                            </th>
-                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("years_simulated")}>
-                              {t("yearsSimulatedShort")}{sortIndicator("years_simulated")}
-                            </th>
-                            <th className="px-3 py-2 text-center whitespace-nowrap">{t("survived")}</th>
-                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("min_withdrawal")}>
-                              {t("minWithdrawal")}{sortIndicator("min_withdrawal")}
-                            </th>
-                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("final_portfolio")}>
-                              {t("finalPortfolio")}{sortIndicator("final_portfolio")}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sortedPaths.map((p, i) => (
-                            <tr
-                              key={`${p.country}-${p.start_year}`}
-                              className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${!p.is_complete ? "opacity-60" : ""}`}
-                              onClick={() => setSelectedPath(p)}
-                            >
-                              <td className="px-3 py-1.5">{countryLabel(p.country)}</td>
-                              <td className="px-3 py-1.5">{p.start_year}</td>
-                              <td className="px-3 py-1.5 text-right">
-                                {p.years_simulated}
-                                {!p.is_complete && <span className="ml-1 text-xs text-amber-600">*</span>}
-                              </td>
-                              <td className="px-3 py-1.5 text-center">
-                                {p.has_failed ? (
-                                  <span className="text-red-500" title={tc("statusFailed")}>✗</span>
-                                ) : p.is_complete ? (
-                                  <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
-                                ) : (
-                                  <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-1.5 text-right font-mono">{fmt(Math.min(...p.withdrawals))}</td>
-                              <td className="px-3 py-1.5 text-right font-mono">{fmt(p.final_portfolio)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      columns={pathColumns}
+                      rows={filteredPaths}
+                      getRowKey={(p) => `${p.country}-${p.start_year}`}
+                      onRowClick={(p) => setSelectedPath(p)}
+                      rowClassName={(p) => (!p.is_complete ? "opacity-60" : "")}
+                      defaultSort={{ key: "start_year", dir: 1 }}
+                      downloadName="backtest_paths"
+                      maxHeight={600}
+                    />
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-muted-foreground">
                         * = {t("incomplete")} (&lt; {params.retirement_years} {t("yearsSimulatedShort")})
                       </p>
                       {batchResult && (
                         <p className="text-xs text-muted-foreground">
-                          {t("filteredCount", { count: sortedPaths.length, total: batchResult.paths.length })}
+                          {t("filteredCount", { count: filteredPaths.length, total: batchResult.paths.length })}
                         </p>
                       )}
                     </div>
@@ -1086,39 +1072,35 @@ export function SimulatorClient() {
 
                         {/* Scenario table */}
                         <Card>
-                          <CardContent className="pt-4 overflow-x-auto">
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b">
-                                  <th className="text-left py-2 px-2 font-medium">{t("scenarioLabel")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioProbability")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioSuccessRate")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioFundedRatio")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianFinal")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianConsumption")}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                <tr className="border-b bg-muted/50 font-medium">
-                                  <td className="py-1.5 px-2">{t("scenarioBaseCase")}</td>
-                                  <td className="text-right py-1.5 px-2">—</td>
-                                  <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.success_rate)}</td>
-                                  <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.funded_ratio)}</td>
-                                  <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_final_portfolio)}</td>
-                                  <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_total_consumption)}</td>
-                                </tr>
-                                {scenarioResult.scenarios.map((s, i) => (
-                                  <tr key={i} className="border-b hover:bg-muted/30">
-                                    <td className="py-1.5 px-2 max-w-[200px] truncate" title={s.label}>{s.label}</td>
-                                    <td className="text-right py-1.5 px-2">{(s.probability * 100).toFixed(1)}%</td>
-                                    <td className="text-right py-1.5 px-2">{pct(s.success_rate)}</td>
-                                    <td className="text-right py-1.5 px-2">{pct(s.funded_ratio)}</td>
-                                    <td className="text-right py-1.5 px-2">{fmt(s.median_final_portfolio)}</td>
-                                    <td className="text-right py-1.5 px-2">{fmt(s.median_total_consumption)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <CardContent className="pt-4">
+                            {(() => {
+                              type ScenRow = { isBase: boolean; label: string; probability: number | null; success_rate: number; funded_ratio: number; median_final: number; median_consumption: number };
+                              const bc = scenarioResult.base_case;
+                              const scenRows: ScenRow[] = [
+                                { isBase: true, label: t("scenarioBaseCase"), probability: null, success_rate: bc.success_rate, funded_ratio: bc.funded_ratio, median_final: bc.median_final_portfolio, median_consumption: bc.median_total_consumption },
+                                ...scenarioResult.scenarios.map((s) => ({ isBase: false, label: s.label, probability: s.probability, success_rate: s.success_rate, funded_ratio: s.funded_ratio, median_final: s.median_final_portfolio, median_consumption: s.median_total_consumption })),
+                              ];
+                              const scenCols: DataTableColumn<ScenRow>[] = [
+                                { key: "label", header: t("scenarioLabel"), csvValue: (r) => r.label,
+                                  render: (r) => <span className="block max-w-[220px] truncate" title={r.label}>{r.label}</span> },
+                                { key: "probability", header: t("scenarioProbability"), align: "right",
+                                  csvValue: (r) => (r.probability === null ? "—" : pct(r.probability)),
+                                  render: (r) => (r.probability === null ? "—" : pct(r.probability)) },
+                                { key: "success_rate", header: t("scenarioSuccessRate"), align: "right", csvValue: (r) => pct(r.success_rate), render: (r) => pct(r.success_rate) },
+                                { key: "funded_ratio", header: t("scenarioFundedRatio"), align: "right", csvValue: (r) => pct(r.funded_ratio), render: (r) => pct(r.funded_ratio) },
+                                { key: "median_final", header: t("scenarioMedianFinal"), align: "right", csvValue: (r) => String(Math.round(r.median_final)), render: (r) => fmt(r.median_final) },
+                                { key: "median_consumption", header: t("scenarioMedianConsumption"), align: "right", csvValue: (r) => String(Math.round(r.median_consumption)), render: (r) => fmt(r.median_consumption) },
+                              ];
+                              return (
+                                <DataTable
+                                  columns={scenCols}
+                                  rows={scenRows}
+                                  getRowKey={(_r, i) => i}
+                                  rowClassName={(r) => (r.isBase ? "bg-muted/50 font-medium" : "")}
+                                  downloadName="scenarios"
+                                />
+                              );
+                            })()}
                           </CardContent>
                         </Card>
                       </>
@@ -1180,7 +1162,7 @@ export function SimulatorClient() {
                           layout={{
                             title: isMobile ? undefined : { text: t("sensitivityChartTitle"), font: { size: 14 } },
                             barmode: "overlay",
-                            xaxis: { title: { text: t("sensitivityImpact") }, type: "linear" as const, ticksuffix: "%" },
+                            xaxis: { title: { text: tc("successRate") }, type: "linear" as const, ticksuffix: "%" },
                             margin: isMobile ? { l: 100, r: 30, t: 10, b: 40 } : { l: 140, r: 40, t: 40, b: 50 },
                             height: isMobile ? 250 : 300,
                             shapes: [
@@ -1198,43 +1180,41 @@ export function SimulatorClient() {
 
                         {/* Parameter table */}
                         <Card>
-                          <CardContent className="pt-4 overflow-x-auto">
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b">
-                                  <th className="text-left py-2 px-2 font-medium">{t("sensitivityParam")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityBaseValue")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityRange")}</th>
-                                  <th className="text-right py-2 px-2 font-medium">{t("sensitivityImpact")}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {sensitivityResult.deltas.map((d, i) => {
-                                  const fmtVal = (v: number, key: string) => {
-                                    if (key === "initial_portfolio" || key === "annual_withdrawal")
-                                      return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-                                    if (key === "retirement_years") return `${v.toFixed(0)}`;
-                                    if (key === "stock_allocation" || key === "target_success")
-                                      return `${(v * 100).toFixed(0)}%`;
-                                    return v.toFixed(2);
-                                  };
-                                  const loD = ((d.low_success_rate - sensitivityResult.base_success_rate) * 100).toFixed(1);
-                                  const hiD = ((d.high_success_rate - sensitivityResult.base_success_rate) * 100).toFixed(1);
-                                  return (
-                                    <tr key={i} className="border-b hover:bg-muted/30">
-                                      <td className="py-1.5 px-2">{d.param_label}</td>
-                                      <td className="text-right py-1.5 px-2">{fmtVal(d.base_value, d.param_key)}</td>
-                                      <td className="text-right py-1.5 px-2">{fmtVal(d.low_value, d.param_key)} ~ {fmtVal(d.high_value, d.param_key)}</td>
-                                      <td className="text-right py-1.5 px-2">
-                                        <span className={Number(loD) < 0 ? "text-red-500" : "text-green-500"}>{loD}pp</span>
-                                        {" / "}
-                                        <span className={Number(hiD) < 0 ? "text-red-500" : "text-green-500"}>{hiD}pp</span>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                          <CardContent className="pt-4">
+                            {(() => {
+                              type SensRow = (typeof sensitivityResult.deltas)[number];
+                              const base = sensitivityResult.base_success_rate;
+                              const ppClass = (v: number) =>
+                                v < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400";
+                              const loPp = (d: SensRow) => (d.low_success_rate - base) * 100;
+                              const hiPp = (d: SensRow) => (d.high_success_rate - base) * 100;
+                              const sensCols: DataTableColumn<SensRow>[] = [
+                                { key: "param_label", header: t("sensitivityParam"), csvValue: (d) => d.param_label, render: (d) => d.param_label },
+                                { key: "base_value", header: t("sensitivityBaseValue"), align: "right",
+                                  csvValue: (d) => formatParamValue(d.base_value, d.param_key),
+                                  render: (d) => formatParamValue(d.base_value, d.param_key) },
+                                { key: "range", header: t("sensitivityRange"), align: "right",
+                                  csvValue: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}`,
+                                  render: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}` },
+                                { key: "impact", header: t("sensitivityImpact"), align: "right",
+                                  csvValue: (d) => `${loPp(d).toFixed(1)}pp / ${hiPp(d).toFixed(1)}pp`,
+                                  render: (d) => (
+                                    <>
+                                      <span className={ppClass(loPp(d))}>{loPp(d).toFixed(1)}pp</span>
+                                      {" / "}
+                                      <span className={ppClass(hiPp(d))}>{hiPp(d).toFixed(1)}pp</span>
+                                    </>
+                                  ) },
+                              ];
+                              return (
+                                <DataTable
+                                  columns={sensCols}
+                                  rows={sensitivityResult.deltas}
+                                  getRowKey={(_d, i) => i}
+                                  downloadName="sensitivity"
+                                />
+                              );
+                            })()}
                           </CardContent>
                         </Card>
                       </>

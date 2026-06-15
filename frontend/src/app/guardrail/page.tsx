@@ -21,10 +21,13 @@ import { MetricCard } from "@/components/metric-card";
 import { StatsTable } from "@/components/stats-table";
 import { GuardrailStressNarrative } from "@/components/guardrail-stress-narrative";
 import { CountrySuccessTable } from "@/components/country-success-table";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { computeCountrySuccessStats } from "@/lib/country-success";
 import { ProgressOverlay, PreliminaryBanner, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
-import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
+import { CHART_COLORS, MARGINS, getChartTokens } from "@/lib/chart-theme";
+import { useTheme } from "next-themes";
 import { Pin, PinOff } from "lucide-react";
 import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries, runGuardrailScenarios, runGuardrailSensitivity, fetchHistoricalEvents } from "@/lib/api";
 import { filterEvents, buildEventOverlay, EVENT_MARKER_AXIS } from "@/lib/historical-events";
@@ -42,7 +45,7 @@ import type {
   ScenarioAnalysisResponse,
   SensitivityAnalysisResponse,
 } from "@/lib/types";
-import { fmt, pct, countryFlag, deltaPct } from "@/lib/utils";
+import { fmt, pct, countryFlag, deltaPct, formatParamValue } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 
 export default function GuardrailPage() {
@@ -51,6 +54,8 @@ export default function GuardrailPage() {
   const tf = useTranslations("fanChart");
   const locale = useLocale();
   const isMobile = useIsMobile();
+  const { resolvedTheme } = useTheme();
+  const chartTk = getChartTokens(resolvedTheme === "dark");
 
   const {
     params, setParams,
@@ -92,8 +97,6 @@ export default function GuardrailPage() {
   const [selectedPath, setSelectedPath] = useState<GuardrailBatchPathSummary | null>(null);
   const [btLogScale, setBtLogScale] = useState(false);
   const [btWdLogScale, setBtWdLogScale] = useState(false);
-  const [sortCol, setSortCol] = useState<string>("start_year");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Path list filters
   const [filterCountries, setFilterCountries] = useState<Set<string>>(new Set());
   const [filterMinStartYear, setFilterMinStartYear] = useState(0);
@@ -320,45 +323,62 @@ export default function GuardrailPage() {
     );
   }, [batchResult, availableCountries]);
 
-  // Sorted & filtered paths for the table
-  const sortedPaths = useMemo(() => {
+  // Filtered paths for the table (DataTable owns sorting)
+  const filteredPaths = useMemo(() => {
     if (!batchResult) return [];
-    const paths = batchResult.paths.filter((p) => {
+    return batchResult.paths.filter((p) => {
       if (filterCountries.size > 0 && !filterCountries.has(p.country)) return false;
       if (filterMinStartYear > 0 && p.start_year < filterMinStartYear) return false;
       if (filterMinYears > 0 && p.years_simulated < filterMinYears) return false;
       return true;
     });
-    paths.sort((a, b) => {
-      let va: number | string, vb: number | string;
-      switch (sortCol) {
-        case "country": va = a.country; vb = b.country; break;
-        case "start_year": va = a.start_year; vb = b.start_year; break;
-        case "years_simulated": va = a.years_simulated; vb = b.years_simulated; break;
-        case "g_final_portfolio": va = a.g_final_portfolio; vb = b.g_final_portfolio; break;
-        case "min_withdrawal": va = Math.min(...a.g_withdrawals); vb = Math.min(...b.g_withdrawals); break;
-        case "g_survived": va = a.g_survived ? 1 : 0; vb = b.g_survived ? 1 : 0; break;
-        default: va = a.start_year; vb = b.start_year;
-      }
-      if (va < vb) return sortDir === "asc" ? -1 : 1;
-      if (va > vb) return sortDir === "asc" ? 1 : -1;
-      if (a.country !== b.country) return a.country < b.country ? -1 : 1;
-      return a.start_year - b.start_year;
-    });
-    return paths;
-  }, [batchResult, sortCol, sortDir, filterCountries, filterMinStartYear, filterMinYears]);
+  }, [batchResult, filterCountries, filterMinStartYear, filterMinYears]);
 
-  const handleSort = (col: string) => {
-    if (sortCol === col) {
-      setSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setSortCol(col);
-      setSortDir("asc");
-    }
+  const minWithdrawal = (w: number[]): number => {
+    if (w.length === 0) return 0;
+    let m = w[0];
+    for (let i = 1; i < w.length; i++) if (w[i] < m) m = w[i];
+    return m;
   };
 
-  const sortIndicator = (col: string) =>
-    sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+  const statusBadge = (failed: boolean | undefined, complete: boolean) =>
+    failed ? (
+      <StatusBadge variant="bad" label={tc("statusFailed")} />
+    ) : complete ? (
+      <StatusBadge variant="ok" label={tc("statusSuccess")} />
+    ) : (
+      <StatusBadge variant="censored" label={tc("statusCensored")} />
+    );
+
+  const statusText = (failed: boolean | undefined, complete: boolean) =>
+    failed ? tc("statusFailed") : complete ? tc("statusSuccess") : tc("statusCensored");
+
+  const pathColumns: DataTableColumn<GuardrailBatchPathSummary>[] = [
+    { key: "country", header: t("backtestCountry"), sortable: true, sortValue: (p) => p.country,
+      csvValue: (p) => countryLabel(p.country), render: (p) => countryLabel(p.country) },
+    { key: "start_year", header: t("backtestStartYear"), sortable: true, sortValue: (p) => p.start_year,
+      csvValue: (p) => String(p.start_year) },
+    { key: "years_simulated", header: t("yearsSimulated"), align: "right", sortable: true,
+      sortValue: (p) => p.years_simulated, csvValue: (p) => String(p.years_simulated),
+      render: (p) => (
+        <>
+          {p.years_simulated}
+          {!p.is_complete && <span className="ml-1 text-xs text-amber-600 dark:text-amber-500">*</span>}
+        </>
+      ) },
+    { key: "g_status", header: <abbr title="Guardrail" className="no-underline">G</abbr>, csvHeader: "G",
+      csvValue: (p) => statusText(p.g_has_failed, p.is_complete),
+      render: (p) => statusBadge(p.g_has_failed, p.is_complete) },
+    { key: "b_status", header: <abbr title={tc("baseline")} className="no-underline">B</abbr>, csvHeader: "B",
+      csvValue: (p) => statusText(p.b_has_failed, p.is_complete),
+      render: (p) => statusBadge(p.b_has_failed, p.is_complete) },
+    { key: "min_withdrawal", header: t("minWithdrawal"), align: "right", sortable: true,
+      sortValue: (p) => minWithdrawal(p.g_withdrawals), csvValue: (p) => String(Math.round(minWithdrawal(p.g_withdrawals))),
+      render: (p) => fmt(minWithdrawal(p.g_withdrawals)) },
+    { key: "g_final_portfolio", header: t("guardrailFinalPortfolio"), align: "right", sortable: true,
+      sortValue: (p) => p.g_final_portfolio, csvValue: (p) => String(Math.round(p.g_final_portfolio)),
+      render: (p) => fmt(p.g_final_portfolio) },
+  ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
@@ -714,6 +734,7 @@ export default function GuardrailPage() {
                     xLabels={Array.from({ length: mcResult.g_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
                     xTitle={tf("ageAxis")}
                     showLogToggle
+                    endLabels
                     extraTraces={[
                       {
                         x: Array.from({ length: mcResult.b_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i),
@@ -747,6 +768,7 @@ export default function GuardrailPage() {
                     xTitle={tf("ageAxis")}
                     color={CHART_COLORS.secondary.rgb}
                     showLogToggle
+                    endLabels
                     extraTraces={(() => {
                       const wdX = Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i);
                       return [
@@ -1035,74 +1057,23 @@ export default function GuardrailPage() {
                         )}
                       </div>
 
-                      <div className="rounded-md border overflow-auto max-h-[600px]">
-                        <table className="w-full text-sm">
-                          <thead className="bg-muted/50 sticky top-0">
-                            <tr>
-                              <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("country")}>
-                                {t("backtestCountry")}{sortIndicator("country")}
-                              </th>
-                              <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("start_year")}>
-                                {t("backtestStartYear")}{sortIndicator("start_year")}
-                              </th>
-                              <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("years_simulated")}>
-                                {t("yearsSimulated")}{sortIndicator("years_simulated")}
-                              </th>
-                              <th className="px-3 py-2 text-center whitespace-nowrap">G</th>
-                              <th className="px-3 py-2 text-center whitespace-nowrap">B</th>
-                              <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("min_withdrawal")}>
-                                {t("minWithdrawal")}{sortIndicator("min_withdrawal")}
-                              </th>
-                              <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("g_final_portfolio")}>
-                                {t("guardrailFinalPortfolio")}{sortIndicator("g_final_portfolio")}
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {sortedPaths.map((p) => (
-                              <tr
-                                key={`${p.country}-${p.start_year}`}
-                                className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${!p.is_complete ? "opacity-60" : ""}`}
-                                onClick={() => setSelectedPath(p)}
-                              >
-                                <td className="px-3 py-1.5">{countryLabel(p.country)}</td>
-                                <td className="px-3 py-1.5">{p.start_year}</td>
-                                <td className="px-3 py-1.5 text-right">
-                                  {p.years_simulated}
-                                  {!p.is_complete && <span className="ml-1 text-xs text-amber-600">*</span>}
-                                </td>
-                                <td className="px-3 py-1.5 text-center">
-                                  {p.g_has_failed ? (
-                                    <span className="text-red-500" title={tc("statusFailed")}>✗</span>
-                                  ) : p.is_complete ? (
-                                    <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
-                                  ) : (
-                                    <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-1.5 text-center">
-                                  {p.b_has_failed ? (
-                                    <span className="text-red-500" title={tc("statusFailed")}>✗</span>
-                                  ) : p.is_complete ? (
-                                    <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
-                                  ) : (
-                                    <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
-                                  )}
-                                </td>
-                                <td className="px-3 py-1.5 text-right font-mono">{fmt(Math.min(...p.g_withdrawals))}</td>
-                                <td className="px-3 py-1.5 text-right font-mono">{fmt(p.g_final_portfolio)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <DataTable
+                        columns={pathColumns}
+                        rows={filteredPaths}
+                        getRowKey={(p) => `${p.country}-${p.start_year}`}
+                        onRowClick={(p) => setSelectedPath(p)}
+                        rowClassName={(p) => (!p.is_complete ? "opacity-60" : "")}
+                        defaultSort={{ key: "start_year", dir: 1 }}
+                        downloadName="guardrail_backtest_paths"
+                        maxHeight={600}
+                      />
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-muted-foreground">
                           * = {t("numIncomplete")} | G = Guardrail | B = {tc("baseline")}
                         </p>
                         {batchResult && (
                           <p className="text-xs text-muted-foreground">
-                            {t("filteredCount", { count: sortedPaths.length, total: batchResult.paths.length })}
+                            {t("filteredCount", { count: filteredPaths.length, total: batchResult.paths.length })}
                           </p>
                         )}
                       </div>
@@ -1263,10 +1234,10 @@ export default function GuardrailPage() {
                             tickfont: { size: isMobile ? 9 : 12 }, side: "left",
                           },
                           yaxis2: {
-                            title: isMobile ? undefined : { text: t("successRateAxis") },
+                            title: isMobile ? undefined : { text: t("successRateAxis"), font: { color: chartTk.title } },
                             type: "linear" as const,
                             overlaying: "y", side: "right", range: [0, 105],
-                            tickfont: { size: isMobile ? 9 : 12 },
+                            tickfont: { size: isMobile ? 9 : 12, color: chartTk.tick },
                           },
                           height: isMobile ? 300 : 450,
                           margin: MARGINS.dualAxisWithTitle(isMobile),
@@ -1302,38 +1273,44 @@ export default function GuardrailPage() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="max-h-[400px] overflow-auto">
-                          <table className="w-full text-sm">
-                            <thead className="sticky top-0 bg-background border-b">
-                              <tr>
-                                <th className="text-left px-2 py-1.5">{t("adjHeaderYear")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderOldWithdrawal")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderNewWithdrawal")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderChange")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderOldSuccess")}</th>
-                                <th className="text-right px-2 py-1.5">{t("adjHeaderNewSuccess")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {selectedPath.adjustment_events.map((e, i) => {
-                                const change = (e.new_wd / e.old_wd - 1) * 100;
-                                const isUp = change > 0;
+                        {(() => {
+                          const path = selectedPath;
+                          type AdjRow = (typeof path.adjustment_events)[number];
+                          const changePct = (e: AdjRow) => (e.new_wd / e.old_wd - 1) * 100;
+                          const adjCols: DataTableColumn<AdjRow>[] = [
+                            { key: "year", header: t("adjHeaderYear"),
+                              csvValue: (e) => String(path.year_labels[e.year + 1]),
+                              render: (e) => path.year_labels[e.year + 1] },
+                            { key: "old_wd", header: t("adjHeaderOldWithdrawal"), align: "right",
+                              csvValue: (e) => String(Math.round(e.old_wd)), render: (e) => fmt(e.old_wd) },
+                            { key: "new_wd", header: t("adjHeaderNewWithdrawal"), align: "right",
+                              csvValue: (e) => String(Math.round(e.new_wd)), render: (e) => fmt(e.new_wd) },
+                            { key: "change", header: t("adjHeaderChange"), align: "right",
+                              csvValue: (e) => `${changePct(e).toFixed(1)}%`,
+                              render: (e) => {
+                                const c = changePct(e);
+                                const isUp = c > 0;
                                 return (
-                                  <tr key={i} className="border-b hover:bg-accent/50">
-                                    <td className="px-2 py-1">{selectedPath.year_labels[e.year + 1]}</td>
-                                    <td className="text-right px-2 py-1">{fmt(e.old_wd)}</td>
-                                    <td className="text-right px-2 py-1">{fmt(e.new_wd)}</td>
-                                    <td className={`text-right px-2 py-1 font-medium ${isUp ? "text-green-600" : "text-red-600"}`}>
-                                      {isUp ? "+" : ""}{change.toFixed(1)}%
-                                    </td>
-                                    <td className="text-right px-2 py-1">{pct(e.success_before)}</td>
-                                    <td className="text-right px-2 py-1">{pct(e.success_after)}</td>
-                                  </tr>
+                                  <span className={`font-medium ${isUp ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                                    {isUp ? "+" : ""}{c.toFixed(1)}%
+                                  </span>
                                 );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                              } },
+                            { key: "success_before", header: t("adjHeaderOldSuccess"), align: "right",
+                              csvValue: (e) => pct(e.success_before), render: (e) => pct(e.success_before) },
+                            { key: "success_after", header: t("adjHeaderNewSuccess"), align: "right",
+                              csvValue: (e) => pct(e.success_after), render: (e) => pct(e.success_after) },
+                          ];
+                          return (
+                            <DataTable
+                              columns={adjCols}
+                              rows={path.adjustment_events}
+                              getRowKey={(_e, i) => i}
+                              downloadName="adjustment_events"
+                              maxHeight={400}
+                            />
+                          );
+                        })()}
                       </CardContent>
                     </Card>
                   )}
@@ -1496,43 +1473,36 @@ export default function GuardrailPage() {
 
                   {/* Results table */}
                   <Card>
-                    <CardContent className="pt-4 overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left py-2 px-2 font-medium">{t("scenarioLabel")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioProbability")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioSuccessRate")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioFundedRatio")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioAnnualWD")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianFinal")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("scenarioMedianConsumption")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {/* Base case row */}
-                          <tr className="border-b bg-muted/50 font-medium">
-                            <td className="py-1.5 px-2">{t("scenarioBaseCase")}</td>
-                            <td className="text-right py-1.5 px-2">—</td>
-                            <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.success_rate)}</td>
-                            <td className="text-right py-1.5 px-2">{pct(scenarioResult.base_case.funded_ratio)}</td>
-                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.annual_withdrawal)}</td>
-                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_final_portfolio)}</td>
-                            <td className="text-right py-1.5 px-2">{fmt(scenarioResult.base_case.median_total_consumption)}</td>
-                          </tr>
-                          {scenarioResult.scenarios.map((s, i) => (
-                            <tr key={i} className="border-b hover:bg-muted/30">
-                              <td className="py-1.5 px-2 max-w-[200px] truncate" title={s.label}>{s.label}</td>
-                              <td className="text-right py-1.5 px-2">{(s.probability * 100).toFixed(1)}%</td>
-                              <td className="text-right py-1.5 px-2">{pct(s.success_rate)}</td>
-                              <td className="text-right py-1.5 px-2">{pct(s.funded_ratio)}</td>
-                              <td className="text-right py-1.5 px-2">{fmt(s.annual_withdrawal)}</td>
-                              <td className="text-right py-1.5 px-2">{fmt(s.median_final_portfolio)}</td>
-                              <td className="text-right py-1.5 px-2">{fmt(s.median_total_consumption)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <CardContent className="pt-4">
+                      {(() => {
+                        type GScenRow = { isBase: boolean; label: string; probability: number | null; success_rate: number; funded_ratio: number; annual_withdrawal: number; median_final: number; median_consumption: number };
+                        const bc = scenarioResult.base_case;
+                        const gScenRows: GScenRow[] = [
+                          { isBase: true, label: t("scenarioBaseCase"), probability: null, success_rate: bc.success_rate, funded_ratio: bc.funded_ratio, annual_withdrawal: bc.annual_withdrawal, median_final: bc.median_final_portfolio, median_consumption: bc.median_total_consumption },
+                          ...scenarioResult.scenarios.map((s) => ({ isBase: false, label: s.label, probability: s.probability, success_rate: s.success_rate, funded_ratio: s.funded_ratio, annual_withdrawal: s.annual_withdrawal, median_final: s.median_final_portfolio, median_consumption: s.median_total_consumption })),
+                        ];
+                        const gScenCols: DataTableColumn<GScenRow>[] = [
+                          { key: "label", header: t("scenarioLabel"), csvValue: (r) => r.label,
+                            render: (r) => <span className="block max-w-[220px] truncate" title={r.label}>{r.label}</span> },
+                          { key: "probability", header: t("scenarioProbability"), align: "right",
+                            csvValue: (r) => (r.probability === null ? "—" : pct(r.probability)),
+                            render: (r) => (r.probability === null ? "—" : pct(r.probability)) },
+                          { key: "success_rate", header: t("scenarioSuccessRate"), align: "right", csvValue: (r) => pct(r.success_rate), render: (r) => pct(r.success_rate) },
+                          { key: "funded_ratio", header: t("scenarioFundedRatio"), align: "right", csvValue: (r) => pct(r.funded_ratio), render: (r) => pct(r.funded_ratio) },
+                          { key: "annual_withdrawal", header: t("scenarioAnnualWD"), align: "right", csvValue: (r) => String(Math.round(r.annual_withdrawal)), render: (r) => fmt(r.annual_withdrawal) },
+                          { key: "median_final", header: t("scenarioMedianFinal"), align: "right", csvValue: (r) => String(Math.round(r.median_final)), render: (r) => fmt(r.median_final) },
+                          { key: "median_consumption", header: t("scenarioMedianConsumption"), align: "right", csvValue: (r) => String(Math.round(r.median_consumption)), render: (r) => fmt(r.median_consumption) },
+                        ];
+                        return (
+                          <DataTable
+                            columns={gScenCols}
+                            rows={gScenRows}
+                            getRowKey={(_r, i) => i}
+                            rowClassName={(r) => (r.isBase ? "bg-muted/50 font-medium" : "")}
+                            downloadName="guardrail_scenarios"
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 </>
@@ -1636,9 +1606,9 @@ export default function GuardrailPage() {
                           <PlotlyChart
                             data={traces}
                             layout={{
-                              title: { text: t("sensitivityChartTitle"), font: { size: 14 } },
+                              title: isMobile ? undefined : { text: t("sensitivityChartTitle"), font: { size: 14 } },
                               xaxis: {
-                                title: { text: t("sensitivityImpact") },
+                                title: { text: tc("annualWithdrawal") },
                                 type: "linear" as const,
                               },
                               barmode: "overlay",
@@ -1676,54 +1646,40 @@ export default function GuardrailPage() {
 
                   {/* Sensitivity detail table — withdrawal delta */}
                   <Card>
-                    <CardContent className="pt-4 overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left py-2 px-2 font-medium">{t("sensitivityParam")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityBaseValue")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityRange")}</th>
-                            <th className="text-right py-2 px-2 font-medium">{t("sensitivityImpact")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sensitivityResult.deltas.map((d, i) => {
-                            const baseWD = sensitivityResult.base_withdrawal ?? 0;
-                            const fmtVal = (v: number, key: string) => {
-                              if (key === "initial_portfolio" || key === "annual_withdrawal")
-                                return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-                              if (key === "retirement_years") return `${v.toFixed(0)}`;
-                              if (key === "stock_allocation" || key === "target_success")
-                                return `${(v * 100).toFixed(0)}%`;
-                              return v.toFixed(2);
-                            };
-                            const loD = (d.low_withdrawal ?? baseWD) - baseWD;
-                            const hiD = (d.high_withdrawal ?? baseWD) - baseWD;
-                            const fmtDelta = (v: number) => {
-                              const sign = v >= 0 ? "+" : "";
-                              return `${sign}${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-                            };
-                            return (
-                              <tr key={i} className="border-b hover:bg-muted/30">
-                                <td className="py-1.5 px-2">{d.param_label}</td>
-                                <td className="text-right py-1.5 px-2">{fmtVal(d.base_value, d.param_key)}</td>
-                                <td className="text-right py-1.5 px-2">
-                                  {fmtVal(d.low_value, d.param_key)} ~ {fmtVal(d.high_value, d.param_key)}
-                                </td>
-                                <td className="text-right py-1.5 px-2">
-                                  <span className={loD < 0 ? "text-red-600" : "text-green-600"}>
-                                    {fmtDelta(loD)}
-                                  </span>
-                                  {" / "}
-                                  <span className={hiD < 0 ? "text-red-600" : "text-green-600"}>
-                                    {fmtDelta(hiD)}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                    <CardContent className="pt-4">
+                      {(() => {
+                        type GSensRow = (typeof sensitivityResult.deltas)[number];
+                        const baseWD = sensitivityResult.base_withdrawal ?? 0;
+                        const loDelta = (d: GSensRow) => (d.low_withdrawal ?? baseWD) - baseWD;
+                        const hiDelta = (d: GSensRow) => (d.high_withdrawal ?? baseWD) - baseWD;
+                        const fmtDelta = (v: number) => `${v >= 0 ? "+" : ""}${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                        const deltaClass = (v: number) => (v < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400");
+                        const gSensCols: DataTableColumn<GSensRow>[] = [
+                          { key: "param_label", header: t("sensitivityParam"), csvValue: (d) => d.param_label, render: (d) => d.param_label },
+                          { key: "base_value", header: t("sensitivityBaseValue"), align: "right",
+                            csvValue: (d) => formatParamValue(d.base_value, d.param_key), render: (d) => formatParamValue(d.base_value, d.param_key) },
+                          { key: "range", header: t("sensitivityRange"), align: "right",
+                            csvValue: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}`,
+                            render: (d) => `${formatParamValue(d.low_value, d.param_key)} ~ ${formatParamValue(d.high_value, d.param_key)}` },
+                          { key: "impact", header: t("sensitivityImpact"), align: "right",
+                            csvValue: (d) => `${fmtDelta(loDelta(d))} / ${fmtDelta(hiDelta(d))}`,
+                            render: (d) => (
+                              <>
+                                <span className={deltaClass(loDelta(d))}>{fmtDelta(loDelta(d))}</span>
+                                {" / "}
+                                <span className={deltaClass(hiDelta(d))}>{fmtDelta(hiDelta(d))}</span>
+                              </>
+                            ) },
+                        ];
+                        return (
+                          <DataTable
+                            columns={gSensCols}
+                            rows={sensitivityResult.deltas}
+                            getRowKey={(_d, i) => i}
+                            downloadName="guardrail_sensitivity"
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 </>
