@@ -694,14 +694,28 @@ export function SimulatorClient() {
                       <CountrySuccessTable rows={countrySuccessRows} countryLabel={countryLabel} />
                     )}
 
-                    {/* Stats summary */}
+                    {/* Stats summary — 分布优先(扇形图末端分布 + 可展开精确数值) */}
                     {batchResult.final_values_summary.length > 0 && (
                       <Card>
                         <CardHeader className="pb-2">
                           <CardTitle className="text-sm">{t("statsSummary")}</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <StatsTable rows={batchResult.final_values_summary} downloadName="batch_stats_summary" />
+                          <DistributionStrip
+                            data={{
+                              min: batchResult.final_min,
+                              p5: batchResult.final_percentiles["5"],
+                              p10: batchResult.final_percentiles["10"],
+                              p25: batchResult.final_percentiles["25"],
+                              p50: batchResult.final_percentiles["50"] ?? batchResult.final_median,
+                              p75: batchResult.final_percentiles["75"],
+                              p90: batchResult.final_percentiles["90"],
+                              p95: batchResult.final_percentiles["95"],
+                              max: batchResult.final_max,
+                              mean: batchResult.final_mean,
+                            }}
+                            exactContent={<StatsTable rows={batchResult.final_values_summary} downloadName="batch_stats_summary" />}
+                          />
                         </CardContent>
                       </Card>
                     )}

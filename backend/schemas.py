@@ -379,6 +379,11 @@ class SimBatchBacktestResponse(BaseModel):
     percentile_trajectories: dict[str, list[float]]
     withdrawal_percentile_trajectories: dict[str, list[float]] | None = None
     final_values_summary: list[dict[str, str]] = []
+    final_min: float = 0.0
+    final_max: float = 0.0
+    final_mean: float = 0.0
+    final_median: float = 0.0
+    final_percentiles: dict[str, float] = {}
     portfolio_metrics: list[dict[str, str]] = []
     paths: list[SimBatchPathSummary] = []
 

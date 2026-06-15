@@ -284,6 +284,11 @@ def api_sim_batch_backtest(request: Request, req: SimBatchBacktestRequest):
         percentile_trajectories=result["percentile_trajectories"],
         withdrawal_percentile_trajectories=result["withdrawal_percentile_trajectories"],
         final_values_summary=result["final_values_summary"],
+        final_min=result["final_min"],
+        final_max=result["final_max"],
+        final_mean=result["final_mean"],
+        final_median=result["final_median"],
+        final_percentiles=result["final_percentiles"],
         portfolio_metrics=result["portfolio_metrics"],
         paths=[SimBatchPathSummary(**p) for p in result["paths"]],
     )

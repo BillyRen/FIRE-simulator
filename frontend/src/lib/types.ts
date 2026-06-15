@@ -324,6 +324,11 @@ export interface SimBatchBacktestResponse {
   percentile_trajectories: Record<string, number[]>;
   withdrawal_percentile_trajectories: Record<string, number[]> | null;
   final_values_summary: Array<Record<string, string>>;
+  final_min: number;
+  final_max: number;
+  final_mean: number;
+  final_median: number;
+  final_percentiles: Record<string, number>;
   portfolio_metrics: Array<Record<string, string>>;
   paths: SimBatchPathSummary[];
 }
