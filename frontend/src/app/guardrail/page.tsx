@@ -1601,9 +1601,9 @@ export default function GuardrailPage() {
                           <PlotlyChart
                             data={traces}
                             layout={{
-                              title: { text: t("sensitivityChartTitle"), font: { size: 14 } },
+                              title: isMobile ? undefined : { text: t("sensitivityChartTitle"), font: { size: 14 } },
                               xaxis: {
-                                title: { text: t("sensitivityImpact") },
+                                title: { text: tc("annualWithdrawal") },
                                 type: "linear" as const,
                               },
                               barmode: "overlay",

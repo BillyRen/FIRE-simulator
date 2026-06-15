@@ -35,6 +35,7 @@ import { computeCountrySuccessStats } from "@/lib/country-success";
 import { useSharedParams } from "@/lib/params-context";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { DistributionStrip } from "@/components/distribution-strip";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct, countryFlag, deltaPct, deltaFmt, formatParamValue } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
@@ -516,13 +517,27 @@ export function SimulatorClient() {
                   </Card>
                 )}
 
-                {/* 统计表 */}
+                {/* 统计摘要 — 分布优先(扇形图末端分布 + 可展开精确数值) */}
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">{t("statsSummary")}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <StatsTable rows={result.final_values_summary} downloadName="stats_summary" />
+                    <DistributionStrip
+                      data={{
+                        min: result.final_min,
+                        p5: result.final_percentiles["5"],
+                        p10: result.final_percentiles["10"],
+                        p25: result.final_percentiles["25"],
+                        p50: result.final_percentiles["50"] ?? result.final_median,
+                        p75: result.final_percentiles["75"],
+                        p90: result.final_percentiles["90"],
+                        p95: result.final_percentiles["95"],
+                        max: result.final_max,
+                        mean: result.final_mean,
+                      }}
+                      exactContent={<StatsTable rows={result.final_values_summary} downloadName="stats_summary" />}
+                    />
                   </CardContent>
                 </Card>
 
@@ -1143,7 +1158,7 @@ export function SimulatorClient() {
                           layout={{
                             title: isMobile ? undefined : { text: t("sensitivityChartTitle"), font: { size: 14 } },
                             barmode: "overlay",
-                            xaxis: { title: { text: t("sensitivityImpact") }, type: "linear" as const, ticksuffix: "%" },
+                            xaxis: { title: { text: tc("successRate") }, type: "linear" as const, ticksuffix: "%" },
                             margin: isMobile ? { l: 100, r: 30, t: 10, b: 40 } : { l: 140, r: 40, t: 40, b: 50 },
                             height: isMobile ? 250 : 300,
                             shapes: [
