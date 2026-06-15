@@ -12,6 +12,12 @@
     "buyVsRent": "🏠 Buy vs Rent",
     "accumulation": "💰 FIRE Planner"
   },
+  "theme": {
+    "toggle": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
   "common": {
     "year": "Yr",
     "years": "years",

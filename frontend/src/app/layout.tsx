@@ -6,6 +6,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { Providers } from "@/components/providers";
 import { ParamsProvider } from "@/lib/params-context";
 import { getOgLocale } from "@/lib/og-locale";
 
@@ -82,7 +83,7 @@ export default async function RootLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale}>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         <script
           type="application/ld+json"
@@ -92,13 +93,15 @@ export default async function RootLayout({
       <body
         className="antialiased min-h-screen bg-background flex flex-col font-sans"
       >
-        <NextIntlClientProvider locale={locale} messages={messages}>
-          <ParamsProvider>
-            <Navbar />
-            <main className="flex-1">{children}</main>
-            <Footer />
-          </ParamsProvider>
-        </NextIntlClientProvider>
+        <Providers>
+          <NextIntlClientProvider locale={locale} messages={messages}>
+            <ParamsProvider>
+              <Navbar />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </ParamsProvider>
+          </NextIntlClientProvider>
+        </Providers>
         <Analytics />
         <SpeedInsights />
       </body>

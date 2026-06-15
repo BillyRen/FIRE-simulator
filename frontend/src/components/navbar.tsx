@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export function Navbar() {
   const t = useTranslations("nav");
@@ -56,12 +57,15 @@ export function Navbar() {
           ))}
           </nav>
         </div>
-        <button
-          onClick={switchLocale}
-          className="px-2 py-1 rounded-md text-xs font-medium border hover:bg-accent transition-colors shrink-0 ml-2"
-        >
-          {locale === "zh" ? "EN" : "中文"}
-        </button>
+        <div className="flex items-center gap-1.5 ml-2 shrink-0">
+          <ThemeToggle />
+          <button
+            onClick={switchLocale}
+            className="px-2 py-1 rounded-md text-xs font-medium border hover:bg-accent transition-colors shrink-0"
+          >
+            {locale === "zh" ? "EN" : "中文"}
+          </button>
+        </div>
       </div>
     </header>
   );

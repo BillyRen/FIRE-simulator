@@ -12,6 +12,12 @@
     "buyVsRent": "🏠 买房租房",
     "accumulation": "💰 FIRE 规划"
   },
+  "theme": {
+    "toggle": "主题",
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  },
   "common": {
     "year": "年",
     "years": "年",

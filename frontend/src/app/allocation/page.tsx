@@ -138,8 +138,8 @@ export default function AllocationPage() {
         {loading && <ProgressOverlay progress={progress} />}
 
         {error && (
-          <Card className="border-red-300 bg-red-50">
-            <CardContent className="pt-4 text-red-700 text-sm">{error}</CardContent>
+          <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30">
+            <CardContent className="pt-4 text-red-700 dark:text-red-300 text-sm">{error}</CardContent>
           </Card>
         )}
 
