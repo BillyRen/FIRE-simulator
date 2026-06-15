@@ -476,6 +476,7 @@ export function SimulatorClient() {
                       xLabels={Array.from({ length: result.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => resultAge + i)}
                       xTitle={tf("ageAxis")}
                       showLogToggle
+                      endLabels
                       extraTraces={pinnedResult ? [{
                         x: Array.from({ length: pinnedResult.percentile_trajectories["50"]?.length ?? 0 }, (_, i) => resultAge + i),
                         y: pinnedResult.percentile_trajectories["50"],
@@ -500,6 +501,7 @@ export function SimulatorClient() {
                         xTitle={tf("ageAxis")}
                         color={CHART_COLORS.orange.rgb}
                         showLogToggle
+                        endLabels
                       />
                     </CardContent>
                   </Card>

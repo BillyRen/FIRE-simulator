@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Button } from "./ui/button";
 import PlotlyChart from "./plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
+import { fmt } from "@/lib/utils";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 // Re-export for backward compatibility
@@ -40,6 +41,8 @@ interface FanChartProps {
   logScale?: boolean;
   /** 受控对数刻度变更回调。 */
   onLogScaleChange?: (next: boolean) => void;
+  /** 在末端直接标注 P10/P50/P90 数值(桌面端;移动端自动关闭)。 */
+  endLabels?: boolean;
 }
 
 const BAND_PAIRS: [string, string][] = [
@@ -60,6 +63,7 @@ export const FanChart = memo(function FanChart({
   showLogToggle = false,
   logScale: logScaleProp,
   onLogScaleChange,
+  endLabels = false,
 }: FanChartProps) {
   const t = useTranslations();
   const isMobile = useIsMobile();
@@ -127,6 +131,30 @@ export const FanChart = memo(function FanChart({
 
   const chartHeight = isMobile ? 280 : (height ?? 450);
 
+  // Direct end-of-line labels for P10/P50/P90. These sit at distinct y values
+  // (P10 < P50 < P90) so they never collide vertically. Desktop only.
+  const END_LABEL_PCTS = ["90", "50", "10"];
+  const endAnnotations =
+    endLabels && !isMobile && n > 0
+      ? END_LABEL_PCTS.filter((p) => trajectories[p]?.length).map((p) => {
+          const yv = trajectories[p][n - 1];
+          const isMed = p === "50";
+          return {
+            x: x[n - 1],
+            y: yv,
+            xref: "x" as const,
+            yref: "y" as const,
+            text: `P${p} ${fmt(yv)}`,
+            showarrow: false,
+            xanchor: "left" as const,
+            xshift: 6,
+            font: { size: isMed ? 11 : 9, color: isMed ? `rgb(${color})` : CHART_COLORS.neutral.hex },
+          };
+        })
+      : [];
+  const baseMargin = MARGINS.withTitle(isMobile);
+  const margin = endLabels && !isMobile ? { ...baseMargin, r: 72 } : baseMargin;
+
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -161,7 +189,8 @@ export const FanChart = memo(function FanChart({
             tickfont: { size: isMobile ? 9 : 12 },
           },
           height: chartHeight,
-          margin: MARGINS.withTitle(isMobile),
+          margin,
+          annotations: endAnnotations,
           legend: isMobile
             ? { x: 0.5, y: 1.02, xanchor: "center", yanchor: "bottom", orientation: "h", font: { size: 8 } }
             : { x: 0, y: 1.0, yanchor: "bottom", orientation: "h" },

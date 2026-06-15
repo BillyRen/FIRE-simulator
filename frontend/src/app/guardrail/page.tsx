@@ -734,6 +734,7 @@ export default function GuardrailPage() {
                     xLabels={Array.from({ length: mcResult.g_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i)}
                     xTitle={tf("ageAxis")}
                     showLogToggle
+                    endLabels
                     extraTraces={[
                       {
                         x: Array.from({ length: mcResult.b_percentile_trajectories["50"]?.length ?? 0 }, (_, i) => params.retirement_age + i),
@@ -767,6 +768,7 @@ export default function GuardrailPage() {
                     xTitle={tf("ageAxis")}
                     color={CHART_COLORS.secondary.rgb}
                     showLogToggle
+                    endLabels
                     extraTraces={(() => {
                       const wdX = Array.from({ length: mcResult.g_withdrawal_percentiles["50"]?.length ?? 0 }, (_, i) => params.retirement_age + 1 + i);
                       return [
