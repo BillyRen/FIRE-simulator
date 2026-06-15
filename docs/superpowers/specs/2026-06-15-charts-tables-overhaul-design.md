@@ -51,13 +51,16 @@
   - `MARKER_SIZES`(allocation 点/星等级)
   - `CHART_HEIGHTS = { sm, md, lg }`(取代 260/280/300/380/400/450 散值;含 mobile 变体)
 - 保留 `MARGINS` 预设;新增 scenario/tornado 用的长标签左边距预设(取代页面内魔法 margin 对象)。
+- **(Codex)** `mergeLayout` 只覆盖默认 x/y 轴 + legend,**不会自动主题化自定义子布局**——`PlotlyChart` 单点改造 ≠ 所有图表深色就绪。须额外提供themed helper 并审计调用点:`themedTernary()`(allocation 三元图网格/轴/legend 背景,现硬编码 `rgba(0,0,0,0.08)`/白)、`themedColorbar()`、`themedAnnotations()`、`themedAxis2()`(护栏/买vs租 dual-axis 的 `yaxis2`)。**P0 的"图表深色"在这些 call site 审计完成前不算 done。**
+- **(Codex)** 保留现有 Plotly bundle 策略:`plotly.js/lib/core` 动态导入 + 仅注册 `scatter/scatterternary/bar`(见 `plotly-chart.tsx:8-17`)。重写 chart-theme **不得**误引入完整 `plotly.js`。
 
 ### 3.2 `components/chart-frame.tsx`(新,图表统一外壳)
 Props: `title`、`infoTooltip?`、`height?`(sm/md/lg)、`showLogToggle?`、`logState?`、`onToggleLog?`、`downloadPng?`、`downloadData?: () => Row[]`、`loading?`、`isEmpty?`、`emptyHint?`、`children`(图表)。
 - 渲染:标题行(左标题 + 可选 info)+ 右上控制区(对数切换[**带 aria-label**]、下载菜单 = PNG[带标题] + 数据 CSV)。
 - `loading` → `<ChartSkeleton height>`;`isEmpty` → `<EmptyState>`。
 - 统一移动端标题/高度/`displayModeBar` 策略。
-- 现有 `FanChart`/各页 PlotlyChart 调用点包进 ChartFrame;FanChart 自身的 log toggle 迁移到 ChartFrame 控制区。
+- 现有 `FanChart`/各页 PlotlyChart 调用点包进 ChartFrame。
+- **(Codex)** `FanChart` 现在**自持** `logScale` state + 自带按钮(`fan-chart.tsx:60,122-148`),wrapper 无法直接接管。**P1 须先把 FanChart 重构为受控**(`logScale` / `onLogScaleChange` props),再由 ChartFrame 提供控制区、迁移调用点。
 
 ### 3.3 `components/data-table.tsx` + `components/ui/status-badge.tsx`(新,统一表格)
 `DataTable<T>` 列定义驱动:
@@ -66,12 +69,23 @@ type Column<T> = {
   key: string; header: ReactNode;
   align?: "left" | "right";
   sortable?: boolean;
-  sortValue?: (row: T) => number | string | null;   // null 永远排末
+  sortValue?: (row: T) => number | string | null;   // null 排序见下
   render?: (row: T) => ReactNode;                    // 默认 String(row[key])
+  csvValue?: (row: T) => string;                     // 见下:CSV 导出对齐
   className?: string;
 }
+type DataTableProps<T> = {
+  columns: Column<T>[]; rows: T[];
+  onRowClick?: (row: T) => void;                     // 见下:路径表下钻
+  rowClassName?: (row: T) => string;                 // 最佳/最差左色条
+  downloadName?: string; maxHeight?: number; emptyHint?: ReactNode;
+}
 ```
-内建:点列头排序(`aria-sort` + lucide `ChevronUp/ChevronDown`/中性图标)、sticky 表头、CSV 导出(复用 `lib/csv`)、`rowClassName?(row)`(最佳/最差左色条)、空状态、`maxHeight`、数字列 `tabular-nums` 右对齐。
+内建:点列头排序(`aria-sort` + lucide `ChevronUp/ChevronDown`/中性图标)、sticky 表头、CSV 导出(复用 `lib/csv`)、空状态、数字列 `tabular-nums` 右对齐。
+**(Codex)三处必须在 P1 定死的行为契约,否则 P2 迁移会撞上缺失 API:**
+- **行下钻**:`onRowClick` + 键盘可达(`role="button"`/`tabIndex=0`/Enter·Space)+ hover/cursor 语义。simulator(`simulator-client.tsx:785-789`)与 guardrail(`guardrail/page.tsx:1062-1067`)路径表点行打开明细,必须保留。
+- **CSV 对齐**:`csvValue` 默认取渲染文本;**导出当前排序/过滤后的行序**,表头用已翻译文案(对齐 allocation `allocation/page.tsx:367-394` 的 `notDepleted` 等本地化导出)。
+- **null 排序**:统一"**null 永远排末**(升降序皆然)"。这与 allocation 现状 `null→Infinity`(降序时 null 反而在首,`allocation/page.tsx:51-57`,`p10_depletion_year` 可空)不同 —— **这是一处有意的修正,非保真**,在本 spec 显式声明,并对每个可空列做迁移核对。
 `StatusBadge variant="ok|bad|censored"`:彩色 pill(✓成功 / ✗失败 / ?截尾)替代裸 Unicode,**带文字 + aria-label**。
 **替换目标**:simulator + guardrail 批量回测路径表(×2)、情景表(×2)、敏感性表(×2)、allocation 结果表、guardrail 调整事件日志表、`CountrySuccessTable`。
 
@@ -83,6 +97,12 @@ type Column<T> = {
 ### 3.5 `components/distribution-strip.tsx`(新,分布优先)
 - 输入:`{ min, p5, p10, p25, p50, p75, p90, p95, max, mean }`(real 金额)。
 - SVG 横向对数刻度分位带:浅带 P10–P90、深带 P25–P75、须 P5–P95、虚线箭头→max、中位蓝线、均值橙菱、0 破产红块。
+- **(Codex)对数刻度边界必须在 P1 用纯函数 scale helper 处理 + 推理覆盖**(失败/耗尽路径会产生这些情形):
+  - `min=0`(或任意 ≤0):**单独的"0 桶"标记**(红块,不进 log 映射),正值部分用正域 log;
+  - **所有百分位相等 / 区间极小**:退化为单点/极窄带,不除零、不产生 NaN 宽度;
+  - **缺失百分位 key**:跳过该标记而非崩溃;
+  - **移动端窄宽**:标签按 §3.5 去碰撞规则降级。
+  数据来源 `SimulationResponse.final_min/final_percentiles`(`lib/types.ts:76-83`)。
 - **直接标注去碰撞规则(硬性)**:仅 `中位 + 两端(0 / 最高)` 内联;`均值 / P10 / P90` 等次要标记 → 说明行或 hover;两内联标签间距 < 阈值则纵向错位或省略。**同规则适用于扇形图末端标签。**
 - 下方说明行:band 图例 + 均值数值/偏态解读 + "对数刻度·实际金额·N 次模拟" + `▸ 展开精确数值`(可展开 = 重样式 StatsTable,右对齐 + CSV)。
 - 用于:主页「统计摘要」替代长表(去掉与 MetricCard/verdict 重复的 成功率/均值/中位 行,模拟次数降为注脚);批量回测期末资产分布可复用。
@@ -90,7 +110,8 @@ type Column<T> = {
 ### 3.6 深色模式基建
 - 新增 client `components/providers.tsx`(`<ThemeProvider>`),`app/layout.tsx` `<html suppressHydrationWarning>` 包裹。
 - navbar 加切换按钮(三态 system/light/dark)。
-- 修所有缺 `dark:` 变体的硬编码类(重点:allocation 表 `bg-green-50`/`bg-amber-50`/`bg-amber-50` 行高亮 → 用语义 token 或加 `dark:`)。
+- **(Codex)硬编码浅色面板审计须全仓库,不止 allocation**:已知遗漏点含 accumulation amber 警示(`accumulation/page.tsx:313-315`)、allocation error card(`allocation/page.tsx:140-143`)、CountrySuccessTable tag 色(`country-success-table.tsx:125-137`)、allocation 行高亮 `bg-green-50`/`bg-amber-50`。grep `bg-(green|amber|red|blue)-50`、`#fff`、`rgba(255` 全量过一遍。
+- **(Codex)PDF 导出深色安全前移到 P0/P1**(原计划 P3,太晚):`pdf-export.ts:11-14` 用 `backgroundColor:"#ffffff"` 截 `#sim-results`/`#guardrail-results`,但深色 token 仍作用于子元素 → 深色下导出会"白底深字"破版。策略:**捕获时强制浅色克隆**(临时去 `.dark` / 包一层 `light` class)或显式按当前主题导出 + 匹配背景。P0/P1 落地此策略,P5 验证。
 
 ### 3.7 骨架屏 / 空状态
 - `components/ui/skeleton.tsx`(shadcn skeleton)+ `ChartSkeleton`/`TableSkeleton` 包装;`components/empty-state.tsx`(图标 + 文案)。
@@ -110,14 +131,22 @@ type Column<T> = {
 - 给 sensitivity / accumulation / buy-vs-rent 简单模式补 `hovertemplate`;补 guardrail 基准线缺失的 hover。
 - 统一各等价图的高度与 `displayModeBar`。
 
+### 3.11 i18n(新增 UI 字符串)— **(Codex)P1 验收项**
+新组件引入的所有可见文案必须在 `messages/en.json` + `messages/zh.json` **双语同步补齐**(仓库现状 ~803 key 严格对齐):
+- `chartFrame.*`(下载 PNG / 下载数据 / 对数·线性切换 aria-label 等)
+- `distributionStrip.*`(中位/均值/分位/破产下限/最高/展开精确数值/对数刻度·实际金额 等)
+- `theme.*`(system / light / dark 切换 aria-label)
+- `emptyState.*`(各页空状态文案)、`statusBadge.*`(成功/失败/截尾 + aria-label)
+新字符串一律走 `next-intl`,**不得硬编码中文/英文**到组件。
+
 ---
 
 ## 4. 分期计划(每期独立可审、可单独 commit;每期跑 Codex 评审)
 
 | 期 | 内容 | 验证 | 风险 |
 |---|---|---|---|
-| **P0 基础** | chart-theme 重写(palette B / 深色 token / 色阶 / 常量)+ next-themes Provider + navbar 开关 | build+lint;浅/深肉眼 | 低 |
-| **P1 组件** | ChartFrame / DataTable / StatusBadge / Skeleton / EmptyState / DistributionStrip | build(含 tsc 类型检查)+lint;纯函数逻辑(排序比较、数字列识别、对数定位、去碰撞阈值)抽成可独立推理的 helper | 低(新增) |
+| **P0 基础** | chart-theme 重写(palette B / 深色 token / 色阶 / 常量 + themed 子布局 helper)+ next-themes Provider + navbar 开关 + **PDF 深色捕获策略** + **全仓库硬编码浅色面板审计** | build+lint;浅/深肉眼 + PDF 浅/深导出 | 低–中 |
+| **P1 组件** | ChartFrame / DataTable / StatusBadge / Skeleton / EmptyState / DistributionStrip;**FanChart 重构为受控 log**;**定死契约**(onRowClick+键盘 / csvValue+排序后导出 / null-last / log-scale 边界)+ **i18n 双语 key** | build(含 tsc)+lint;纯函数 helper(排序比较、数字列识别、对数定位含 min=0/退化、去碰撞阈值)可独立推理 | 低(新增) |
 | **P2 表格迁移** | 8 张表换 DataTable + StatsTable 重样式 + 格式统一 + 图标箭头/StatusBadge | build+lint;逐页核对数据一致 | 中 |
 | **P3 图表迁移** | 全图入 ChartFrame、去硬编码色、色阶替换、修轴/hover、直接标注、统计摘要换 DistributionStrip | build+lint;逐图核对 | 中 |
 | **P4 图标+收尾** | 图标规范统一、skeleton/空状态接线、图表数据导出菜单 | build+lint | 低 |
@@ -140,3 +169,20 @@ type Column<T> = {
 
 ## 7. 开放问题
 - 无阻塞项。(前端测试框架现状已确认:无,见 §5。)
+
+## 8. Codex 评审吸收记录(2026-06-15)
+对初版 plan 跑了一轮独立 Codex 评审(读真实代码)。10 条 finding **全部认同并已并入上文**,核心修正 = "把被当成样式的行为契约提前到 P1 定死":
+| # | 级别 | finding | 处理 |
+|---|---|---|---|
+| 1 | HIGH | DistributionStrip 对数刻度对 0/退化/缺 key 无规则 | §3.5 加纯函数 scale helper + 边界规则 |
+| 2 | HIGH | DataTable 缺路径表行点击/键盘下钻 | §3.3 加 `onRowClick` + 键盘可达 |
+| 3 | HIGH | DataTable CSV 无法保真现有导出 | §3.3 加 `csvValue` + 导出排序后行序 |
+| 4 | HIGH | PDF 导出深色不安全、分期太晚 | §3.6 前移到 P0/P1 + 强制浅色捕获 |
+| 5 | HIGH | mergeLayout 不覆盖自定义子布局(三元/colorbar/legend/yaxis2) | §3.1 加 themed helper + call-site 审计 |
+| 6 | MED | ChartFrame 与 FanChart 自持 log state 冲突 | §3.2 P1 先把 FanChart 改受控 |
+| 7 | MED | null 排序语义与 allocation 现状(null→Infinity)冲突 | §3.3 声明为**有意修正**(null-last)+ 逐列核对 |
+| 8 | MED | 新 UI 字符串无 i18n 清单 | §3.11 P1 双语 key 验收项 |
+| 9 | MED | 深色硬编码色审计太窄 | §3.6 改为全仓库审计 |
+| 10 | LOW | 未声明保留 Plotly bundle 策略 | §3.1 加 core 动态导入约束 |
+
+**Codex 结论**:方向正确(ChartFrame + 谨慎 scoped DataTable + 中央主题是这 6 页的对的抽象);最大风险是把行为契约当样式做 —— 已通过 P1 契约强化消解。
