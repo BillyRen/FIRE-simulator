@@ -18,6 +18,15 @@ import { MetricCard } from "@/components/metric-card";
 import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { useIsMobile } from "@/lib/use-is-mobile";
+import { useTheme } from "next-themes";
+import {
+  CHART_COLORS,
+  FUNDED_RATIO_COLORSCALE,
+  MARKER_SIZES,
+  themedTernary,
+  themedColorbar,
+  legendBg,
+} from "@/lib/chart-theme";
 import { runAllocationSweep } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import type { AllocationResult } from "@/lib/types";
@@ -28,6 +37,10 @@ export default function AllocationPage() {
   const t = useTranslations("allocation");
   const tc = useTranslations("common");
   const isMobile = useIsMobile();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+  const tern = themedTernary(isDark);
+  const cbar = themedColorbar(isDark);
 
   const {
     params, setParams,
@@ -205,18 +218,19 @@ export default function AllocationPage() {
                       ),
                       hoverinfo: "text",
                       marker: {
-                        size: allocStep <= 0.05 ? 8 : allocStep <= 0.1 ? 14 : 20,
+                        size: MARKER_SIZES.point(allocStep),
                         color: result.results.map((r) => r.funded_ratio * 100),
-                        colorscale: "RdYlGn",
+                        colorscale: FUNDED_RATIO_COLORSCALE,
                         cmin: Math.min(...result.results.map((r) => r.funded_ratio * 100)),
                         cmax: Math.max(...result.results.map((r) => r.funded_ratio * 100)),
                         colorbar: {
-                          title: { text: t("ternaryColorbar") },
+                          ...cbar,
+                          title: { ...cbar.title, text: t("ternaryColorbar") },
                           ticksuffix: "%",
                         },
                         line: {
                           width: result.results.map((r) => r.is_near_optimal ? 3 : 1),
-                          color: result.results.map((r) => r.is_near_optimal ? "#F59E0B" : "rgba(0,0,0,0.2)"),
+                          color: result.results.map((r) => r.is_near_optimal ? CHART_COLORS.warning.hex : `rgba(${CHART_COLORS.neutral.rgb},0.4)`),
                         },
                       },
                       showlegend: false,
@@ -231,10 +245,10 @@ export default function AllocationPage() {
                       text: [`${t("legendBest")}<br>${t("ternaryDomStock").replace(" %", "")}${(result.best.domestic_stock * 100).toFixed(0)}% ${t("ternaryGlobalStock").replace(" %", "")}${(result.best.global_stock * 100).toFixed(0)}% ${t("ternaryDomBond").replace(" %", "")}${(result.best.domestic_bond * 100).toFixed(0)}%<br>${t("colFundedRatio")}: ${(result.best.funded_ratio * 100).toFixed(1)}%`],
                       hoverinfo: "text",
                       marker: {
-                        size: allocStep <= 0.05 ? 14 : allocStep <= 0.1 ? 20 : 26,
-                        color: "#EF4444",
+                        size: MARKER_SIZES.best(allocStep),
+                        color: CHART_COLORS.danger.hex,
                         symbol: "star",
-                        line: { width: 2, color: "#991B1B" },
+                        line: { width: 2, color: CHART_COLORS.danger.hex },
                       },
                       showlegend: true,
                     } as Record<string, unknown>,
@@ -242,28 +256,14 @@ export default function AllocationPage() {
                   layout={{
                     ternary: {
                       sum: 100,
-                      aaxis: {
-                        title: { text: t("ternaryDomStock") },
-                        min: 0,
-                        linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.08)",
-                      },
-                      baxis: {
-                        title: { text: t("ternaryGlobalStock") },
-                        min: 0,
-                        linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.08)",
-                      },
-                      caxis: {
-                        title: { text: t("ternaryDomBond") },
-                        min: 0,
-                        linewidth: 1,
-                        gridcolor: "rgba(0,0,0,0.08)",
-                      },
+                      bgcolor: tern.bgcolor,
+                      aaxis: { ...tern.aaxis, title: { ...tern.aaxis.title, text: t("ternaryDomStock") }, min: 0 },
+                      baxis: { ...tern.baxis, title: { ...tern.baxis.title, text: t("ternaryGlobalStock") }, min: 0 },
+                      caxis: { ...tern.caxis, title: { ...tern.caxis.title, text: t("ternaryDomBond") }, min: 0 },
                     },
                     margin: isMobile ? { t: 20, b: 20, l: 10, r: 10 } : { t: 40, b: 40, l: 60, r: 60 },
                     showlegend: true,
-                    legend: { x: 0.02, y: 0.98, bgcolor: "rgba(255,255,255,0.7)" },
+                    legend: { x: 0.02, y: 0.98, bgcolor: legendBg(isDark) },
                     height: isMobile ? 350 : 500,
                   }}
                   config={{
@@ -273,9 +273,9 @@ export default function AllocationPage() {
                       filename: "allocation_ternary",
                       width: 1200,
                       height: 800,
+                      scale: 2,
                     },
                   }}
-                  style={{ height: isMobile ? "350px" : "500px" }}
                 />
               </CardContent>
             </Card>
@@ -303,7 +303,7 @@ export default function AllocationPage() {
                           y: regular.map((r) => r.median_final),
                           text: regular.map(hoverText),
                           hoverinfo: "text",
-                          marker: { size: 7, color: "#D1D5DB", opacity: 0.6 },
+                          marker: { size: 7, color: CHART_COLORS.neutral.hex, opacity: 0.6 },
                         },
                         {
                           type: "scatter",
@@ -313,7 +313,7 @@ export default function AllocationPage() {
                           y: nearOpt.map((r) => r.median_final),
                           text: nearOpt.map(hoverText),
                           hoverinfo: "text",
-                          marker: { size: 9, color: "#FBBF24", line: { width: 2, color: "#F59E0B" } },
+                          marker: { size: 9, color: CHART_COLORS.warning.hex, line: { width: 2, color: CHART_COLORS.warning.hex } },
                         },
                         {
                           type: "scatter",
@@ -323,8 +323,8 @@ export default function AllocationPage() {
                           y: result.pareto_frontier.map((r) => r.median_final),
                           text: result.pareto_frontier.map(hoverText),
                           hoverinfo: "text",
-                          marker: { size: 10, color: "#3B82F6", symbol: "diamond" },
-                          line: { color: "#3B82F6", width: 2, dash: "dot" },
+                          marker: { size: 10, color: CHART_COLORS.primary.hex, symbol: "diamond" },
+                          line: { color: CHART_COLORS.primary.hex, width: 2, dash: "dot" },
                         },
                         {
                           type: "scatter",
@@ -334,7 +334,7 @@ export default function AllocationPage() {
                           y: [result.best.median_final],
                           text: [hoverText(result.best)],
                           hoverinfo: "text",
-                          marker: { size: 14, color: "#EF4444", symbol: "star", line: { width: 2, color: "#991B1B" } },
+                          marker: { size: 14, color: CHART_COLORS.danger.hex, symbol: "star", line: { width: 2, color: CHART_COLORS.danger.hex } },
                         },
                       ]}
                       layout={{
@@ -346,7 +346,7 @@ export default function AllocationPage() {
                         yaxis: { type: "linear", title: { text: t("paretoAxisMedian") } },
                         margin: isMobile ? { t: 20, b: 50, l: 60, r: 20 } : { t: 30, b: 50, l: 80, r: 30 },
                         showlegend: true,
-                        legend: { x: 0.02, y: 0.98, bgcolor: "rgba(255,255,255,0.7)" },
+                        legend: { x: 0.02, y: 0.98, bgcolor: legendBg(isDark) },
                         height: isMobile ? 300 : 400,
                       }}
                       config={{
@@ -356,9 +356,9 @@ export default function AllocationPage() {
                           filename: "allocation_pareto",
                           width: 1200,
                           height: 800,
+                          scale: 2,
                         },
                       }}
-                      style={{ height: isMobile ? "300px" : "400px" }}
                     />
                   );
                 })()}
