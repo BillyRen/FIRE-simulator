@@ -131,27 +131,37 @@ export const FanChart = memo(function FanChart({
 
   const chartHeight = isMobile ? 280 : (height ?? 450);
 
-  // Direct end-of-line labels for P10/P50/P90. These sit at distinct y values
-  // (P10 < P50 < P90) so they never collide vertically. Desktop only.
+  // Direct end-of-line labels for P10/P50/P90. Percentiles are only
+  // non-decreasing (not strictly separated): under a fixed withdrawal P50≈P90,
+  // and failed tails finish at 0. So group by terminal value and merge equal
+  // ones into a single label (e.g. "P90/P50 40,000") to avoid overlap.
   const END_LABEL_PCTS = ["90", "50", "10"];
-  const endAnnotations =
-    endLabels && !isMobile && n > 0
-      ? END_LABEL_PCTS.filter((p) => trajectories[p]?.length).map((p) => {
-          const yv = trajectories[p][n - 1];
-          const isMed = p === "50";
-          return {
-            x: x[n - 1],
-            y: yv,
-            xref: "x" as const,
-            yref: "y" as const,
-            text: `P${p} ${fmt(yv)}`,
-            showarrow: false,
-            xanchor: "left" as const,
-            xshift: 6,
-            font: { size: isMed ? 11 : 9, color: isMed ? `rgb(${color})` : CHART_COLORS.neutral.hex },
-          };
-        })
-      : [];
+  const endAnnotations = (() => {
+    if (!endLabels || isMobile || n === 0) return [];
+    const byValue = new Map<number, string[]>();
+    for (const p of END_LABEL_PCTS) {
+      if (!trajectories[p]?.length) continue;
+      const key = Math.round(trajectories[p][n - 1]);
+      const group = byValue.get(key);
+      if (group) group.push(p);
+      else byValue.set(key, [p]);
+    }
+    return Array.from(byValue.entries()).map(([, ps]) => {
+      const isMed = ps.includes("50");
+      const yv = trajectories[ps[0]][n - 1];
+      return {
+        x: x[n - 1],
+        y: yv,
+        xref: "x" as const,
+        yref: "y" as const,
+        text: `${ps.map((p) => `P${p}`).join("/")} ${fmt(yv)}`,
+        showarrow: false,
+        xanchor: "left" as const,
+        xshift: 6,
+        font: { size: isMed ? 11 : 9, color: isMed ? `rgb(${color})` : CHART_COLORS.neutral.hex },
+      };
+    });
+  })();
   const baseMargin = MARGINS.withTitle(isMobile);
   const margin = endLabels && !isMobile ? { ...baseMargin, r: 72 } : baseMargin;
 
