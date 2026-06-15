@@ -34,8 +34,12 @@ interface FanChartProps {
   height?: number;
   /** 主色 */
   color?: string;
-  /** 是否显示线性/对数切换按钮 */
+  /** 是否显示线性/对数切换按钮(仅在非受控时渲染自带按钮) */
   showLogToggle?: boolean;
+  /** 受控对数刻度。提供时由父级(如 ChartFrame)控制,FanChart 不再渲染自带按钮。 */
+  logScale?: boolean;
+  /** 受控对数刻度变更回调。 */
+  onLogScaleChange?: (next: boolean) => void;
 }
 
 const BAND_PAIRS: [string, string][] = [
@@ -54,10 +58,18 @@ export const FanChart = memo(function FanChart({
   height = 450,
   color = CHART_COLORS.primary.rgb,
   showLogToggle = false,
+  logScale: logScaleProp,
+  onLogScaleChange,
 }: FanChartProps) {
   const t = useTranslations();
   const isMobile = useIsMobile();
-  const [logScale, setLogScale] = useState(false);
+  const [internalLog, setInternalLog] = useState(false);
+  const isControlled = logScaleProp !== undefined;
+  const logScale = isControlled ? logScaleProp : internalLog;
+  const toggleLog = () => {
+    if (isControlled) onLogScaleChange?.(!logScaleProp);
+    else setInternalLog((v) => !v);
+  };
   const n = trajectories["50"]?.length ?? 0;
   const x = xLabels ?? Array.from({ length: n }, (_, i) => i);
 
@@ -119,12 +131,12 @@ export const FanChart = memo(function FanChart({
     <div>
       <div className="flex items-center justify-between">
         <MobileChartTitle title={title} isMobile={isMobile} />
-        {showLogToggle && (
+        {showLogToggle && !isControlled && (
           <Button
             variant="outline"
             size="sm"
             className="h-6 px-2 text-xs mb-1"
-            onClick={() => setLogScale((v) => !v)}
+            onClick={toggleLog}
             aria-label={logScale ? t("common.linearScale") : t("common.logScale")}
           >
             {logScale ? t("common.linearScale") : t("common.logScale")}

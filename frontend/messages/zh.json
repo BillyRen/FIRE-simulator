@@ -18,6 +18,20 @@
     "dark": "深色",
     "system": "跟随系统"
   },
+  "chartFrame": {
+    "downloadData": "数据 (CSV)"
+  },
+  "distributionStrip": {
+    "median": "中位",
+    "mean": "均值",
+    "bankruptcyFloor": "破产下限",
+    "highest": "最高",
+    "bandLegend": "box = P25–P75 · 浅带 = P10–P90 · 须 = P5–P95",
+    "meanPulled": "被右尾拉高",
+    "logNote": "对数刻度 · 实际(通胀调整)金额",
+    "basedOn": "基于 {n} 次模拟",
+    "showExact": "展开精确数值"
+  },
   "common": {
     "year": "年",
     "years": "年",
