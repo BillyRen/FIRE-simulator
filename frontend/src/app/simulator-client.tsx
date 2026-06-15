@@ -33,6 +33,8 @@ import { RichBrokeDeadChart } from "@/components/rich-broke-dead-chart";
 import { CountrySuccessTable } from "@/components/country-success-table";
 import { computeCountrySuccessStats } from "@/lib/country-success";
 import { useSharedParams } from "@/lib/params-context";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { StatusBadge } from "@/components/ui/status-badge";
 import type { SimulationResponse, SimBatchBacktestResponse, SimBatchPathSummary, CountryInfo, ScenarioAnalysisResponse, SensitivityAnalysisResponse } from "@/lib/types";
 import { fmt, pct, countryFlag, deltaPct, deltaFmt } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
@@ -105,8 +107,6 @@ export function SimulatorClient() {
   const [btLogScale, setBtLogScale] = useState(false);
   const [btWdLogScale, setBtWdLogScale] = useState(false);
   // Path list sorting
-  const [sortCol, setSortCol] = useState<string>("start_year");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   // Path list filters
   const [filterCountries, setFilterCountries] = useState<Set<string>>(new Set());
   const [filterMinStartYear, setFilterMinStartYear] = useState(0);
@@ -306,46 +306,54 @@ export function SimulatorClient() {
     );
   }, [batchResult, availableCountries]);
 
-  // Sorted & filtered paths for the table
-  const sortedPaths = useMemo(() => {
+  // Filtered paths for the table (DataTable owns sorting)
+  const filteredPaths = useMemo(() => {
     if (!batchResult) return [];
-    const paths = batchResult.paths.filter((p) => {
+    return batchResult.paths.filter((p) => {
       if (filterCountries.size > 0 && !filterCountries.has(p.country)) return false;
       if (filterMinStartYear > 0 && p.start_year < filterMinStartYear) return false;
       if (filterMinYears > 0 && p.years_simulated < filterMinYears) return false;
       return true;
     });
-    paths.sort((a, b) => {
-      let va: number | string, vb: number | string;
-      switch (sortCol) {
-        case "country": va = a.country; vb = b.country; break;
-        case "start_year": va = a.start_year; vb = b.start_year; break;
-        case "years_simulated": va = a.years_simulated; vb = b.years_simulated; break;
-        case "final_portfolio": va = a.final_portfolio; vb = b.final_portfolio; break;
-        case "min_withdrawal": va = Math.min(...a.withdrawals); vb = Math.min(...b.withdrawals); break;
-        case "survived": va = a.survived ? 1 : 0; vb = b.survived ? 1 : 0; break;
-        default: va = a.start_year; vb = b.start_year;
-      }
-      if (va < vb) return sortDir === "asc" ? -1 : 1;
-      if (va > vb) return sortDir === "asc" ? 1 : -1;
-      // secondary sort by country then start_year
-      if (a.country !== b.country) return a.country < b.country ? -1 : 1;
-      return a.start_year - b.start_year;
-    });
-    return paths;
-  }, [batchResult, sortCol, sortDir, filterCountries, filterMinStartYear, filterMinYears]);
+  }, [batchResult, filterCountries, filterMinStartYear, filterMinYears]);
 
-  const handleSort = (col: string) => {
-    if (sortCol === col) {
-      setSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setSortCol(col);
-      setSortDir("asc");
-    }
+  const minWithdrawal = (w: number[]): number => {
+    if (w.length === 0) return 0;
+    let m = w[0];
+    for (let i = 1; i < w.length; i++) if (w[i] < m) m = w[i];
+    return m;
   };
 
-  const sortIndicator = (col: string) =>
-    sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+  const pathColumns: DataTableColumn<SimBatchPathSummary>[] = [
+    { key: "country", header: t("country"), sortable: true, sortValue: (p) => p.country,
+      csvValue: (p) => countryLabel(p.country), render: (p) => countryLabel(p.country) },
+    { key: "start_year", header: t("startYear"), sortable: true, sortValue: (p) => p.start_year,
+      csvValue: (p) => String(p.start_year) },
+    { key: "years_simulated", header: t("yearsSimulatedShort"), align: "right", sortable: true,
+      sortValue: (p) => p.years_simulated, csvValue: (p) => String(p.years_simulated),
+      render: (p) => (
+        <>
+          {p.years_simulated}
+          {!p.is_complete && <span className="ml-1 text-xs text-amber-600 dark:text-amber-500">*</span>}
+        </>
+      ) },
+    { key: "status", header: t("survived"),
+      csvValue: (p) => (p.has_failed ? tc("statusFailed") : p.is_complete ? tc("statusSuccess") : tc("statusCensored")),
+      render: (p) =>
+        p.has_failed ? (
+          <StatusBadge variant="bad" label={tc("statusFailed")} />
+        ) : p.is_complete ? (
+          <StatusBadge variant="ok" label={tc("statusSuccess")} />
+        ) : (
+          <StatusBadge variant="censored" label={tc("statusCensored")} />
+        ) },
+    { key: "min_withdrawal", header: t("minWithdrawal"), align: "right", sortable: true,
+      sortValue: (p) => minWithdrawal(p.withdrawals), csvValue: (p) => String(Math.round(minWithdrawal(p.withdrawals))),
+      render: (p) => fmt(minWithdrawal(p.withdrawals)) },
+    { key: "final_portfolio", header: t("finalPortfolio"), align: "right", sortable: true,
+      sortValue: (p) => p.final_portfolio, csvValue: (p) => String(Math.round(p.final_portfolio)),
+      render: (p) => fmt(p.final_portfolio) },
+  ];
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 p-3 sm:p-6 max-w-[1600px] mx-auto">
@@ -759,64 +767,23 @@ export function SimulatorClient() {
                       )}
                     </div>
 
-                    <div className="rounded-md border overflow-auto max-h-[600px]">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/50 sticky top-0">
-                          <tr>
-                            <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("country")}>
-                              {t("country")}{sortIndicator("country")}
-                            </th>
-                            <th className="px-3 py-2 text-left cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("start_year")}>
-                              {t("startYear")}{sortIndicator("start_year")}
-                            </th>
-                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("years_simulated")}>
-                              {t("yearsSimulatedShort")}{sortIndicator("years_simulated")}
-                            </th>
-                            <th className="px-3 py-2 text-center whitespace-nowrap">{t("survived")}</th>
-                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("min_withdrawal")}>
-                              {t("minWithdrawal")}{sortIndicator("min_withdrawal")}
-                            </th>
-                            <th className="px-3 py-2 text-right cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("final_portfolio")}>
-                              {t("finalPortfolio")}{sortIndicator("final_portfolio")}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sortedPaths.map((p, i) => (
-                            <tr
-                              key={`${p.country}-${p.start_year}`}
-                              className={`border-t cursor-pointer hover:bg-muted/30 transition-colors ${!p.is_complete ? "opacity-60" : ""}`}
-                              onClick={() => setSelectedPath(p)}
-                            >
-                              <td className="px-3 py-1.5">{countryLabel(p.country)}</td>
-                              <td className="px-3 py-1.5">{p.start_year}</td>
-                              <td className="px-3 py-1.5 text-right">
-                                {p.years_simulated}
-                                {!p.is_complete && <span className="ml-1 text-xs text-amber-600">*</span>}
-                              </td>
-                              <td className="px-3 py-1.5 text-center">
-                                {p.has_failed ? (
-                                  <span className="text-red-500" title={tc("statusFailed")}>✗</span>
-                                ) : p.is_complete ? (
-                                  <span className="text-green-600" title={tc("statusSuccess")}>✓</span>
-                                ) : (
-                                  <span className="text-muted-foreground" title={tc("statusCensored")}>?</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-1.5 text-right font-mono">{fmt(Math.min(...p.withdrawals))}</td>
-                              <td className="px-3 py-1.5 text-right font-mono">{fmt(p.final_portfolio)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      columns={pathColumns}
+                      rows={filteredPaths}
+                      getRowKey={(p) => `${p.country}-${p.start_year}`}
+                      onRowClick={(p) => setSelectedPath(p)}
+                      rowClassName={(p) => (!p.is_complete ? "opacity-60" : "")}
+                      defaultSort={{ key: "start_year", dir: 1 }}
+                      downloadName="backtest_paths"
+                      maxHeight={600}
+                    />
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-muted-foreground">
                         * = {t("incomplete")} (&lt; {params.retirement_years} {t("yearsSimulatedShort")})
                       </p>
                       {batchResult && (
                         <p className="text-xs text-muted-foreground">
-                          {t("filteredCount", { count: sortedPaths.length, total: batchResult.paths.length })}
+                          {t("filteredCount", { count: filteredPaths.length, total: batchResult.paths.length })}
                         </p>
                       )}
                     </div>
