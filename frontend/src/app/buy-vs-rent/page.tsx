@@ -22,7 +22,8 @@ import { ProgressOverlay } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { StatsTable } from "@/components/stats-table";
 import { useIsMobile } from "@/lib/use-is-mobile";
-import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
+import { CHART_COLORS, MARGINS, getChartTokens } from "@/lib/chart-theme";
+import { useTheme } from "next-themes";
 import {
   runBuyVsRentSimple,
   runBuyVsRentMC,
@@ -718,6 +719,8 @@ function MCResults({
   const [nwLog, setNwLog] = useState(false);
   const [advLog, setAdvLog] = useState(false);
   const [costLog, setCostLog] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const chartTk = getChartTokens(resolvedTheme === "dark");
 
   const s = result.summary;
   const yrs = Array.from({ length: result.analysis_years + 1 }, (_, i) => i);
@@ -847,7 +850,7 @@ function MCResults({
               margin: MARGINS.dualAxis(isMobile),
               xaxis: { title: { text: t("years") } },
               yaxis: { ...yaxLog(advLog), side: "left" as const },
-              yaxis2: { title: { text: "%" }, type: "linear" as const, overlaying: "y" as const, side: "right" as const, range: [0, 105], ticksuffix: "%" },
+              yaxis2: { title: { text: "%", font: { color: chartTk.title } }, type: "linear" as const, overlaying: "y" as const, side: "right" as const, range: [0, 105], ticksuffix: "%", tickfont: { color: chartTk.tick } },
               legend: { x: 0, y: 1 },
             }}
           />

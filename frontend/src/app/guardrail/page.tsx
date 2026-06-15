@@ -26,7 +26,8 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { computeCountrySuccessStats } from "@/lib/country-success";
 import { ProgressOverlay, PreliminaryBanner, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
-import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
+import { CHART_COLORS, MARGINS, getChartTokens } from "@/lib/chart-theme";
+import { useTheme } from "next-themes";
 import { Pin, PinOff } from "lucide-react";
 import { runGuardrail, runGuardrailBatchBacktest, runBacktest, fetchCountries, runGuardrailScenarios, runGuardrailSensitivity, fetchHistoricalEvents } from "@/lib/api";
 import { filterEvents, buildEventOverlay, EVENT_MARKER_AXIS } from "@/lib/historical-events";
@@ -53,6 +54,8 @@ export default function GuardrailPage() {
   const tf = useTranslations("fanChart");
   const locale = useLocale();
   const isMobile = useIsMobile();
+  const { resolvedTheme } = useTheme();
+  const chartTk = getChartTokens(resolvedTheme === "dark");
 
   const {
     params, setParams,
@@ -1229,10 +1232,10 @@ export default function GuardrailPage() {
                             tickfont: { size: isMobile ? 9 : 12 }, side: "left",
                           },
                           yaxis2: {
-                            title: isMobile ? undefined : { text: t("successRateAxis") },
+                            title: isMobile ? undefined : { text: t("successRateAxis"), font: { color: chartTk.title } },
                             type: "linear" as const,
                             overlaying: "y", side: "right", range: [0, 105],
-                            tickfont: { size: isMobile ? 9 : 12 },
+                            tickfont: { size: isMobile ? 9 : 12, color: chartTk.tick },
                           },
                           height: isMobile ? 300 : 450,
                           margin: MARGINS.dualAxisWithTitle(isMobile),
