@@ -10,8 +10,7 @@
     "guardrail": "🛡️ Guardrail",
     "allocation": "🎯 Allocation Optimizer",
     "buyVsRent": "🏠 Buy vs Rent",
-    "accumulation": "💰 FIRE Planner",
-    "dashboard": "📋 Dashboard"
+    "accumulation": "💰 FIRE Planner"
   },
   "common": {
     "year": "Yr",
@@ -187,6 +186,10 @@
     "statsSummary": "Statistical Summary",
     "downloadPortfolioTrajectory": "Download Portfolio",
     "downloadWithdrawalTrajectory": "Download Withdrawals",
+    "verdictGreat": "Solid plan — high success rate; your portfolio is very likely to last.",
+    "verdictGood": "Plan looks good, with room to optimize — consider tuning withdrawal or allocation.",
+    "verdictCaution": "Plan carries some risk — consider lowering withdrawals, saving more, or adjusting strategy.",
+    "verdictDanger": "Plan carries high risk — strongly consider reducing withdrawals or working longer.",
     "placeholder": "Configure parameters and click \"Run Simulation\" to see results",
     "tabMonteCarlo": "Monte Carlo Simulation",
     "tabBacktest": "Historical Backtest",
@@ -765,29 +768,6 @@
     "annualExpense": "Annual Expenses ($)",
     "noFireWarning": "Under current parameters, simulations show FIRE cannot be achieved within working years. Try increasing income, reducing expenses, or adjusting risk tolerance.",
     "placeholder": "Set parameters and click \"Calculate FIRE\" to see results"
-  },
-  "dashboard": {
-    "title": "FIRE Dashboard",
-    "subtitle": "Comprehensive retirement plan assessment at a glance",
-    "runAnalysis": "Run Analysis",
-    "scoreLabel": "FIRE Readiness Score",
-    "scoreDescription": "Weighted score combining success rate, funded ratio, and safe withdrawal rate",
-    "successRate": "Success Rate",
-    "fundedRatio": "Funded Ratio",
-    "medianFinal": "Median Final",
-    "safeWithdrawalRate": "Safe Withdrawal Rate",
-    "initialPortfolio": "Initial Portfolio",
-    "annualWithdrawal": "Annual Withdrawal",
-    "retirementYears": "Retirement Years",
-    "stockAllocation": "Stock Allocation",
-    "paramSummary": "Parameter Summary",
-    "keyInsights": "Key Insights",
-    "insightGreat": "Congratulations! Your retirement plan is very robust with a high overall readiness score.",
-    "insightGood": "Plan looks good overall, but there's room for optimization. Consider adjusting withdrawal or allocation.",
-    "insightCaution": "Plan carries some risk. Consider reducing annual withdrawal, increasing savings, or adjusting strategy.",
-    "insightDanger": "Plan carries high risk. Strongly recommend reducing withdrawal amount or extending working years.",
-    "portfolioMini": "Portfolio Trajectory (P10-P90)",
-    "withdrawalMini": "Withdrawal Trajectory (P10-P90)"
   },
   "methodology": {
     "title": "Methodology",
