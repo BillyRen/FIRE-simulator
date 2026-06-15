@@ -65,7 +65,13 @@ export function ChartFrame({
             <TooltipProvider delayDuration={200}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
+                  <button
+                    type="button"
+                    aria-label={infoTooltip}
+                    className="inline-flex items-center text-muted-foreground hover:text-foreground"
+                  >
+                    <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-[240px] text-xs">
                   {infoTooltip}

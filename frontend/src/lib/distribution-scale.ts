@@ -59,11 +59,15 @@ export function buildDistributionScale(d: DistributionData): DistributionScale |
 
   let lo = Math.min(...positives);
   let hi = Math.max(...positives);
-  const degenerate = !(hi > lo);
+  // Treat exactly-equal AND near-equal spans (e.g. percentiles differing only
+  // by rounding noise) as degenerate: a tiny log span would otherwise stretch
+  // an effectively single-point distribution across the full width.
+  const MIN_LOG_SPAN = 0.08; // ≈ 20% range across the domain
+  const degenerate = !(hi > lo) || Math.log10(hi) - Math.log10(lo) < MIN_LOG_SPAN;
   if (degenerate) {
-    // All positive values equal → expand half a decade each side so the single
-    // point sits mid-strip instead of dividing by a zero-width domain.
-    const center = lo;
+    // Expand half a decade each side of the geometric mean so the single point
+    // sits mid-strip instead of dividing by a (near-)zero-width domain.
+    const center = Math.sqrt(lo * hi);
     lo = center / HALF_DECADE;
     hi = center * HALF_DECADE;
   }

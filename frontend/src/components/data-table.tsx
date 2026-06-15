@@ -149,20 +149,20 @@ export function DataTable<T>({
                     className={cn(
                       "whitespace-nowrap px-3 py-2 font-medium text-muted-foreground",
                       col.align === "right" ? "text-right" : "text-left",
-                      col.sortable && "cursor-pointer select-none hover:text-foreground",
                       col.headerClassName,
                     )}
-                    onClick={() => handleSort(col)}
                   >
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1",
-                        col.align === "right" && "flex-row-reverse",
-                      )}
-                    >
-                      {col.header}
-                      {col.sortable &&
-                        (active ? (
+                    {col.sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSort(col)}
+                        className={cn(
+                          "inline-flex select-none items-center gap-1 font-medium hover:text-foreground",
+                          col.align === "right" && "flex-row-reverse",
+                        )}
+                      >
+                        {col.header}
+                        {active ? (
                           sortDir === 1 ? (
                             <ChevronUp className="h-3.5 w-3.5 text-foreground" />
                           ) : (
@@ -170,8 +170,18 @@ export function DataTable<T>({
                           )
                         ) : (
                           <ChevronsUpDown className="h-3.5 w-3.5 opacity-40" />
-                        ))}
-                    </span>
+                        )}
+                      </button>
+                    ) : (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1",
+                          col.align === "right" && "flex-row-reverse",
+                        )}
+                      >
+                        {col.header}
+                      </span>
+                    )}
                   </th>
                 );
               })}
