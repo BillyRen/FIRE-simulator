@@ -95,7 +95,7 @@ export const FanChart = memo(function FanChart({
         name: t("common.median"),
         line: { color: `rgb(${color})`, width: 2.5 },
         type: "scatter",
-        hovertemplate: `P50: %{y:$,.0f}<extra></extra>`,
+        hovertemplate: `P50: %{y:,.0f}<extra></extra>`,
       });
     } else {
       traces.push({
@@ -106,7 +106,7 @@ export const FanChart = memo(function FanChart({
         name: `P${p}`,
         showlegend: false,
         type: "scatter",
-        hovertemplate: `P${p}: %{y:$,.0f}<extra></extra>`,
+        hovertemplate: `P${p}: %{y:,.0f}<extra></extra>`,
       });
     }
   }
@@ -145,7 +145,7 @@ export const FanChart = memo(function FanChart({
           yaxis: {
             title: isMobile ? undefined : { text: resolvedYTitle },
             type: logScale ? "log" : "linear",
-            tickformat: logScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
+            tickformat: logScale ? "~s" : (isMobile ? "~s" : ",.0f"),
             tickfont: { size: isMobile ? 9 : 12 },
           },
           height: chartHeight,

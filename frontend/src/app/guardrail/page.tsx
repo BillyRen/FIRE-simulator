@@ -665,13 +665,13 @@ export default function GuardrailPage() {
                           <span className="font-semibold text-green-700 dark:text-green-400 text-sm">{t("planIncrease")}</span>
                         </div>
                         <div className="text-xs text-muted-foreground">{t("ifBalanceReaches")}</div>
-                        <div className="text-xl font-bold text-green-700 dark:text-green-400" title={`$${mcResult.upper_trigger_portfolio.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                        <div className="text-xl font-bold text-green-700 dark:text-green-400" title={`${mcResult.upper_trigger_portfolio.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
                           {fmt(mcResult.upper_trigger_portfolio)}
                         </div>
                         <Separator className="bg-green-200 dark:bg-green-800" />
                         <div className="text-xs text-muted-foreground">{t("thenIncreaseTo")}</div>
                         <div className="flex items-baseline gap-2">
-                          <span className="text-lg font-bold text-green-700 dark:text-green-400" title={`$${mcResult.upper_trigger_withdrawal.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                          <span className="text-lg font-bold text-green-700 dark:text-green-400" title={`${mcResult.upper_trigger_withdrawal.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
                             {fmt(mcResult.upper_trigger_withdrawal)}
                           </span>
                           <span className="text-xs font-medium text-green-600 dark:text-green-500">
@@ -686,13 +686,13 @@ export default function GuardrailPage() {
                           <span className="font-semibold text-red-700 dark:text-red-400 text-sm">{t("planDecrease")}</span>
                         </div>
                         <div className="text-xs text-muted-foreground">{t("ifBalanceDrops")}</div>
-                        <div className="text-xl font-bold text-red-700 dark:text-red-400" title={`$${mcResult.lower_trigger_portfolio.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                        <div className="text-xl font-bold text-red-700 dark:text-red-400" title={`${mcResult.lower_trigger_portfolio.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
                           {fmt(mcResult.lower_trigger_portfolio)}
                         </div>
                         <Separator className="bg-red-200 dark:bg-red-800" />
                         <div className="text-xs text-muted-foreground">{t("thenDecreaseTo")}</div>
                         <div className="flex items-baseline gap-2">
-                          <span className="text-lg font-bold text-red-700 dark:text-red-400" title={`$${mcResult.lower_trigger_withdrawal.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
+                          <span className="text-lg font-bold text-red-700 dark:text-red-400" title={`${mcResult.lower_trigger_withdrawal.toLocaleString("en-US", { maximumFractionDigits: 0 })}`}>
                             {fmt(mcResult.lower_trigger_withdrawal)}
                           </span>
                           <span className="text-xs font-medium text-red-600 dark:text-red-500">
@@ -1174,7 +1174,7 @@ export default function GuardrailPage() {
                                 yaxis: {
                                   title: isMobile ? undefined : { text: t("assetAxis") },
                                   type: btLogScale ? "log" : "linear",
-                                  tickformat: btLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
+                                  tickformat: btLogScale ? "~s" : (isMobile ? "~s" : ",.0f"),
                                   tickfont: { size: isMobile ? 9 : 12 },
                                 },
                                 yaxis2: EVENT_MARKER_AXIS,
@@ -1259,7 +1259,7 @@ export default function GuardrailPage() {
                           yaxis: {
                             title: isMobile ? undefined : { text: t("withdrawalAmount") },
                             type: btWdLogScale ? "log" : "linear",
-                            tickformat: btWdLogScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
+                            tickformat: btWdLogScale ? "~s" : (isMobile ? "~s" : ",.0f"),
                             tickfont: { size: isMobile ? 9 : 12 }, side: "left",
                           },
                           yaxis2: {
@@ -1409,7 +1409,7 @@ export default function GuardrailPage() {
                       {(() => {
                         const baseWD = scenarioResult.base_case.annual_withdrawal;
                         const fmtDollar = (v: number) =>
-                          `$${Math.round(v).toLocaleString("en-US")}`;
+                          `${Math.round(v).toLocaleString("en-US")}`;
                         const sorted = [...scenarioResult.scenarios].sort(
                           (a, b) => a.annual_withdrawal - b.annual_withdrawal
                         );
@@ -1453,7 +1453,6 @@ export default function GuardrailPage() {
                               xaxis: {
                                 title: { text: t("scenarioAnnualWD") },
                                 type: "linear" as const,
-                                tickprefix: "$",
                                 range: (() => {
                                   const all = sorted.map((s) => s.annual_withdrawal);
                                   all.push(baseWD);
@@ -1574,7 +1573,7 @@ export default function GuardrailPage() {
                         );
                         const labels = sorted.map((d) => d.param_label);
                         const fmtDollar = (v: number) =>
-                          `$${Math.round(v).toLocaleString("en-US")}`;
+                          `${Math.round(v).toLocaleString("en-US")}`;
 
                         const valueAnnotations = sorted.flatMap((d) => {
                           const lowVal = d.low_withdrawal ?? baseWD;
@@ -1641,7 +1640,6 @@ export default function GuardrailPage() {
                               xaxis: {
                                 title: { text: t("sensitivityImpact") },
                                 type: "linear" as const,
-                                tickprefix: "$",
                               },
                               barmode: "overlay",
                               margin: isMobile
@@ -1693,7 +1691,7 @@ export default function GuardrailPage() {
                             const baseWD = sensitivityResult.base_withdrawal ?? 0;
                             const fmtVal = (v: number, key: string) => {
                               if (key === "initial_portfolio" || key === "annual_withdrawal")
-                                return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                                return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
                               if (key === "retirement_years") return `${v.toFixed(0)}`;
                               if (key === "stock_allocation" || key === "target_success")
                                 return `${(v * 100).toFixed(0)}%`;
@@ -1703,7 +1701,7 @@ export default function GuardrailPage() {
                             const hiD = (d.high_withdrawal ?? baseWD) - baseWD;
                             const fmtDelta = (v: number) => {
                               const sign = v >= 0 ? "+" : "";
-                              return `${sign}$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                              return `${sign}${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
                             };
                             return (
                               <tr key={i} className="border-b hover:bg-muted/30">

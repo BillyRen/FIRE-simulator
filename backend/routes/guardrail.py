@@ -156,16 +156,16 @@ def _run_guardrail_and_build_result(
 
     metrics = [
         {"指标": "成功率", "Guardrail": f"{g_success:.1%}", "基准固定": f"{b_success:.1%}"},
-        {"指标": "初始年提取额", "Guardrail": f"${annual_wd:,.0f}", "基准固定": f"${baseline_wd:,.0f}"},
-        {"指标": "中位数总消费额", "Guardrail": f"${np.median(g_total):,.0f}", "基准固定": f"${np.median(b_total):,.0f}"},
-        {"指标": "中位数最终资产", "Guardrail": f"${np.median(traj_g[:, -1]):,.0f}", "基准固定": f"${np.median(traj_b[:, -1]):,.0f}"},
-        {"指标": "P10 最低年度消费", "Guardrail": f"${g_p10_min:,.0f}", "基准固定": f"${b_p10_min:,.0f}"},
+        {"指标": "初始年提取额", "Guardrail": f"{annual_wd:,.0f}", "基准固定": f"{baseline_wd:,.0f}"},
+        {"指标": "中位数总消费额", "Guardrail": f"{np.median(g_total):,.0f}", "基准固定": f"{np.median(b_total):,.0f}"},
+        {"指标": "中位数最终资产", "Guardrail": f"{np.median(traj_g[:, -1]):,.0f}", "基准固定": f"{np.median(traj_b[:, -1]):,.0f}"},
+        {"指标": "P10 最低年度消费", "Guardrail": f"{g_p10_min:,.0f}", "基准固定": f"{b_p10_min:,.0f}"},
         {"指标": "P10 最低消费 vs 初始提取额",
          "Guardrail": f"{(g_p10_min / annual_wd - 1) * 100:+.1f}%" if annual_wd > 0 else "N/A",
          "基准固定": f"{(b_p10_min / baseline_wd - 1) * 100:+.1f}%" if baseline_wd > 0 else "N/A"},
         {"指标": "中位数最终年提取额",
-         "Guardrail": f"${np.median(wd_g[:, -1]):,.0f}",
-         "基准固定": f"${baseline_wd:,.0f}"},
+         "Guardrail": f"{np.median(wd_g[:, -1]):,.0f}",
+         "基准固定": f"{baseline_wd:,.0f}"},
     ]
 
     port_metrics = compute_portfolio_metrics(scenarios, inflation_matrix)

@@ -250,7 +250,7 @@ export default function SensitivityPage() {
                     layout={{
                       xaxis: {
                         title: { text: t("analysis2XAxis") },
-                        tickformat: isMobile ? "$~s" : "$,.0f",
+                        tickformat: isMobile ? "~s" : ",.0f",
                         range: [0, analysis2Data.xMax],
                         tickfont: { size: isMobile ? 9 : 12 },
                       },

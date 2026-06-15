@@ -269,16 +269,16 @@ def final_values_summary_table(results: SimulationResults) -> pd.DataFrame:
     rows = []
     rows.append({"指标": "成功率", "值": f"{results.success_rate:.1%}"})
     rows.append({"指标": "模拟次数", "值": f"{results.num_simulations:,}"})
-    rows.append({"指标": "平均最终资产", "值": f"${results.final_mean:,.0f}"})
-    rows.append({"指标": "最小最终资产", "值": f"${results.final_min:,.0f}"})
+    rows.append({"指标": "平均最终资产", "值": f"{results.final_mean:,.0f}"})
+    rows.append({"指标": "最小最终资产", "值": f"{results.final_min:,.0f}"})
 
     for p in PERCENTILES:
         rows.append({
             "指标": f"第 {p} 百分位",
-            "值": f"${results.final_percentiles[p]:,.0f}",
+            "值": f"{results.final_percentiles[p]:,.0f}",
         })
 
-    rows.append({"指标": "最大最终资产", "值": f"${results.final_max:,.0f}"})
+    rows.append({"指标": "最大最终资产", "值": f"{results.final_max:,.0f}"})
 
     # 动态提取策略时追加提取金额统计
     if results.withdrawal_percentile_trajectories is not None:
@@ -288,12 +288,12 @@ def final_values_summary_table(results: SimulationResults) -> pd.DataFrame:
             val = results.withdrawal_percentile_trajectories[p][-1]
             rows.append({
                 "指标": f"提取 P{p}",
-                "值": f"${val:,.0f}",
+                "值": f"{val:,.0f}",
             })
         if results.withdrawal_mean_trajectory is not None:
             rows.append({
                 "指标": "平均提取金额",
-                "值": f"${results.withdrawal_mean_trajectory[-1]:,.0f}",
+                "值": f"{results.withdrawal_mean_trajectory[-1]:,.0f}",
             })
 
     return pd.DataFrame(rows)

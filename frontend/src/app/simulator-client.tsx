@@ -370,6 +370,7 @@ export function SimulatorClient() {
                 min={0}
               />
             </div>
+            <p className="text-xs text-muted-foreground leading-snug">{tc("currencyNote")}</p>
 
             <SidebarForm params={params} onChange={setParams} countries={countries} />
 
@@ -871,7 +872,7 @@ export function SimulatorClient() {
                               type: "scatter", mode: "lines",
                               name: t("portfolioHistory"),
                               line: { color: CHART_COLORS.primary.hex, width: 2 },
-                              hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
+                              hovertemplate: "%{x}: %{y:,.0f}<extra></extra>",
                             }, ...overlay.traces]}
                             layout={{
                               title: isMobile ? undefined : { text: t("portfolioHistory"), font: { size: 14 } },
@@ -879,7 +880,7 @@ export function SimulatorClient() {
                               yaxis: {
                                 title: { text: tc("amount") },
                                 type: btLogScale ? "log" : "linear",
-                                tickformat: btLogScale ? "$~s" : "$,.0f",
+                                tickformat: btLogScale ? "~s" : ",.0f",
                               },
                               yaxis2: EVENT_MARKER_AXIS,
                               margin: MARGINS.withTitle(isMobile),
@@ -916,7 +917,7 @@ export function SimulatorClient() {
                         type: "bar",
                         name: t("withdrawalHistory"),
                         marker: { color: CHART_COLORS.orange.hex },
-                        hovertemplate: "%{x}: %{y:$,.0f}<extra></extra>",
+                        hovertemplate: "%{x}: %{y:,.0f}<extra></extra>",
                       }]}
                       layout={{
                         title: isMobile ? undefined : { text: t("withdrawalHistory"), font: { size: 14 } },
@@ -924,7 +925,7 @@ export function SimulatorClient() {
                         yaxis: {
                           title: { text: tc("amount") },
                           type: btWdLogScale ? "log" : "linear",
-                          tickformat: btWdLogScale ? "$~s" : "$,.0f",
+                          tickformat: btWdLogScale ? "~s" : ",.0f",
                         },
                         margin: MARGINS.withTitle(isMobile),
                         height: isMobile ? 260 : 380,
@@ -1211,7 +1212,7 @@ export function SimulatorClient() {
                                 {sensitivityResult.deltas.map((d, i) => {
                                   const fmtVal = (v: number, key: string) => {
                                     if (key === "initial_portfolio" || key === "annual_withdrawal")
-                                      return `$${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+                                      return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
                                     if (key === "retirement_years") return `${v.toFixed(0)}`;
                                     if (key === "stock_allocation" || key === "target_success")
                                       return `${(v * 100).toFixed(0)}%`;
