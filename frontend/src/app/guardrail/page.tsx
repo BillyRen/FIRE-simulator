@@ -45,7 +45,7 @@ import type {
   ScenarioAnalysisResponse,
   SensitivityAnalysisResponse,
 } from "@/lib/types";
-import { fmt, pct, countryFlag, deltaPct, formatParamValue } from "@/lib/utils";
+import { fmt, pct, countryFlag, deltaPct, deltaFmt, formatParamValue } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 
 export default function GuardrailPage() {
@@ -1293,6 +1293,17 @@ export default function GuardrailPage() {
                                 return (
                                   <span className={`font-medium ${isUp ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                                     {isUp ? "+" : ""}{c.toFixed(1)}%
+                                  </span>
+                                );
+                              } },
+                            { key: "change_amount", header: t("adjHeaderChangeAmount"), align: "right",
+                              sortValue: (e) => e.new_wd - e.old_wd,
+                              csvValue: (e) => String(Math.round(e.new_wd - e.old_wd)),
+                              render: (e) => {
+                                const isUp = e.new_wd > e.old_wd;
+                                return (
+                                  <span className={`font-medium ${isUp ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                                    {deltaFmt(e.new_wd, e.old_wd)}
                                   </span>
                                 );
                               } },

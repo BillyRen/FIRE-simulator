@@ -418,6 +418,7 @@
     "adjHeaderOldWithdrawal": "Old Withdrawal",
     "adjHeaderNewWithdrawal": "New Withdrawal",
     "adjHeaderChange": "Change",
+    "adjHeaderChangeAmount": "Change Amount",
     "adjHeaderOldSuccess": "Old Success Rate",
     "adjHeaderNewSuccess": "New Success Rate",
     "backtestPlaceholder": "Select start year and click \"Run Backtest\"",

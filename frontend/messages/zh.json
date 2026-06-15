@@ -418,6 +418,7 @@
     "adjHeaderOldWithdrawal": "调整前提取额",
     "adjHeaderNewWithdrawal": "调整后提取额",
     "adjHeaderChange": "变动幅度",
+    "adjHeaderChangeAmount": "变动金额",
     "adjHeaderOldSuccess": "调整前成功率",
     "adjHeaderNewSuccess": "调整后成功率",
     "backtestPlaceholder": "选择起始年后点击「运行回测」",
