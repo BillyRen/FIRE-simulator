@@ -67,7 +67,9 @@ export default function AllocationPage() {
     { key: "mean_final", header: t("colMeanFinal"), align: "right", sortable: true,
       sortValue: (r) => r.mean_final, csvValue: (r) => String(Math.round(r.mean_final)), render: (r) => fmt(r.mean_final) },
     { key: "p10_depletion_year", header: t("colP10Depletion"), align: "right", sortable: true,
-      sortValue: (r) => r.p10_depletion_year,
+      // null = never depleted = best outcome → sort as +Infinity so it leads on
+      // descending (not via DataTable's default null-last, which means "missing").
+      sortValue: (r) => r.p10_depletion_year ?? Infinity,
       csvValue: (r) => (r.p10_depletion_year ? String(r.p10_depletion_year) : tc("notDepleted")),
       render: (r) => (r.p10_depletion_year ? tc("yearN", { n: r.p10_depletion_year }) : tc("notDepleted")) },
   ];

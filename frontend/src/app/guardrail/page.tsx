@@ -363,10 +363,10 @@ export default function GuardrailPage() {
           {!p.is_complete && <span className="ml-1 text-xs text-amber-600 dark:text-amber-500">*</span>}
         </>
       ) },
-    { key: "g_status", header: <abbr title="Guardrail" className="no-underline">G</abbr>,
+    { key: "g_status", header: <abbr title="Guardrail" className="no-underline">G</abbr>, csvHeader: "G",
       csvValue: (p) => statusText(p.g_has_failed, p.is_complete),
       render: (p) => statusBadge(p.g_has_failed, p.is_complete) },
-    { key: "b_status", header: <abbr title={tc("baseline")} className="no-underline">B</abbr>,
+    { key: "b_status", header: <abbr title={tc("baseline")} className="no-underline">B</abbr>, csvHeader: "B",
       csvValue: (p) => statusText(p.b_has_failed, p.is_complete),
       render: (p) => statusBadge(p.b_has_failed, p.is_complete) },
     { key: "min_withdrawal", header: t("minWithdrawal"), align: "right", sortable: true,
