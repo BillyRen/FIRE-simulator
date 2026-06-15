@@ -671,7 +671,7 @@ function SimpleResults({
               height: isMobile ? 280 : 360,
               margin: MARGINS.default(isMobile),
               xaxis: { title: { text: t("years") }, type: "linear" as const },
-              yaxis: { title: { text: "$" }, type: "linear" as const, tickformat: ",.0f" },
+              yaxis: { type: "linear" as const, tickformat: ",.0f" },
               legend: { x: 0, y: 1 },
             }}
           />
@@ -696,7 +696,7 @@ function SimpleResults({
               barmode: "stack",
               margin: { ...MARGINS.default(isMobile), b: 60 },
               xaxis: { title: { text: t("years") }, type: "linear" as const },
-              yaxis: { title: { text: "$" }, type: "linear" as const, tickformat: ",.0f" },
+              yaxis: { type: "linear" as const, tickformat: ",.0f" },
               legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.2 },
             }}
           />
@@ -727,7 +727,7 @@ function MCResults({
   const rentP = result.rent_percentile_trajectories;
   const advP = result.advantage_percentile_trajectories;
 
-  const hfmt = "$,.0f";
+  const hfmt = ",.0f";
 
   const logBtn = (on: boolean, toggle: () => void) => (
     <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={toggle}>
@@ -736,9 +736,8 @@ function MCResults({
   );
 
   const yaxLog = (log: boolean) => ({
-    title: { text: "$" },
     type: log ? ("log" as const) : ("linear" as const),
-    tickformat: log ? "$~s" : "$,.0f",
+    tickformat: log ? "~s" : ",.0f",
   });
 
   /** Build fan traces for a single series with percentile hovertemplates */

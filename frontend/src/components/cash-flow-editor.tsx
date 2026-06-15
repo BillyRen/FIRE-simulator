@@ -236,7 +236,7 @@ function CashFlowCard({
                 : "text-red-500 dark:text-red-400"
             }`}
           >
-            {itemType === "expense" ? "-" : "+"}${fmtAmount(item.amount)}
+            {itemType === "expense" ? "-" : "+"}{fmtAmount(item.amount)}
           </span>
           {showProbability && (
             <span className="text-[10px] text-muted-foreground shrink-0">

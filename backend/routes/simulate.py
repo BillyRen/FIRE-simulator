@@ -467,8 +467,8 @@ def api_sweep(request: Request, req: SweepRequest):
                 target_results.append(TargetRateResult(
                     target_success=f"{t:.0%}",
                     rate=f"{r * 100:.2f}%",
-                    annual_withdrawal=f"${req.initial_portfolio * r:,.0f}",
-                    needed_portfolio=f"${req.annual_withdrawal / r:,.0f}",
+                    annual_withdrawal=f"{req.initial_portfolio * r:,.0f}",
+                    needed_portfolio=f"{req.annual_withdrawal / r:,.0f}",
                 ))
             else:
                 target_results.append(TargetRateResult(
@@ -482,8 +482,8 @@ def api_sweep(request: Request, req: SweepRequest):
                 target_results_funded.append(TargetRateResult(
                     target_success=f"{t:.0%}",
                     rate=f"{r * 100:.2f}%",
-                    annual_withdrawal=f"${req.initial_portfolio * r:,.0f}",
-                    needed_portfolio=f"${req.annual_withdrawal / r:,.0f}",
+                    annual_withdrawal=f"{req.initial_portfolio * r:,.0f}",
+                    needed_portfolio=f"{req.annual_withdrawal / r:,.0f}",
                 ))
             else:
                 target_results_funded.append(TargetRateResult(

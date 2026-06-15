@@ -5,14 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-/** Format a number as USD currency string with compact notation for large values.
- *  e.g. 1234 → "$1,234", 123_456 → "$123,456", 1_234_567 → "$1.23M", 1_234_567_890 → "$1.23B" */
+/** Format a number as a currency-neutral string with compact notation for large values.
+ *  e.g. 1234 → "1,234", 123_456 → "123,456", 1_234_567 → "1.23M", 1_234_567_890 → "1.23B".
+ *  No currency symbol: the simulation models real (inflation-adjusted) returns of the
+ *  selected market with no FX conversion, so amounts are in whatever currency the user
+ *  inputs. See common.currencyNote in i18n. */
 export function fmt(n: number): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
-  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
-  return `${sign}$${abs.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}${(abs / 1e6).toFixed(2)}M`;
+  return `${sign}${abs.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
 /** Format a decimal as a percentage string, e.g. 0.85 → "85.0%" */
@@ -27,7 +30,7 @@ export function deltaPct(cur: number, pin: number): string {
   return `${sign}${(d * 100).toFixed(1)}pp`;
 }
 
-/** Format difference as USD delta, e.g. +$12,345 or -$6.78M */
+/** Format difference as a currency-neutral delta, e.g. +12,345 or -6.78M */
 export function deltaFmt(cur: number, pin: number): string {
   const d = cur - pin;
   const sign = d >= 0 ? "+" : "";

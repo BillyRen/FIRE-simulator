@@ -106,7 +106,7 @@ export default function AccumulationPage() {
     }
   };
 
-  const fmt = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fmt = (n: number) => `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
   return (
@@ -412,9 +412,8 @@ export default function AccumulationPage() {
                       tickfont: { size: isMobile ? 9 : 12 },
                     },
                     yaxis: {
-                      title: isMobile ? undefined : { text: "$" },
                       type: logScale ? "log" : "linear",
-                      tickformat: logScale ? "$~s" : (isMobile ? "$~s" : "$,.0f"),
+                      tickformat: logScale ? "~s" : (isMobile ? "~s" : ",.0f"),
                       tickfont: { size: isMobile ? 9 : 12 },
                     },
                     height: isMobile ? 300 : 450,
@@ -499,7 +498,7 @@ export default function AccumulationPage() {
                       xaxis: {
                         title: { text: t("annualExpense") },
                         type: "linear" as const,
-                        tickformat: "$~s",
+                        tickformat: "~s",
                         tickfont: { size: isMobile ? 9 : 12 },
                       },
                       yaxis: {
