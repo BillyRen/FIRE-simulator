@@ -21,7 +21,7 @@ import { StatsTable } from "@/components/stats-table";
 import { ProgressOverlay, type ProgressInfo } from "@/components/progress-overlay";
 import PlotlyChart from "@/components/plotly-chart";
 import { CHART_COLORS, MARGINS } from "@/lib/chart-theme";
-import { Pin, PinOff } from "lucide-react";
+import { Pin, PinOff, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { runSimulation, runSimBatchBacktest, runSimBacktest, runSimScenarios, runSimSensitivity, fetchCountries, fetchHistoricalEvents } from "@/lib/api";
 import { filterEvents, buildEventOverlay, EVENT_MARKER_AXIS } from "@/lib/historical-events";
 import { EventLegend } from "@/components/event-legend";
@@ -60,9 +60,11 @@ const PlanVerdict = memo(function PlanVerdict({ successRate }: { successRate: nu
       : tier === "Caution"
         ? "border-amber-200 bg-amber-50/60 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
         : "border-red-200 bg-red-50/60 text-red-900 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200";
+  const Icon = tier === "Great" || tier === "Good" ? CheckCircle2 : tier === "Caution" ? AlertTriangle : XCircle;
   return (
     <div className={`rounded-lg border px-4 py-3 ${cls}`}>
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-center gap-2">
+        <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />
         <span className="text-2xl font-bold tabular-nums">{pct(successRate)}</span>
         <span className="text-sm font-medium opacity-80">{t("successRate")}</span>
       </div>
