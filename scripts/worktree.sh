@@ -15,8 +15,10 @@
 #   scripts/worktree.sh stop <topic>    stop that worktree's dev servers
 #   scripts/worktree.sh rm <topic>      stop servers + remove the worktree
 #
-# Ports: each worktree gets index n (1..9); backend=8888+n, frontend=3000+n.
-# The main checkout stays on 8888/3000.
+# Ports: base ports come from the global `devport` allocator (slug "fire");
+# each worktree gets index n (1..9): backend=BE_BASE+n, frontend=FE_BASE+n.
+# The main checkout stays on BE_BASE+0 / FE_BASE+0. If devport is missing, we
+# fall back to the historical 3000/8888 with a warning.
 
 set -euo pipefail
 
@@ -25,14 +27,33 @@ set -euo pipefail
 MAIN_ROOT="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
 PARENT_DIR="$(dirname "$MAIN_ROOT")"
 
-usage() { sed -n '2,22p' "$0"; exit 1; }
+# Global dev-port allocator. Resolve FIRE's base ports once; fall back to the
+# historical 3000/8888 if the tool isn't installed.
+DEVPORT_BIN="${DEVPORT_BIN:-$HOME/.local/bin/devport}"
+APP_SLUG="fire"
+# Fall back to 3000/8888 not just when devport is missing, but also when it
+# exists yet fails (lock timeout, corrupt/full registry) OR returns malformed
+# output. Every step is in the if-condition so a failure can't trip errexit:
+# executable? --shell succeeds? eval succeeds? both ports actually set?
+FE_BASE=3000; BE_BASE=8888                        # historical fallback defaults
+if [ -x "$DEVPORT_BIN" ] \
+   && _dp_shell="$("$DEVPORT_BIN" "$APP_SLUG" --shell 2>/dev/null)" \
+   && eval "$_dp_shell" 2>/dev/null \
+   && [ -n "${FRONTEND_PORT:-}" ] && [ -n "${BACKEND_PORT:-}" ]; then
+  FE_BASE="$FRONTEND_PORT"; BE_BASE="$BACKEND_PORT"
+else
+  echo "WARNING: devport unavailable or failed; falling back to ports 3000/8888." >&2
+  echo "         (install/fix $DEVPORT_BIN for deterministic cross-project ports)" >&2
+fi
 
-# Lowest index n in 1..9 whose ports (3000+n and 8888+n) are both free.
+usage() { sed -n '2,24p' "$0"; exit 1; }
+
+# Lowest index n in 1..9 whose ports (FE_BASE+n and BE_BASE+n) are both free.
 pick_index() {
   local n
   for n in 1 2 3 4 5 6 7 8 9; do
-    if ! lsof -i ":$((3000 + n))" -sTCP:LISTEN >/dev/null 2>&1 \
-       && ! lsof -i ":$((8888 + n))" -sTCP:LISTEN >/dev/null 2>&1; then
+    if ! lsof -i ":$((FE_BASE + n))" -sTCP:LISTEN >/dev/null 2>&1 \
+       && ! lsof -i ":$((BE_BASE + n))" -sTCP:LISTEN >/dev/null 2>&1; then
       echo "$n"; return 0
     fi
   done
@@ -51,7 +72,7 @@ cmd_new() {
 
   # Isolate ports per worktree; record for dev/stop/list to read.
   printf 'IDX=%s\nBACKEND_PORT=%s\nFRONTEND_PORT=%s\n' \
-    "$idx" "$((8888 + idx))" "$((3000 + idx))" > "$wt/.worktree-meta"
+    "$idx" "$((BE_BASE + idx))" "$((FE_BASE + idx))" > "$wt/.worktree-meta"
 
   # Reuse the main checkout's node_modules (gitignored, not checked out into
   # the worktree). Symlink is instant; if package.json diverges on this branch,
@@ -64,8 +85,8 @@ cmd_new() {
   echo "✅ worktree ready:"
   echo "   dir:      $wt"
   echo "   branch:   $branch"
-  echo "   backend:  http://localhost:$((8888 + idx))"
-  echo "   frontend: http://localhost:$((3000 + idx))"
+  echo "   backend:  http://localhost:$((BE_BASE + idx))"
+  echo "   frontend: http://localhost:$((FE_BASE + idx))"
   echo
   echo "   start servers:  scripts/worktree.sh dev $topic"
   echo "   open session:   cd $wt   (run your second Claude session HERE)"
@@ -78,7 +99,7 @@ cmd_list() {
       . "$path/.worktree-meta"
       printf '%s  %s  [be:%s fe:%s]\n' "$path" "$rest" "$BACKEND_PORT" "$FRONTEND_PORT"
     else
-      printf '%s  %s  [be:8888 fe:3000]\n' "$path" "$rest"
+      printf '%s  %s  [be:%s fe:%s]\n' "$path" "$rest" "$BE_BASE" "$FE_BASE"
     fi
   done
 }
@@ -92,7 +113,13 @@ cmd_dev() {
 
   # nohup so the harness reaping a background task can't kill the servers
   # (lesson from the incident); separate .next per worktree avoids lock clashes.
-  ( cd "$wt/backend" && nohup uvicorn main:app --port "$BACKEND_PORT" \
+  # ALLOWED_ORIGINS must include this worktree's own frontend port, else the
+  # browser blocks cross-origin API calls (the 3001 CORS trap, 2026-06-17).
+  # Derive it from the FRONTEND_PORT recorded in .worktree-meta at creation time
+  # (single source of truth) so it can't drift from a later devport re-allocation.
+  ( cd "$wt/backend" \
+      && ALLOWED_ORIGINS="http://localhost:$FRONTEND_PORT,http://127.0.0.1:$FRONTEND_PORT" \
+      nohup uvicorn main:app --port "$BACKEND_PORT" \
       > "/tmp/fire-${topic}-be.log" 2>&1 & echo $! > "/tmp/fire-${topic}-be.pid" )
   ( cd "$wt/frontend" && NEXT_PUBLIC_API_URL="http://localhost:$BACKEND_PORT" \
       nohup npx next dev -p "$FRONTEND_PORT" > "/tmp/fire-${topic}-fe.log" 2>&1 & echo $! > "/tmp/fire-${topic}-fe.pid" )
