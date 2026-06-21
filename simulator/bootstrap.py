@@ -1,14 +1,34 @@
 """Block Bootstrap 循环采样模块。
 
-Design note — Circular wrap-around:
-When a sampled block extends past the end of the historical dataset, indices
-wrap around to the beginning (modular arithmetic).  This is a deliberate design
-choice that preserves inter-variable correlations within each block while
-maximising the number of distinct starting points.  The alternative — truncating
-at the boundary — would bias sampling toward earlier years and waste data near
-the end of the series.  The trade-off is that a wrap-around block may contain a
-one-period structural break at the seam, but the random block length mitigates
-this by spreading seam positions across the dataset.
+Design note — Circular wrap-around (Politis-Romano 1992 Circular Block Bootstrap):
+When a sampled block extends past the end of a country's historical series,
+indices wrap around to the beginning (modular arithmetic).  This is the standard
+Circular Block Bootstrap: treating the series as circular removes the
+block-boundary EDGE BIAS that plain truncation introduces (truncation
+under-samples the first/last observations).  The cost is one artificial seam per
+wrap (e.g. 2025 -> 1872 within the same country).
+
+Scope of the "benign seam" claim (Codex review 2026-06-21, Finding 2):
+The seam is benign for *return-like* columns (Domestic_Stock, Global_Stock,
+Domestic_Bond, Inflation rate), which are approximately stationary, so the wrap
+seam is no worse than any other block boundary.  It is LESS clean for *level*
+columns — Long_Rate (a yield level) and the housing level series — which are
+persistent/non-stationary; a wrap there joins two distant rate regimes.  The
+default sampling uses only return-like columns, so this is not a product issue,
+but callers sampling HOUSING_COLS / Long_Rate should be aware.
+
+We deliberately do NOT switch to truncation (reintroduces edge bias) or to
+ACO-style cross-country continuation (double seam + bias toward a new country's
+earliest rows); see the plan doc §3.D for the adjudication.
+
+Block-length distribution (Upgrade A, opt-in, default unchanged):
+``block_dist="uniform"`` (default) draws block length ~ U[min_block, max_block]
+exactly as before.  ``block_dist="geometric"`` draws length ~ Geometric(p) with
+mean ``mean_block`` (the stationary bootstrap of Politis-Romano 1994); the
+geometric law gives the resampled series a *stationary Markov renewal* structure
+(a property of the bootstrap process, not a claim about the data).  Geometric
+mode preserves only the MEAN block length, not the [min_block, max_block]
+support — many blocks fall outside that range by design.
 """
 
 from __future__ import annotations
@@ -35,13 +55,24 @@ def _block_bootstrap_core(
     max_block: int,
     rng: np.random.Generator,
     n_cols: int,
+    block_dist: str = "uniform",
+    geom_p: float | None = None,
 ) -> np.ndarray:
-    """Core block bootstrap loop operating on numpy arrays."""
+    """Core block bootstrap loop operating on numpy arrays.
+
+    block_dist="uniform" preserves the exact RNG call order of the original
+    implementation (draw length, then start) so seeded output is bitwise
+    identical.  "geometric" swaps only the length draw for rng.geometric(geom_p).
+    """
     output = np.empty((retirement_years, n_cols), dtype=np.float64)
     pos = 0
 
     while pos < retirement_years:
-        block_size = min(rng.integers(min_block, max_block + 1), retirement_years - pos)
+        if block_dist == "geometric":
+            block_len = rng.geometric(geom_p)
+        else:
+            block_len = rng.integers(min_block, max_block + 1)
+        block_size = min(block_len, retirement_years - pos)
         start = rng.integers(0, n)
         indices = np.arange(start, start + block_size) % n
         output[pos:pos + block_size] = data[indices]
@@ -50,13 +81,48 @@ def _block_bootstrap_core(
     return output
 
 
-def _validate_bootstrap_args(min_block: int, max_block: int, retirement_years: int):
+def _resolve_geom_p(
+    block_dist: str, min_block: int, max_block: int, mean_block: int | None,
+) -> float | None:
+    """Compute the geometric success prob p = 1/mean_block (None for uniform).
+
+    mean_block defaults to the uniform midpoint (min+max)/2 — a *compatibility
+    initial value* that matches the uniform mean, not a statistically optimal
+    choice (see analysis/block_length_vr_calibration.py and plan §3.A Finding 10).
+    """
+    if block_dist != "geometric":
+        return None
+    if mean_block is None:
+        mean_block = (min_block + max_block) / 2.0
+    return 1.0 / mean_block
+
+
+def _validate_bootstrap_args(
+    min_block: int,
+    max_block: int,
+    retirement_years: int,
+    block_dist: str = "uniform",
+    mean_block: int | None = None,
+    min_country_len: int | None = None,
+):
     if min_block < 1:
         raise ValueError(f"min_block must be >= 1, got {min_block}")
     if min_block > max_block:
         raise ValueError(f"min_block ({min_block}) must be <= max_block ({max_block})")
     if retirement_years <= 0:
         raise ValueError(f"retirement_years must be > 0, got {retirement_years}")
+    if block_dist not in ("uniform", "geometric"):
+        raise ValueError(f"block_dist must be 'uniform' or 'geometric', got {block_dist!r}")
+    if block_dist == "geometric" and mean_block is not None:
+        if mean_block < 1:
+            raise ValueError(f"mean_block must be >= 1, got {mean_block}")
+        # Finding 9: mean_block exceeding the shortest series means a single
+        # geometric block can lap an entire country's data within one path.
+        if min_country_len is not None and mean_block > min_country_len:
+            raise ValueError(
+                f"mean_block ({mean_block}) exceeds the shortest available series "
+                f"length ({min_country_len}); pick a smaller mean_block."
+            )
 
 
 def block_bootstrap_np(
@@ -66,6 +132,8 @@ def block_bootstrap_np(
     min_block: int,
     max_block: int,
     rng: np.random.Generator | None = None,
+    block_dist: str = "uniform",
+    mean_block: int | None = None,
 ) -> np.ndarray:
     """Block bootstrap returning a numpy array (no DataFrame overhead).
 
@@ -80,16 +148,23 @@ def block_bootstrap_np(
         Same as block_bootstrap().
     rng : np.random.Generator or None
         Random number generator.
+    block_dist : {"uniform", "geometric"}
+        Block-length law. "uniform" (default) is unchanged behavior.
+    mean_block : int or None
+        Mean block length for geometric mode (default = uniform midpoint).
 
     Returns
     -------
     np.ndarray
         shape (retirement_years, data.shape[1]).
     """
-    _validate_bootstrap_args(min_block, max_block, retirement_years)
+    _validate_bootstrap_args(min_block, max_block, retirement_years,
+                             block_dist, mean_block, min_country_len=n)
     if rng is None:
         rng = np.random.default_rng()
-    return _block_bootstrap_core(data, n, retirement_years, min_block, max_block, rng, data.shape[1])
+    geom_p = _resolve_geom_p(block_dist, min_block, max_block, mean_block)
+    return _block_bootstrap_core(data, n, retirement_years, min_block, max_block,
+                                 rng, data.shape[1], block_dist, geom_p)
 
 
 def block_bootstrap(
@@ -99,6 +174,8 @@ def block_bootstrap(
     max_block: int,
     rng: np.random.Generator | None = None,
     columns: list[str] | None = None,
+    block_dist: str = "uniform",
+    mean_block: int | None = None,
 ) -> pd.DataFrame:
     """使用 block bootstrap 方法生成一条退休期间的回报序列。
 
@@ -130,15 +207,17 @@ def block_bootstrap(
     pd.DataFrame
         shape 为 (retirement_years, len(columns)) 的 DataFrame。
     """
-    _validate_bootstrap_args(min_block, max_block, retirement_years)
-    if rng is None:
-        rng = np.random.default_rng()
-
     cols = columns if columns is not None else RETURN_COLS
     data = returns_df[cols].values
     n = len(data)
+    _validate_bootstrap_args(min_block, max_block, retirement_years,
+                             block_dist, mean_block, min_country_len=n)
+    if rng is None:
+        rng = np.random.default_rng()
 
-    output = _block_bootstrap_core(data, n, retirement_years, min_block, max_block, rng, len(cols))
+    geom_p = _resolve_geom_p(block_dist, min_block, max_block, mean_block)
+    output = _block_bootstrap_core(data, n, retirement_years, min_block, max_block,
+                                   rng, len(cols), block_dist, geom_p)
     return pd.DataFrame(output, columns=cols)
 
 
@@ -179,8 +258,14 @@ def _block_bootstrap_pooled_core(
     max_block: int,
     rng: np.random.Generator,
     n_cols: int,
+    block_dist: str = "uniform",
+    geom_p: float | None = None,
 ) -> np.ndarray:
-    """Core pooled block bootstrap loop operating on numpy arrays."""
+    """Core pooled block bootstrap loop operating on numpy arrays.
+
+    RNG call order (country, then length, then start) is preserved exactly for
+    block_dist="uniform"; geometric only swaps the length draw.
+    """
     output = np.empty((retirement_years, n_cols), dtype=np.float64)
     pos = 0
 
@@ -192,7 +277,11 @@ def _block_bootstrap_pooled_core(
         data = country_arrays[country_idx]
         n = country_lens[country_idx]
 
-        block_size = min(rng.integers(min_block, max_block + 1), retirement_years - pos)
+        if block_dist == "geometric":
+            block_len = rng.geometric(geom_p)
+        else:
+            block_len = rng.integers(min_block, max_block + 1)
+        block_size = min(block_len, retirement_years - pos)
         start = rng.integers(0, n)
         indices = np.arange(start, start + block_size) % n
         output[pos:pos + block_size] = data[indices]
@@ -209,6 +298,8 @@ def block_bootstrap_pooled_np(
     min_block: int,
     max_block: int,
     rng: np.random.Generator | None = None,
+    block_dist: str = "uniform",
+    mean_block: int | None = None,
 ) -> np.ndarray:
     """Pooled multi-country block bootstrap returning numpy array.
 
@@ -230,14 +321,18 @@ def block_bootstrap_pooled_np(
     np.ndarray
         shape (retirement_years, n_cols).
     """
-    _validate_bootstrap_args(min_block, max_block, retirement_years)
+    _validate_bootstrap_args(
+        min_block, max_block, retirement_years, block_dist, mean_block,
+        min_country_len=min(country_lens) if country_lens else None,
+    )
     if rng is None:
         rng = np.random.default_rng()
     n_countries = len(country_arrays)
     n_cols = country_arrays[0].shape[1]
+    geom_p = _resolve_geom_p(block_dist, min_block, max_block, mean_block)
     return _block_bootstrap_pooled_core(
         country_arrays, country_lens, n_countries, probs,
-        retirement_years, min_block, max_block, rng, n_cols,
+        retirement_years, min_block, max_block, rng, n_cols, block_dist, geom_p,
     )
 
 
@@ -249,6 +344,8 @@ def block_bootstrap_pooled(
     rng: np.random.Generator | None = None,
     country_weights: dict[str, float] | None = None,
     columns: list[str] | None = None,
+    block_dist: str = "uniform",
+    mean_block: int | None = None,
 ) -> pd.DataFrame:
     """池化多国 block bootstrap。
 
@@ -277,17 +374,20 @@ def block_bootstrap_pooled(
     pd.DataFrame
         shape (retirement_years, len(columns)) 的 DataFrame。
     """
-    _validate_bootstrap_args(min_block, max_block, retirement_years)
-    if rng is None:
-        rng = np.random.default_rng()
-
     cols = columns if columns is not None else RETURN_COLS
     _, country_arrays, country_lens, probs = _prepare_pooled_arrays(
         country_dfs, country_weights, cols,
     )
+    _validate_bootstrap_args(
+        min_block, max_block, retirement_years, block_dist, mean_block,
+        min_country_len=min(country_lens) if country_lens else None,
+    )
+    if rng is None:
+        rng = np.random.default_rng()
 
+    geom_p = _resolve_geom_p(block_dist, min_block, max_block, mean_block)
     output = _block_bootstrap_pooled_core(
         country_arrays, country_lens, len(country_arrays), probs,
-        retirement_years, min_block, max_block, rng, len(cols),
+        retirement_years, min_block, max_block, rng, len(cols), block_dist, geom_p,
     )
     return pd.DataFrame(output, columns=cols)

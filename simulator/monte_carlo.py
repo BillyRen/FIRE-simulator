@@ -302,6 +302,8 @@ def run_simulation_vectorized_fixed(
     country_weights: dict[str, float] | None = None,
     glide_path_end_allocation: dict[str, float] | None = None,
     glide_path_years: int = 20,
+    block_dist: str = "uniform",
+    mean_block: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """向量化的固定提取策略模拟（优化版本）。
 
@@ -341,10 +343,12 @@ def run_simulation_vectorized_fixed(
             sampled_np = block_bootstrap_pooled_np(
                 c_arrays, c_lens, c_probs,
                 retirement_years, min_block, max_block, rng=rng,
+                block_dist=block_dist, mean_block=mean_block,
             )
         else:
             sampled_np = block_bootstrap_np(
                 src_data, src_n, retirement_years, min_block, max_block, rng=rng,
+                block_dist=block_dist, mean_block=mean_block,
             )
 
         if glide_path_end_allocation is not None:
@@ -429,6 +433,8 @@ def run_simulation(
     cape_slope: float = 0.5,
     cape_floor: float = 0.02,
     cape_ceiling: float = 0.08,
+    block_dist: str = "uniform",
+    mean_block: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """运行蒙特卡洛退休模拟。
 
@@ -509,6 +515,8 @@ def run_simulation(
             country_weights=country_weights,
             glide_path_end_allocation=glide_path_end_allocation,
             glide_path_years=glide_path_years,
+            block_dist=block_dist,
+            mean_block=mean_block,
         )
 
     # 回退到通用实现（支持所有策略和现金流）
@@ -576,10 +584,12 @@ def run_simulation(
             sampled_np = block_bootstrap_pooled_np(
                 c_arrays, c_lens, c_probs,
                 retirement_years, min_block, max_block, rng=rng,
+                block_dist=block_dist, mean_block=mean_block,
             )
         else:
             sampled_np = block_bootstrap_np(
                 src_data, src_n, retirement_years, min_block, max_block, rng=rng,
+                block_dist=block_dist, mean_block=mean_block,
             )
 
         # 2. 计算组合实际回报
