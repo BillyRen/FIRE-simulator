@@ -121,6 +121,24 @@ def get_gdp_weights(available_countries: list[str]) -> dict[str, float]:
     return {iso: v / total for iso, v in raw.items()}
 
 
+def get_observation_weights(country_lens: dict[str, int]) -> dict[str, float]:
+    """Observation-weighted country probabilities: w_i ∝ n_i (data length).
+
+    RESEARCH-ONLY (not the product default; the product pools equal-weight 1/N).
+    This mirrors the implicit weighting in Anarkulova-Cederburg-O'Doherty, whose
+    block bootstrap draws starts uniformly over all country-month observations,
+    so a country's probability is proportional to its history length. Used as a
+    third sensitivity axis (alongside equal-1/N and sqrt-GDP) to show the FIRE
+    conclusions are robust across plausible pooling weights. See
+    docs/plan-2026-06-21-block-bootstrap-sampling-upgrade.md §3.C.
+    """
+    total = sum(country_lens.values())
+    if total == 0:
+        n = len(country_lens)
+        return {iso: 1.0 / n for iso in country_lens}
+    return {iso: n_i / total for iso, n_i in country_lens.items()}
+
+
 # ---------------------------------------------------------------------------
 # 默认 UI 参数
 # ---------------------------------------------------------------------------
