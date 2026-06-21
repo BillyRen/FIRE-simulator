@@ -45,14 +45,21 @@ const MARKET_PRESETS: Record<
   __us_real_global: { data_source: "fire_dataset_intl", country: "USA", data_start_year: 1970 },
 };
 
-/** Map current params to the market-selector value (preset sentinel or ISO). */
+/** Map current params to the market-selector value (preset sentinel or ISO).
+ *
+ * The three named presets carry an explicit window in their label ("from 1900"
+ * / "from 1970"), so they only match when the FULL bundle (source + country +
+ * start year) is exact — otherwise we return "__custom" rather than mislabel a
+ * persisted/imported scenario that would silently run a different window (the
+ * data-source / start-year controls are no longer shown). Single JST countries
+ * have no year claim in their label, so they match on source + country alone. */
 function deriveMarketValue(p: FormParams): string {
-  if (p.data_source === "fire_dataset" || p.data_source === "fire_dataset_intl") {
-    return "__us_real_global";
-  }
-  if (p.country === "ALL") return "__global_pool";
-  if (p.country === "USA") return "__us_long";
-  return p.country; // single JST country (ISO)
+  const { data_source: ds, country: c, data_start_year: y } = p;
+  if (ds === "jst" && c === "ALL" && y === 1900) return "__global_pool";
+  if (ds === "jst" && c === "USA" && y === 1900) return "__us_long";
+  if (ds === "fire_dataset_intl" && c === "USA" && y === 1970) return "__us_real_global";
+  if (ds === "jst" && c !== "ALL" && c !== "USA") return c; // single JST country
+  return "__custom";
 }
 
 interface SidebarFormProps {
@@ -213,6 +220,9 @@ export const SidebarForm = memo(function SidebarForm({
 
   const marketValue = deriveMarketValue(p);
   const applyMarket = (v: string) => {
+    if (v === "__custom") {
+      return; // informational only; selecting it must not corrupt params
+    }
     if (v in MARKET_PRESETS) {
       onChange({ ...p, ...MARKET_PRESETS[v] });
     } else {
@@ -447,6 +457,9 @@ export const SidebarForm = memo(function SidebarForm({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {marketValue === "__custom" && (
+              <SelectItem value="__custom">{t("presetCustom")}</SelectItem>
+            )}
             <SelectItem value="__global_pool">{t("presetGlobalPool")}</SelectItem>
             <SelectItem value="__us_long">{t("presetUsLong")}</SelectItem>
             <SelectItem value="__us_real_global">{t("presetUsRealGlobal")}</SelectItem>

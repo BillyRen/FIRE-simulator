@@ -160,7 +160,8 @@
     "presetUsRealGlobal": "US · real global data (from 1970)",
     "groupRecommended": "Recommended",
     "groupSingleCountry": "Single country",
-    "strategyTuning": "Strategy parameters"
+    "strategyTuning": "Strategy parameters",
+    "presetCustom": "Custom (saved non-standard settings)"
   },
   "cashFlow": {
     "title": "Custom Cash Flows",

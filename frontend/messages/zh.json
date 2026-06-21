@@ -160,7 +160,8 @@
     "presetUsRealGlobal": "美国 · 真实全球数据（1970起）",
     "groupRecommended": "推荐",
     "groupSingleCountry": "单一国家",
-    "strategyTuning": "策略参数微调"
+    "strategyTuning": "策略参数微调",
+    "presetCustom": "自定义（已保存的非标准设置）"
   },
   "cashFlow": {
     "title": "自定义现金流",
