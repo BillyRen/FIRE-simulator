@@ -45,6 +45,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from simulator.bootstrap import (  # noqa: E402
+    IDX_DS, IDX_DB, IDX_INF, RETURN_COLS, block_bootstrap_pooled,
+)
 from simulator.data_loader import load_returns_data  # noqa: E402
 
 # --- config -----------------------------------------------------------------
@@ -175,6 +178,88 @@ def _pct(a: np.ndarray, q: float) -> float:
     return float(np.percentile(a, q)) if a.size else np.nan
 
 
+# --- Stage B2: synthetic-path VR + wrap-seam fraction -----------------------
+def _synthetic_portfolio_vr(df: pd.DataFrame, block_dist: str,
+                            mean_block: int | None, n_paths: int,
+                            path_len: int, seed: int) -> dict[int, float]:
+    """VR(k) of the bootstrap DGP: many synthetic 60/40 real-log paths."""
+    country_dfs = {iso: sub.sort_values("Year").reset_index(drop=True)
+                   for iso, sub in df.groupby("Country")}
+    rng = np.random.default_rng(seed)
+    acc = {k: [] for k in VR_LAGS}
+    for _ in range(n_paths):
+        s = block_bootstrap_pooled(country_dfs, path_len, 5, 15, rng=rng,
+                                   columns=RETURN_COLS, block_dist=block_dist,
+                                   mean_block=mean_block).to_numpy()
+        port_nom = STOCK_W * s[:, IDX_DS] + BOND_W * s[:, IDX_DB]
+        r = _log_real(port_nom, s[:, IDX_INF])
+        for k in VR_LAGS:
+            v = variance_ratio(r, k)
+            if np.isfinite(v):
+                acc[k].append(v)
+    return {k: float(np.mean(acc[k])) if acc[k] else np.nan for k in VR_LAGS}
+
+
+def _wrap_seam_fraction(df: pd.DataFrame, block_dist: str, mean_block: int | None,
+                        path_len: int, n_paths: int, seed: int) -> float:
+    """Fraction of sampled rows that come from a circular wrap (start+off >= n).
+
+    Replays the same draw process (country, length, start) the cores use.
+    """
+    lens = [len(sub) for _, sub in df.groupby("Country")]
+    nC = len(lens)
+    rng = np.random.default_rng(seed)
+    p = None if block_dist != "geometric" else 1.0 / (mean_block or 10)
+    wrapped = total = 0
+    for _ in range(n_paths):
+        pos = 0
+        while pos < path_len:
+            ci = rng.integers(0, nC)
+            n = lens[ci]
+            L = rng.geometric(p) if block_dist == "geometric" else rng.integers(5, 16)
+            bs = min(L, path_len - pos)
+            start = rng.integers(0, n)
+            off = np.arange(start, start + bs)
+            wrapped += int(np.sum(off >= n))
+            total += bs
+            pos += bs
+    return wrapped / total if total else 0.0
+
+
+def stage_b2(df: pd.DataFrame, hist_vr: dict[int, float]) -> None:
+    print("\n" + "=" * 70)
+    print("=== Stage B2: synthetic-path VR vs historical + wrap-seam fraction ===")
+    print("=" * 70)
+    configs = [("uniform[5,15]", "uniform", None),
+               ("geometric(mean=10)", "geometric", 10),
+               ("geometric(mean=20)", "geometric", 20)]
+    n_paths, path_len = 4000, 120
+    print(f"(synthetic: {n_paths} pooled paths x {path_len}y, 60/40 real log)\n")
+    header = f"{'k':>4}{'historical':>12}" + "".join(f"{c[0]:>20}" for c in configs)
+    print(header)
+    syn = {}
+    fracs = {}
+    for name, bd, mb in configs:
+        syn[name] = _synthetic_portfolio_vr(df, bd, mb, n_paths, path_len, seed=SEED)
+        fracs[name] = _wrap_seam_fraction(df, bd, mb, path_len, n_paths, seed=SEED + 1)
+    for k in VR_LAGS:
+        row = f"{k:>4}{hist_vr[k]:>12.3f}"
+        for name, _, _ in configs:
+            row += f"{syn[name][k]:>20.3f}"
+        print(row)
+    print("\nWrap-seam fraction (share of sampled rows from a circular wrap):")
+    for name, _, _ in configs:
+        print(f"  {name:<20} {fracs[name]*100:5.2f}%")
+    print("\nReading:")
+    print("  - If synthetic VR(k) tracks historical out to k=10-30, the sampler "
+          "reproduces the regime persistence that drives ruin risk.")
+    print("  - Block dist that best matches historical VR(10-30) is preferable "
+          "for our objective (independent of PPW's short b_opt).")
+    print("  - Wrap fraction quantifies Upgrade-D exposure: a small fraction "
+          "means the 2025->1872 seam is rare and cannot materially distort VR "
+          "(supports keeping circular wrap, plan §3.D).")
+
+
 def main() -> None:
     df = load_returns_data()
     series = build_country_series(df)
@@ -272,6 +357,10 @@ def main() -> None:
           "block length. Geometric option (Upgrade A) default mean_block=10 is "
           "defensible; Stage B2 confirms by comparing SYNTHETIC VR of "
           "uniform[5,15] vs geometric(mean) against this historical VR curve.")
+
+    if "--with-synthetic" in sys.argv:
+        hist_vr = {k: wmean(port_vr[k], wts) for k in VR_LAGS}
+        stage_b2(df, hist_vr)
 
 
 if __name__ == "__main__":
