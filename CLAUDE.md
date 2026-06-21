@@ -84,11 +84,19 @@ pytest tests/test_core.py::TestBlockBootstrap::test_output_shape  # single test
 4. Results returned as percentile trajectories, success rates, funded ratios
 
 ### Key patterns
-- Multi-country pooling: when `country="ALL"`, bootstrap draws from 16 countries weighted by sqrt(GDP)
+- Multi-country pooling: when `country="ALL"`, bootstrap draws from 16 countries with **equal probability (1/N)** (`deps.resolve_country_weights` returns `None`). sqrt(GDP) weighting exists in `config.get_gdp_weights` but is research-only.
 - Cash flows support probabilistic groups (mutually exclusive events with probability weights)
 - Guardrail strategy uses precomputed success-rate lookup tables for real-time adjustments
 - All monetary values in responses are real (inflation-adjusted) dollars
 - All pages use `"use client"` — no SSR concerns for component state
+
+### Block bootstrap sampling (defaults validated 2026-06-21 — do not change without evidence)
+A JST-vs-GFD study + sampling review (`docs/jst-vs-gfd-sampling-2026-06-21.md`, merged `6d11cfc`) validated all three sampling defaults; keep them:
+- **Block length = uniform `[5,15]` (mean 10y)**. An opt-in geometric option exists (`block_dist="geometric"` + `mean_block`, default `"uniform"` = bitwise no-op), but walk-forward showed geometric does NOT reduce the documented −3~−8pp MC conservative bias, and its heavy tail wraps more often (seam breaks persistence → worse long-horizon VR). Geometric is a research switch only.
+- **Boundary = same-country circular wrap** (`% n`). This is the standard Circular Block Bootstrap (Politis-Romano 1992): it removes block-edge bias. The 2025→1872 seam is rare (~3.4% of sampled rows at default) and benign for return-like columns; it is less clean for level columns (`Long_Rate`, housing) but the product samples only return-like columns. Do NOT switch to truncation (reintroduces edge bias) or ACO cross-country continuation (double seam + early-data bias).
+- **Pooling weight = equal 1/N** (see above). Robust: equal / sqrt-GDP / observation-weighted give SWR@90% within 0.09pp.
+- Calibration tools: `analysis/block_length_vr_calibration.py` (VR + Patton-Politis-White optimal block length; note PPW's ~2y targets mean-estimation MSE, NOT our long-horizon-variance objective — don't use it as the block length), `analysis/pooling_weight_sensitivity.py`.
+- **pytest runs on `python3.12` (miniforge), not `python3` (3.14 lacks pytest).**
 
 ### JST data extension (2021-2025)
 - JST R6 official data ends at 2020; years 2021-2025 are an unofficial extension using IMF/OECD/yfinance
