@@ -152,7 +152,16 @@
     "borrowingCostHelp": "Leverage borrowing cost = short-term rate ≈ inflation + spread",
     "cashFlowTitle": "Custom Cash Flows",
     "adjustedTo": "Adjusted to {value}",
-    "adjustedToRange": "Adjusted to {value} (range: {min} - {max})"
+    "adjustedToRange": "Adjusted to {value} (range: {min} - {max})",
+    "marketHistory": "Market history",
+    "marketHistoryHelp": "Choose the return-data source and history window.",
+    "presetGlobalPool": "Global pool (16 countries · from 1900)",
+    "presetUsLong": "United States · long history (from 1900)",
+    "presetUsRealGlobal": "US · real global data (from 1970)",
+    "groupRecommended": "Recommended",
+    "groupSingleCountry": "Single country",
+    "strategyTuning": "Strategy parameters",
+    "presetCustom": "Custom (saved non-standard settings)"
   },
   "cashFlow": {
     "title": "Custom Cash Flows",
