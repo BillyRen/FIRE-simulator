@@ -58,7 +58,7 @@ function deriveMarketValue(p: FormParams): string {
   if (ds === "jst" && c === "ALL" && y === 1900) return "__global_pool";
   if (ds === "jst" && c === "USA" && y === 1900) return "__us_long";
   if (ds === "fire_dataset_intl" && c === "USA" && y === 1970) return "__us_real_global";
-  if (ds === "jst" && c !== "ALL" && c !== "USA") return c; // single JST country
+  if (ds === "jst" && c !== "ALL" && c !== "USA") return "__single_country"; // a JST single country; the specific ISO lives in the secondary picker
   return "__custom";
 }
 
@@ -219,20 +219,32 @@ export const SidebarForm = memo(function SidebarForm({
     locale === "zh" ? c.name_zh : c.name_en;
 
   const marketValue = deriveMarketValue(p);
+  const singleCountries = countries.filter((c) => c.iso !== "USA");
+  const applyCountry = (iso: string) => {
+    const info = countries.find((c) => c.iso === iso);
+    onChange({
+      ...p,
+      data_source: "jst",
+      country: iso,
+      data_start_year: info ? info.min_year : p.data_start_year,
+    });
+  };
   const applyMarket = (v: string) => {
     if (v === "__custom") {
       return; // informational only; selecting it must not corrupt params
     }
+    if (v === "__single_country") {
+      // Entry into single-country mode; default to the first available country.
+      // No-op if already on a single country (deriveMarketValue keeps us here).
+      if (marketValue !== "__single_country" && singleCountries[0]) {
+        applyCountry(singleCountries[0].iso);
+      }
+      return;
+    }
     if (v in MARKET_PRESETS) {
       onChange({ ...p, ...MARKET_PRESETS[v] });
     } else {
-      const info = countries.find((c) => c.iso === v);
-      onChange({
-        ...p,
-        data_source: "jst",
-        country: v,
-        data_start_year: info ? info.min_year : p.data_start_year,
-      });
+      applyCountry(v);
     }
   };
 
@@ -463,22 +475,25 @@ export const SidebarForm = memo(function SidebarForm({
             <SelectItem value="__global_pool">{t("presetGlobalPool")}</SelectItem>
             <SelectItem value="__us_long">{t("presetUsLong")}</SelectItem>
             <SelectItem value="__us_real_global">{t("presetUsRealGlobal")}</SelectItem>
-            {countries.filter((c) => c.iso !== "USA").length > 0 && (
-              <>
-                <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wider">
-                  {t("groupSingleCountry")}
-                </div>
-                {countries
-                  .filter((c) => c.iso !== "USA")
-                  .map((c) => (
-                    <SelectItem key={c.iso} value={c.iso}>
-                      {countryFlag(c.iso)} {countryName(c)}
-                    </SelectItem>
-                  ))}
-              </>
+            {singleCountries.length > 0 && (
+              <SelectItem value="__single_country">{t("groupSingleCountry")}</SelectItem>
             )}
           </SelectContent>
         </Select>
+        {marketValue === "__single_country" && singleCountries.length > 0 && (
+          <Select value={p.country} onValueChange={applyCountry}>
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {singleCountries.map((c) => (
+                <SelectItem key={c.iso} value={c.iso}>
+                  {countryFlag(c.iso)} {countryName(c)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <Accordion type="multiple" defaultValue={coreDefaults}>
