@@ -44,6 +44,10 @@ from simulator.statistics import compute_success_rate  # noqa: E402
 RETIREMENT_YEARS = 30
 MIN_BLOCK = 5
 MAX_BLOCK = 15
+# Block-length distribution for the MC predictor (set via CLI in main()).
+# Default "uniform" reproduces the canonical validated run exactly.
+BLOCK_DIST = "uniform"
+MEAN_BLOCK: int | None = None
 NUM_SIMULATIONS = 8000
 BASE_SEED = 20260608
 INITIAL_PORTFOLIO = 1_000_000.0
@@ -173,6 +177,8 @@ def run_source(
             leverage=1.0,
             country_dfs=country_dfs,
             country_weights=country_weights,
+            block_dist=BLOCK_DIST,
+            mean_block=MEAN_BLOCK,
         )
 
         hb_all_matrix = (np.concatenate(list(hb_country_windows.values()))
@@ -473,7 +479,27 @@ figs.forEach(f => {{
 
 # ---------------------------------------------------------------------------
 def main():
+    import argparse
+    global BLOCK_DIST, MEAN_BLOCK
+    ap = argparse.ArgumentParser(description="Walk-forward MC vs HB calibration")
+    ap.add_argument("--block-dist", choices=["uniform", "geometric"],
+                    default="uniform",
+                    help="MC predictor block-length law (default uniform).")
+    ap.add_argument("--mean-block", type=int, default=None,
+                    help="Geometric mean block length (default = uniform midpoint=10).")
+    ap.add_argument("--tag", default="",
+                    help="Output filename suffix (avoid overwriting canonical run).")
+    ap.add_argument("--sources", default="main",
+                    choices=["main", "all"],
+                    help="'main' = JST_pool + US only (faster); 'all' adds early appendix.")
+    args = ap.parse_args()
+    BLOCK_DIST = args.block_dist
+    MEAN_BLOCK = args.mean_block
+    suffix = f"_{args.tag}" if args.tag else ""
+
     os.makedirs(OUT_DATA_DIR, exist_ok=True)
+    print(f"[config] block_dist={BLOCK_DIST} mean_block={MEAN_BLOCK} "
+          f"sources={args.sources} tag={args.tag!r}", flush=True)
 
     print("加载数据 ...", flush=True)
     jst = load_returns_data()
@@ -491,16 +517,18 @@ def main():
                             t_min=T_MIN_PRIMARY, t_max=T_MAX)
     all_samples.append(us_samples)
 
-    # 附录：早期有限历史 1915-1938（realized 含 DEU 1920s / JPN 1940s 灾难）。
-    # 部分国家 pre-T < 30y → 0 个 in-sample 窗口，预测池国家集与 realized 集不完全
-    # 对齐（见 spec §4.2 附录说明）。仅作时期依赖性对照，不进主结论。
-    print("\n>>> 附录：JST 池化 早期 1915-1938（有限历史）", flush=True)
-    early = run_source("JST_pool_early_1915_1938", jst, ALLOC_POOL, pooled=True,
-                       t_min=1915, t_max=1938)
-    all_samples.append(early)
+    if args.sources == "all":
+        # 附录：早期有限历史 1915-1938（realized 含 DEU 1920s / JPN 1940s 灾难）。
+        # 部分国家 pre-T < 30y → 0 个 in-sample 窗口，预测池国家集与 realized 集不完全
+        # 对齐（见 spec §4.2 附录说明）。仅作时期依赖性对照，不进主结论。
+        print("\n>>> 附录：JST 池化 早期 1915-1938（有限历史）", flush=True)
+        early = run_source("JST_pool_early_1915_1938", jst, ALLOC_POOL, pooled=True,
+                           t_min=1915, t_max=1938)
+        all_samples.append(early)
 
     samples = pd.concat(all_samples, ignore_index=True)
-    samples.to_csv(os.path.join(OUT_DATA_DIR, "walk_forward_samples.csv"), index=False)
+    samples.to_csv(os.path.join(OUT_DATA_DIR, f"walk_forward_samples{suffix}.csv"),
+                   index=False)
     print(f"\n样本表已存: {len(samples)} 行", flush=True)
 
     results = []
@@ -520,13 +548,15 @@ def main():
 
     if calib_rows:
         pd.concat(calib_rows, ignore_index=True).to_csv(
-            os.path.join(OUT_DATA_DIR, "walk_forward_calibration.csv"), index=False)
+            os.path.join(OUT_DATA_DIR, f"walk_forward_calibration{suffix}.csv"),
+            index=False)
     pd.DataFrame(metric_rows).to_csv(
-        os.path.join(OUT_DATA_DIR, "walk_forward_metrics.csv"), index=False)
+        os.path.join(OUT_DATA_DIR, f"walk_forward_metrics{suffix}.csv"), index=False)
 
-    with open(OUT_HTML, "w", encoding="utf-8") as f:
+    out_html = OUT_HTML if not suffix else OUT_HTML.replace(".html", f"{suffix}.html")
+    with open(out_html, "w", encoding="utf-8") as f:
         f.write(build_html(results))
-    print(f"\nHTML 报告: {OUT_HTML}", flush=True)
+    print(f"\nHTML 报告: {out_html}", flush=True)
 
 
 if __name__ == "__main__":
