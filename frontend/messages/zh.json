@@ -152,7 +152,15 @@
     "borrowingCostHelp": "杠杆借贷成本 = 短期实际利率 ≈ 通胀率 + 利差",
     "cashFlowTitle": "自定义现金流",
     "adjustedTo": "已调整为 {value}",
-    "adjustedToRange": "已调整为 {value}（范围：{min} - {max}）"
+    "adjustedToRange": "已调整为 {value}（范围：{min} - {max}）",
+    "marketHistory": "市场历史",
+    "marketHistoryHelp": "选择回报数据的来源与历史窗口。",
+    "presetGlobalPool": "全球池化（16 国 · 1900起）",
+    "presetUsLong": "美国 · 长历史（1900起）",
+    "presetUsRealGlobal": "美国 · 真实全球数据（1970起）",
+    "groupRecommended": "推荐",
+    "groupSingleCountry": "单一国家",
+    "strategyTuning": "策略参数微调"
   },
   "cashFlow": {
     "title": "自定义现金流",

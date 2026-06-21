@@ -31,6 +31,30 @@ import { DEFAULT_PARAMS } from "@/lib/types";
 import type { FormParams, CountryInfo } from "@/lib/types";
 import { countryFlag } from "@/lib/utils";
 
+// Curated "market history" presets that bundle data_source + country + start year
+// into one-click choices. Sentinel keys ("__"-prefixed) cannot collide with ISO
+// codes, which are used as values for the single-country options. Note: the
+// legacy "fire_dataset" source (pre-1970 international = US backfill) is no longer
+// offered; "fire_dataset_intl" (real distinct international history) supersedes it.
+const MARKET_PRESETS: Record<
+  string,
+  { data_source: FormParams["data_source"]; country: string; data_start_year: number }
+> = {
+  __global_pool: { data_source: "jst", country: "ALL", data_start_year: 1900 },
+  __us_long: { data_source: "jst", country: "USA", data_start_year: 1900 },
+  __us_real_global: { data_source: "fire_dataset_intl", country: "USA", data_start_year: 1970 },
+};
+
+/** Map current params to the market-selector value (preset sentinel or ISO). */
+function deriveMarketValue(p: FormParams): string {
+  if (p.data_source === "fire_dataset" || p.data_source === "fire_dataset_intl") {
+    return "__us_real_global";
+  }
+  if (p.country === "ALL") return "__global_pool";
+  if (p.country === "USA") return "__us_long";
+  return p.country; // single JST country (ISO)
+}
+
 interface SidebarFormProps {
   params: FormParams;
   onChange: (params: FormParams) => void;
@@ -176,16 +200,31 @@ export const SidebarForm = memo(function SidebarForm({
     onChange({ ...p, [key]: val });
 
   const [showLifeExpectancy, setShowLifeExpectancy] = useState(false);
-  const [localCountries, setLocalCountries] = useState<CountryInfo[]>([]);
+  // The single-country picker always uses the JST country list, regardless of the
+  // active data_source (a US-dataset preset would otherwise shrink the list to USA).
+  const [jstCountries, setJstCountries] = useState<CountryInfo[]>(countriesProp ?? []);
   useEffect(() => {
-    if (!countriesProp) {
-      fetchCountries(p.data_source).then(setLocalCountries).catch(() => { /* non-critical init data */ });
-    }
-  }, [p.data_source, countriesProp]);
-  const countries = countriesProp ?? localCountries;
+    fetchCountries("jst").then(setJstCountries).catch(() => { /* non-critical init data */ });
+  }, []);
+  const countries = jstCountries;
 
   const countryName = (c: CountryInfo) =>
     locale === "zh" ? c.name_zh : c.name_en;
+
+  const marketValue = deriveMarketValue(p);
+  const applyMarket = (v: string) => {
+    if (v in MARKET_PRESETS) {
+      onChange({ ...p, ...MARKET_PRESETS[v] });
+    } else {
+      const info = countries.find((c) => c.iso === v);
+      onChange({
+        ...p,
+        data_source: "jst",
+        country: v,
+        data_start_year: info ? info.min_year : p.data_start_year,
+      });
+    }
+  };
 
   const isModified = useMemo(() => {
     const check = (keys: (keyof FormParams)[]) =>
@@ -193,16 +232,168 @@ export const SidebarForm = memo(function SidebarForm({
         (k) => JSON.stringify(p[k]) !== JSON.stringify(DEFAULT_PARAMS[k])
       );
     return {
-      dataRange: check(["data_source", "country", "data_start_year"]),
-      allocation: check(["allocation", "expense_ratios"]),
-      simulation: check(["num_simulations", "min_block", "max_block"]),
-      withdrawal: check(["withdrawal_strategy", "dynamic_ceiling", "dynamic_floor"]),
+      allocation: check(["allocation"]),
+      expense: check(["expense_ratios"]),
+      glidePath: check(["glide_path_enabled", "glide_path_end_allocation", "glide_path_years"]),
+      withdrawal: check(["withdrawal_strategy"]),
+      strategyTuning: check([
+        "dynamic_ceiling", "dynamic_floor", "declining_rate", "declining_start_age",
+        "smile_decline_rate", "smile_decline_start_age", "smile_min_age", "smile_increase_rate",
+        "cape_intercept", "cape_slope", "cape_floor", "cape_ceiling",
+      ]),
       leverage: check(["leverage", "borrowing_spread"]),
       cashFlows: p.cash_flows.length > 0,
     };
   }, [p]);
 
-  const coreDefaults = ["allocation", ...(showWithdrawalStrategy ? ["withdrawal"] : []), "cashflow"];
+  const coreDefaults = [
+    ...(showAllocation ? ["allocation"] : []),
+    ...(showWithdrawalStrategy ? ["withdrawal"] : []),
+    "cashflow",
+  ];
+  // Advanced "strategy tuning" only applies to strategies with coefficients.
+  const hasStrategyCoeffs = p.withdrawal_strategy !== "fixed";
+
+  // Strategy coefficient fields (rendered in the Advanced > strategy-tuning
+  // section; the strategy SELECTOR stays in the core section).
+  const strategyCoeffFields = (
+    <>
+      {p.withdrawal_strategy === "dynamic" && (
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField
+            label={t("dynamicCeiling")}
+            value={+(p.dynamic_ceiling * 100).toFixed(1)}
+            onChange={(v) => set("dynamic_ceiling", v / 100)}
+            min={0}
+            max={100}
+            step={0.5}
+          />
+          <NumberField
+            label={t("dynamicFloor")}
+            value={+(p.dynamic_floor * 100).toFixed(1)}
+            onChange={(v) => set("dynamic_floor", v / 100)}
+            min={0}
+            max={100}
+            step={0.5}
+          />
+        </div>
+      )}
+
+      {p.withdrawal_strategy === "declining" && (
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField
+            label={t("decliningRate")}
+            value={+(p.declining_rate * 100).toFixed(1)}
+            onChange={(v) => set("declining_rate", v / 100)}
+            min={0}
+            max={10}
+            step={0.1}
+            suffix="%"
+            tooltip={t("decliningRateHelp")}
+          />
+          <NumberField
+            label={t("decliningStartAge")}
+            value={p.declining_start_age}
+            onChange={(v) => set("declining_start_age", v)}
+            min={30}
+            max={100}
+            step={1}
+            tooltip={t("decliningStartAgeHelp")}
+          />
+        </div>
+      )}
+
+      {p.withdrawal_strategy === "smile" && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label={t("smileDeclineRate")}
+              value={+(p.smile_decline_rate * 100).toFixed(1)}
+              onChange={(v) => set("smile_decline_rate", v / 100)}
+              min={0}
+              max={10}
+              step={0.1}
+              suffix="%"
+            />
+            <NumberField
+              label={t("smileDeclineStartAge")}
+              value={p.smile_decline_start_age}
+              onChange={(v) => set("smile_decline_start_age", v)}
+              min={18}
+              max={100}
+              step={1}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label={t("smileMinAge")}
+              value={p.smile_min_age}
+              onChange={(v) => set("smile_min_age", v)}
+              min={30}
+              max={100}
+              step={1}
+            />
+            <NumberField
+              label={t("smileIncreaseRate")}
+              value={+(p.smile_increase_rate * 100).toFixed(1)}
+              onChange={(v) => set("smile_increase_rate", v / 100)}
+              min={0}
+              max={10}
+              step={0.1}
+              suffix="%"
+            />
+          </div>
+        </div>
+      )}
+
+      {p.withdrawal_strategy === "cape" && (
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            {t("capeWithdrawalHelp")}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField
+              label={t("capeIntercept")}
+              value={+(((p.cape_intercept ?? 0.015) * 100).toFixed(2))}
+              onChange={(v) => set("cape_intercept", v / 100)}
+              min={0}
+              max={10}
+              step={0.1}
+              suffix="%"
+              tooltip={t("capeInterceptHelp")}
+            />
+            <NumberField
+              label={t("capeSlope")}
+              value={p.cape_slope ?? 0.5}
+              onChange={(v) => set("cape_slope", v)}
+              min={0}
+              max={2}
+              step={0.05}
+              tooltip={t("capeSlopeHelp")}
+            />
+            <NumberField
+              label={t("capeFloor")}
+              value={+(((p.cape_floor ?? 0.02) * 100).toFixed(1))}
+              onChange={(v) => set("cape_floor", v / 100)}
+              min={0.5}
+              max={20}
+              step={0.25}
+              suffix="%"
+            />
+            <NumberField
+              label={t("capeCeiling")}
+              value={+(((p.cape_ceiling ?? 0.08) * 100).toFixed(1))}
+              onChange={(v) => set("cape_ceiling", v / 100)}
+              min={1}
+              max={30}
+              step={0.25}
+              suffix="%"
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div className="space-y-2">
@@ -246,16 +437,47 @@ export const SidebarForm = memo(function SidebarForm({
       )}
 
       {/* ── Core sections ── */}
+      <div className="space-y-1">
+        <Label className="text-xs inline-flex items-center gap-1">
+          {t("marketHistory")}
+          <InfoTip text={t("marketHistoryHelp")} />
+        </Label>
+        <Select value={marketValue} onValueChange={applyMarket}>
+          <SelectTrigger className="h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__global_pool">{t("presetGlobalPool")}</SelectItem>
+            <SelectItem value="__us_long">{t("presetUsLong")}</SelectItem>
+            <SelectItem value="__us_real_global">{t("presetUsRealGlobal")}</SelectItem>
+            {countries.filter((c) => c.iso !== "USA").length > 0 && (
+              <>
+                <div className="px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wider">
+                  {t("groupSingleCountry")}
+                </div>
+                {countries
+                  .filter((c) => c.iso !== "USA")
+                  .map((c) => (
+                    <SelectItem key={c.iso} value={c.iso}>
+                      {countryFlag(c.iso)} {countryName(c)}
+                    </SelectItem>
+                  ))}
+              </>
+            )}
+          </SelectContent>
+        </Select>
+      </div>
+
       <Accordion type="multiple" defaultValue={coreDefaults}>
-        {/* Asset Allocation */}
+        {/* Asset Allocation (sliders only; fees + glide path live in Advanced) */}
+        {showAllocation && (
         <AccordionItem value="allocation">
           <SectionTrigger
-            label={showAllocation ? t("assetAllocation") : t("assetExpenseRatio")}
+            label={t("assetAllocation")}
             modified={isModified.allocation}
           />
           <AccordionContent>
-            {showAllocation && (
-              <>
+            <>
                 <div className="grid grid-cols-3 gap-2">
                   <NumberField
                     label={t("domesticStock")}
@@ -291,67 +513,71 @@ export const SidebarForm = memo(function SidebarForm({
                   <p className="text-[10px] text-red-500 mt-1">{t("allocationWarning")}</p>
                 )}
 
-                <div className="flex items-center gap-2 mt-3">
-                  <input
-                    type="checkbox"
-                    checked={p.glide_path_enabled}
-                    onChange={(e) => set("glide_path_enabled", e.target.checked)}
-                    className="h-3.5 w-3.5"
-                    id="glide-path-toggle"
-                  />
-                  <Label htmlFor="glide-path-toggle" className="text-xs cursor-pointer">
-                    {t("glidePath")}
-                  </Label>
-                  <InfoTip text={t("glidePathHelp")} />
-                </div>
+            </>
+          </AccordionContent>
+        </AccordionItem>
+        )}
 
-                {p.glide_path_enabled && (
-                  <div className="space-y-2 mt-2 pl-2 border-l-2 border-primary/20">
-                    <p className="text-[10px] text-muted-foreground">{t("glidePathEnd")}</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      <NumberField
-                        label={t("domesticStock")}
-                        value={Math.round(p.glide_path_end_allocation.domestic_stock * 100)}
-                        onChange={(v) =>
-                          set("glide_path_end_allocation", { ...p.glide_path_end_allocation, domestic_stock: v / 100 })
-                        }
-                        min={0}
-                        max={100}
-                      />
-                      <NumberField
-                        label={t("globalStock")}
-                        value={Math.round(p.glide_path_end_allocation.global_stock * 100)}
-                        onChange={(v) =>
-                          set("glide_path_end_allocation", { ...p.glide_path_end_allocation, global_stock: v / 100 })
-                        }
-                        min={0}
-                        max={100}
-                      />
-                      <NumberField
-                        label={t("domesticBond")}
-                        value={Math.round(p.glide_path_end_allocation.domestic_bond * 100)}
-                        onChange={(v) =>
-                          set("glide_path_end_allocation", { ...p.glide_path_end_allocation, domestic_bond: v / 100 })
-                        }
-                        min={0}
-                        max={100}
-                      />
-                    </div>
-                    <NumberField
-                      label={t("glidePathYears")}
-                      value={p.glide_path_years}
-                      onChange={(v) => set("glide_path_years", v)}
-                      min={1}
-                      max={100}
-                      step={1}
-                      suffix={t("yearsSuffix")}
-                    />
-                  </div>
-                )}
-              </>
-            )}
+        {/* Withdrawal Strategy */}
+        {showWithdrawalStrategy && (
+          <AccordionItem value="withdrawal">
+            <SectionTrigger
+              label={t("withdrawalStrategy")}
+              modified={isModified.withdrawal}
+            />
+            <AccordionContent>
+              <Select
+                value={p.withdrawal_strategy}
+                onValueChange={(v) =>
+                  set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining" | "smile" | "cape")
+                }
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed">{t("fixedWithdrawal")}</SelectItem>
+                  <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
+                  <SelectItem value="declining">{t("decliningWithdrawal")}</SelectItem>
+                  <SelectItem value="smile">{t("smileWithdrawal")}</SelectItem>
+                  <SelectItem value="cape">{t("capeWithdrawal")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </AccordionContent>
+          </AccordionItem>
+        )}
 
-            <div className={`grid grid-cols-3 gap-2 ${showAllocation ? "mt-2" : ""}`}>
+        {/* Custom Cash Flows */}
+        <AccordionItem value="cashflow" className="border-b-0">
+          <SectionTrigger
+            label={t("cashFlowTitle")}
+            modified={isModified.cashFlows}
+          />
+          <AccordionContent>
+            <CashFlowEditor
+              value={p.cash_flows}
+              onChange={(cfs) => set("cash_flows", cfs)}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      {/* Extra children (Guardrail settings, etc.) */}
+      {children}
+
+      {/* ── Advanced sections ── */}
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider pt-2">
+        {t("advancedSettings")}
+      </p>
+      <Accordion type="multiple" defaultValue={[]}>
+        {/* Expense ratios (3 separate per-asset fees) */}
+        <AccordionItem value="expense">
+          <SectionTrigger
+            label={t("assetExpenseRatio")}
+            modified={isModified.expense}
+          />
+          <AccordionContent>
+            <div className="grid grid-cols-3 gap-2">
               <NumberField
                 label={t("domesticStockFee")}
                 value={+(p.expense_ratios.domestic_stock * 100).toFixed(2)}
@@ -383,314 +609,85 @@ export const SidebarForm = memo(function SidebarForm({
           </AccordionContent>
         </AccordionItem>
 
-        {/* Withdrawal Strategy */}
-        {showWithdrawalStrategy && (
-          <AccordionItem value="withdrawal">
+        {/* Strategy tuning (coefficients for the selected non-fixed strategy) */}
+        {showWithdrawalStrategy && hasStrategyCoeffs && (
+          <AccordionItem value="strategy-tuning">
             <SectionTrigger
-              label={t("withdrawalStrategy")}
-              modified={isModified.withdrawal}
+              label={t("strategyTuning")}
+              modified={isModified.strategyTuning}
+            />
+            <AccordionContent>{strategyCoeffFields}</AccordionContent>
+          </AccordionItem>
+        )}
+
+        {/* Glide path (allocation drift over retirement) */}
+        {showAllocation && (
+          <AccordionItem value="glide-path">
+            <SectionTrigger
+              label={t("glidePath")}
+              modified={isModified.glidePath}
             />
             <AccordionContent>
-              <Select
-                value={p.withdrawal_strategy}
-                onValueChange={(v) =>
-                  set("withdrawal_strategy", v as "fixed" | "dynamic" | "declining" | "smile" | "cape")
-                }
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fixed">{t("fixedWithdrawal")}</SelectItem>
-                  <SelectItem value="dynamic">{t("dynamicWithdrawal")}</SelectItem>
-                  <SelectItem value="declining">{t("decliningWithdrawal")}</SelectItem>
-                  <SelectItem value="smile">{t("smileWithdrawal")}</SelectItem>
-                  <SelectItem value="cape">{t("capeWithdrawal")}</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={p.glide_path_enabled}
+                  onChange={(e) => set("glide_path_enabled", e.target.checked)}
+                  className="h-3.5 w-3.5"
+                  id="glide-path-toggle"
+                />
+                <Label htmlFor="glide-path-toggle" className="text-xs cursor-pointer">
+                  {t("glidePath")}
+                </Label>
+                <InfoTip text={t("glidePathHelp")} />
+              </div>
 
-              {p.withdrawal_strategy === "dynamic" && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
+              {p.glide_path_enabled && (
+                <div className="space-y-2 mt-2 pl-2 border-l-2 border-primary/20">
+                  <p className="text-[10px] text-muted-foreground">{t("glidePathEnd")}</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <NumberField
+                      label={t("domesticStock")}
+                      value={Math.round(p.glide_path_end_allocation.domestic_stock * 100)}
+                      onChange={(v) =>
+                        set("glide_path_end_allocation", { ...p.glide_path_end_allocation, domestic_stock: v / 100 })
+                      }
+                      min={0}
+                      max={100}
+                    />
+                    <NumberField
+                      label={t("globalStock")}
+                      value={Math.round(p.glide_path_end_allocation.global_stock * 100)}
+                      onChange={(v) =>
+                        set("glide_path_end_allocation", { ...p.glide_path_end_allocation, global_stock: v / 100 })
+                      }
+                      min={0}
+                      max={100}
+                    />
+                    <NumberField
+                      label={t("domesticBond")}
+                      value={Math.round(p.glide_path_end_allocation.domestic_bond * 100)}
+                      onChange={(v) =>
+                        set("glide_path_end_allocation", { ...p.glide_path_end_allocation, domestic_bond: v / 100 })
+                      }
+                      min={0}
+                      max={100}
+                    />
+                  </div>
                   <NumberField
-                    label={t("dynamicCeiling")}
-                    value={+(p.dynamic_ceiling * 100).toFixed(1)}
-                    onChange={(v) => set("dynamic_ceiling", v / 100)}
-                    min={0}
-                    max={100}
-                    step={0.5}
-                  />
-                  <NumberField
-                    label={t("dynamicFloor")}
-                    value={+(p.dynamic_floor * 100).toFixed(1)}
-                    onChange={(v) => set("dynamic_floor", v / 100)}
-                    min={0}
-                    max={100}
-                    step={0.5}
-                  />
-                </div>
-              )}
-
-              {p.withdrawal_strategy === "declining" && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <NumberField
-                    label={t("decliningRate")}
-                    value={+(p.declining_rate * 100).toFixed(1)}
-                    onChange={(v) => set("declining_rate", v / 100)}
-                    min={0}
-                    max={10}
-                    step={0.1}
-                    suffix="%"
-                    tooltip={t("decliningRateHelp")}
-                  />
-                  <NumberField
-                    label={t("decliningStartAge")}
-                    value={p.declining_start_age}
-                    onChange={(v) => set("declining_start_age", v)}
-                    min={30}
-                    max={100}
+                    label={t("glidePathYears")}
+                    value={p.glide_path_years}
+                    onChange={(v) => set("glide_path_years", v)}
+                    min={1}
+                    max={p.retirement_years}
                     step={1}
-                    tooltip={t("decliningStartAgeHelp")}
+                    suffix={t("yearsSuffix")}
                   />
-                </div>
-              )}
-
-              {p.withdrawal_strategy === "smile" && (
-                <div className="space-y-2 mt-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <NumberField
-                      label={t("smileDeclineRate")}
-                      value={+(p.smile_decline_rate * 100).toFixed(1)}
-                      onChange={(v) => set("smile_decline_rate", v / 100)}
-                      min={0}
-                      max={10}
-                      step={0.1}
-                      suffix="%"
-                    />
-                    <NumberField
-                      label={t("smileDeclineStartAge")}
-                      value={p.smile_decline_start_age}
-                      onChange={(v) => set("smile_decline_start_age", v)}
-                      min={18}
-                      max={100}
-                      step={1}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <NumberField
-                      label={t("smileMinAge")}
-                      value={p.smile_min_age}
-                      onChange={(v) => set("smile_min_age", v)}
-                      min={30}
-                      max={100}
-                      step={1}
-                    />
-                    <NumberField
-                      label={t("smileIncreaseRate")}
-                      value={+(p.smile_increase_rate * 100).toFixed(1)}
-                      onChange={(v) => set("smile_increase_rate", v / 100)}
-                      min={0}
-                      max={10}
-                      step={0.1}
-                      suffix="%"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {p.withdrawal_strategy === "cape" && (
-                <div className="space-y-2 mt-2">
-                  <p className="text-[11px] text-muted-foreground leading-snug">
-                    {t("capeWithdrawalHelp")}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <NumberField
-                      label={t("capeIntercept")}
-                      value={+(((p.cape_intercept ?? 0.015) * 100).toFixed(2))}
-                      onChange={(v) => set("cape_intercept", v / 100)}
-                      min={0}
-                      max={10}
-                      step={0.1}
-                      suffix="%"
-                      tooltip={t("capeInterceptHelp")}
-                    />
-                    <NumberField
-                      label={t("capeSlope")}
-                      value={p.cape_slope ?? 0.5}
-                      onChange={(v) => set("cape_slope", v)}
-                      min={0}
-                      max={2}
-                      step={0.05}
-                      tooltip={t("capeSlopeHelp")}
-                    />
-                    <NumberField
-                      label={t("capeFloor")}
-                      value={+(((p.cape_floor ?? 0.02) * 100).toFixed(1))}
-                      onChange={(v) => set("cape_floor", v / 100)}
-                      min={0.5}
-                      max={20}
-                      step={0.25}
-                      suffix="%"
-                    />
-                    <NumberField
-                      label={t("capeCeiling")}
-                      value={+(((p.cape_ceiling ?? 0.08) * 100).toFixed(1))}
-                      onChange={(v) => set("cape_ceiling", v / 100)}
-                      min={1}
-                      max={30}
-                      step={0.25}
-                      suffix="%"
-                    />
-                  </div>
                 </div>
               )}
             </AccordionContent>
           </AccordionItem>
         )}
-
-        {/* Custom Cash Flows */}
-        <AccordionItem value="cashflow" className="border-b-0">
-          <SectionTrigger
-            label={t("cashFlowTitle")}
-            modified={isModified.cashFlows}
-          />
-          <AccordionContent>
-            <CashFlowEditor
-              value={p.cash_flows}
-              onChange={(cfs) => set("cash_flows", cfs)}
-            />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-
-      {/* Extra children (Guardrail settings, etc.) */}
-      {children}
-
-      {/* ── Advanced sections ── */}
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wider pt-2">
-        {t("advancedSettings")}
-      </p>
-      <Accordion type="multiple" defaultValue={[]}>
-        {/* Data Range */}
-        <AccordionItem value="data-range">
-          <SectionTrigger
-            label={t("dataRange")}
-            modified={isModified.dataRange}
-          />
-          <AccordionContent>
-            <div className="mb-2">
-              <Label className="text-xs inline-flex items-center gap-1">
-                {t("dataSource")}
-                <InfoTip
-                  text={
-                    p.data_source === "fire_dataset"
-                      ? t("dataSourceFireDesc")
-                      : p.data_source === "fire_dataset_intl"
-                        ? t("dataSourceFireIntlDesc")
-                        : t("dataSourceJstDesc")
-                  }
-                />
-              </Label>
-              <Select
-                value={p.data_source}
-                onValueChange={(v) => {
-                  const ds = v as "jst" | "fire_dataset" | "fire_dataset_intl";
-                  if (ds === "fire_dataset") {
-                    // pre-1970 的 International 列是 US 占位副本，50/50 配置在 1970 前实为 100% US。
-                    // 默认从 1960 起：仅含 ~10 年(占窗口 ~15%) 占位段，换取 1966-69 滞胀尾部，且误差偏保守方向。
-                    onChange({ ...p, data_source: ds, country: "USA", data_start_year: 1960 });
-                  } else if (ds === "fire_dataset_intl") {
-                    onChange({ ...p, data_source: ds, country: "USA" });
-                  } else {
-                    onChange({ ...p, data_source: ds });
-                  }
-                }}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="jst">{t("dataSourceJst")}</SelectItem>
-                  <SelectItem value="fire_dataset">{t("dataSourceFire")}</SelectItem>
-                  <SelectItem value="fire_dataset_intl">{t("dataSourceFireIntl")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {p.data_source === "jst" && (
-              <div className="mb-2">
-                <Label className="text-xs">{t("country")}</Label>
-                <Select
-                  value={p.country}
-                  onValueChange={(v) => {
-                    set("country", v);
-                    const info = countries.find((c) => c.iso === v);
-                    if (info && p.data_start_year < info.min_year) {
-                      onChange({ ...p, country: v, data_start_year: info.min_year });
-                    }
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">{t("allCountries")}</SelectItem>
-                    {countries.map((c) => (
-                      <SelectItem key={c.iso} value={c.iso}>
-                        {countryFlag(c.iso)} {countryName(c)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-
-            <NumberField
-              label={t("dataStartYear")}
-              value={p.data_start_year}
-              onChange={(v) => set("data_start_year", v)}
-              min={1871}
-              max={2025}
-              step={1}
-            />
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Simulation Settings */}
-        <AccordionItem value="simulation">
-          <SectionTrigger
-            label={t("simulationSettings")}
-            modified={isModified.simulation}
-          />
-          <AccordionContent>
-            <div className="grid grid-cols-2 gap-2">
-              <NumberField
-                label={t("numSimulations")}
-                value={p.num_simulations}
-                onChange={(v) => set("num_simulations", v)}
-                min={100}
-                max={50000}
-                step={1000}
-              />
-              <NumberField
-                label={t("minBlock")}
-                value={p.min_block}
-                onChange={(v) => set("min_block", v)}
-                min={1}
-                max={p.max_block}
-                suffix={t("yearsSuffix")}
-              />
-              <NumberField
-                label={t("maxBlock")}
-                value={p.max_block}
-                onChange={(v) => set("max_block", v)}
-                min={p.min_block}
-                max={55}
-                suffix={t("yearsSuffix")}
-              />
-            </div>
-          </AccordionContent>
-        </AccordionItem>
 
         {/* Leverage */}
         <AccordionItem value="leverage" className="border-b-0">
