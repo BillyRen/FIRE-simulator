@@ -150,6 +150,13 @@ class TestBlockDistValidation:
         with pytest.raises(ValueError, match="exceeds the shortest"):
             block_bootstrap(df, 30, 5, 15, block_dist="geometric", mean_block=40)
 
+    def test_default_mean_block_guard_on_short_series(self):
+        """Branch review P2: omitted mean_block (midpoint default=10) must also
+        be guarded against a short series, not just an explicit value."""
+        df = _df("USA", 6, 1)  # n=6 < default midpoint 10
+        with pytest.raises(ValueError, match="exceeds the shortest"):
+            block_bootstrap(df, 30, 5, 15, block_dist="geometric")  # mean_block=None
+
     def test_pooled_mean_block_guard_uses_shortest_country(self):
         cdfs = {"USA": _df("USA", 60, 1), "SHORT": _df("SHORT", 20, 2)}
         with pytest.raises(ValueError, match="exceeds the shortest"):

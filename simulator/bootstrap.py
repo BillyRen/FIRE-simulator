@@ -113,14 +113,20 @@ def _validate_bootstrap_args(
         raise ValueError(f"retirement_years must be > 0, got {retirement_years}")
     if block_dist not in ("uniform", "geometric"):
         raise ValueError(f"block_dist must be 'uniform' or 'geometric', got {block_dist!r}")
-    if block_dist == "geometric" and mean_block is not None:
-        if mean_block < 1:
-            raise ValueError(f"mean_block must be >= 1, got {mean_block}")
+    if block_dist == "geometric":
+        # Resolve the implicit default the SAME way _resolve_geom_p does, so the
+        # omitted-mean_block case is validated identically to an explicit value
+        # (branch review P2): otherwise the midpoint default could exceed a short
+        # series and bypass the lap-prevention guard below.
+        eff_mean = (mean_block if mean_block is not None
+                    else (min_block + max_block) / 2.0)
+        if eff_mean < 1:
+            raise ValueError(f"mean_block must be >= 1, got {eff_mean}")
         # Finding 9: mean_block exceeding the shortest series means a single
         # geometric block can lap an entire country's data within one path.
-        if min_country_len is not None and mean_block > min_country_len:
+        if min_country_len is not None and eff_mean > min_country_len:
             raise ValueError(
-                f"mean_block ({mean_block}) exceeds the shortest available series "
+                f"mean_block ({eff_mean}) exceeds the shortest available series "
                 f"length ({min_country_len}); pick a smaller mean_block."
             )
 

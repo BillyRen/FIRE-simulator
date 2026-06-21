@@ -63,9 +63,13 @@ def main() -> None:
         w20 = sub[(sub["Year"] >= start) & (sub["Year"] <= 2020)]
         jst23 = cagr(w23["real"].to_numpy())
         jst20 = cagr(w20["real"].to_numpy())
-        # 排除德国 1923 恶性通胀年的稳健性版本
-        w23x = w23[w23["Year"] != 1923]
-        jst23x = cagr(w23x["real"].to_numpy())
+        # 排除德国 1923 恶性通胀年的稳健性版本（仅对 DEU 有意义；
+        # 其他国家保持原序列，避免无故删一个正常年使 CAGR 失真）— branch review P3
+        if iso == "DEU":
+            w23x = w23[w23["Year"] != 1923]
+            jst23x = cagr(w23x["real"].to_numpy())
+        else:
+            jst23x = jst23
 
         rows.append({
             "iso": iso,
