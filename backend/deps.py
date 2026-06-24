@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +11,7 @@ import pandas as pd
 from fastapi import HTTPException
 from starlette.responses import StreamingResponse
 
+from observability import capture_exception, current_request_id
 from simulator.cashflow import (
     CashFlowItem,
     count_cf_combinations,
@@ -22,7 +22,6 @@ from simulator.data_loader import (
     filter_by_country,
     filter_housing_data,
     get_country_dfs,
-    get_housing_available_countries,
     get_housing_country_dfs,
     load_country_list_by_source,
     load_returns_by_source,
@@ -96,8 +95,13 @@ def streaming(gen):
             else:
                 yield json.dumps({"type": "error", "code": exc.status_code, "message": str(detail), "detail": detail}) + "\n"
         except Exception as exc:
-            logger.exception("Streaming endpoint error")
-            yield json.dumps({"type": "error", "code": 500, "message": str(exc)}) + "\n"
+            # Streaming endpoints return HTTP 200 and surface failures as an
+            # NDJSON error line, so the request-timing middleware never sees a
+            # 5xx. Log with the request id and report to Sentry explicitly.
+            rid = current_request_id()
+            logger.exception("Streaming endpoint error (id=%s)", rid)
+            capture_exception(exc)
+            yield json.dumps({"type": "error", "code": 500, "message": str(exc), "request_id": rid}) + "\n"
 
     return StreamingResponse(
         _iter(),

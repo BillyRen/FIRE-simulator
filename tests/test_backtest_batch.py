@@ -292,8 +292,6 @@ class TestTruncatedPathSurvival:
         short paths appear as 'failed' when they actually survived.
         """
         # Create data where short paths easily survive but zero-padding kills them
-        rng = np.random.default_rng(99)
-        n_short = 10
         n_long = 25
         initial = 1_000_000
         withdrawal = 30_000  # low withdrawal rate -> survives easily

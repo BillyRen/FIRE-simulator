@@ -17,7 +17,6 @@ from .statistics import (
     compute_statistics,
     compute_success_rate,
     final_values_summary_table,
-    PERCENTILES,
 )
 
 MIN_BACKTEST_YEARS = 10
@@ -645,9 +644,6 @@ def run_guardrail_batch_backtest(
     if b_eligible:
         b_traj_elig = np.array([
             _pad_portfolio_to(p["b_portfolio"], target_len) for p in b_eligible
-        ])
-        b_wd_elig = np.array([
-            _pad_withdrawals_to(p["b_withdrawals"], retirement_years) for p in b_eligible
         ])
         b_success = compute_success_rate(b_traj_elig, retirement_years)
         b_fr = compute_funded_ratio(b_traj_elig, retirement_years)

@@ -1,5 +1,7 @@
 """全局常量与默认配置。"""
 
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # 数据相关（JST 多国数据）
 # ---------------------------------------------------------------------------
@@ -52,7 +54,6 @@ def build_nonuniform_grid(segments: list[tuple[float, float]], start: float = 0.
     np.ndarray
         非均匀网格数组（已去重、排序）。
     """
-    import numpy as np
     points = [start]
     cursor = start
     for upper, step in segments:

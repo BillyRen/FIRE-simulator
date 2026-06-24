@@ -1,6 +1,6 @@
 """统计分析与结果汇总模块。"""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -129,7 +129,6 @@ def compute_effective_funded_ratio(
 
     Returns (effective_funded_ratio, effective_success_rate).
     """
-    num_sims = withdrawals.shape[0]
     n_years = withdrawals.shape[1]
 
     floor_val = max(initial_withdrawal * consumption_floor, consumption_floor_amount)
