@@ -18,6 +18,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from observability import (
+    RequestContextMiddleware,
+    configure_logging,
+    init_sentry,
+)
 from routes.common import router as common_router
 from routes.simulate import router as simulate_router
 from routes.sensitivity import router as sensitivity_router
@@ -28,6 +33,9 @@ from routes.accumulation import router as accumulation_router
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
+
+configure_logging()
+init_sentry()  # no-op unless SENTRY_DSN is set
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -46,6 +54,10 @@ app.add_middleware(
 
 # GZIP compression
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Request id + timing logs. Added last so it sits outermost and times the full
+# request, including the streaming body where the heavy compute happens.
+app.add_middleware(RequestContextMiddleware)
 
 
 # ---------------------------------------------------------------------------
