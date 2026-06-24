@@ -52,3 +52,7 @@ jobs:
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: https://fire-simulator-api.onrender.com
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          NEXT_PUBLIC_API_URL: https://fire-simulator-api.onrender.com
