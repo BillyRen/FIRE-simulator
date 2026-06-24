@@ -22,6 +22,8 @@ import os
 import time
 import uuid
 
+from starlette.responses import JSONResponse
+
 logger = logging.getLogger("fire.request")
 
 # Correlation id for the current request, readable from anywhere (notably the
@@ -59,10 +61,12 @@ class RequestContextMiddleware:
         method = scope.get("method", "-")
         path = scope.get("path", "-")
         status = {"code": 0}
+        started = {"v": False}
         logged = {"done": False}
 
         async def send_wrapper(message):
             if message["type"] == "http.response.start":
+                started["v"] = True
                 status["code"] = message["status"]
                 headers = message.setdefault("headers", [])
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
@@ -78,13 +82,26 @@ class RequestContextMiddleware:
 
         try:
             await self.app(scope, receive, send_wrapper)
-        except Exception:
+        except Exception as exc:
             duration_ms = (time.perf_counter() - start) * 1000
             logger.exception(
                 "req-failed method=%s path=%s dur_ms=%.1f id=%s",
                 method, path, duration_ms, request_id,
             )
-            raise
+            capture_exception(exc)
+            # If the response already started we can't replace it — let the
+            # error propagate. Otherwise synthesise the 500 ourselves so it
+            # carries the X-Request-ID header that correlates with the
+            # req-failed log line (Starlette's outer error middleware would
+            # emit a 500 that never passes back through this wrapper).
+            if started["v"]:
+                raise
+            response = JSONResponse(
+                {"error": "INTERNAL_ERROR", "request_id": request_id},
+                status_code=500,
+                headers={"x-request-id": request_id},
+            )
+            await response(scope, receive, send)
         finally:
             request_id_ctx.reset(token)
 
