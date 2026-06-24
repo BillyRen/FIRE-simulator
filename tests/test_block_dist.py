@@ -15,7 +15,6 @@ from simulator.bootstrap import (
     block_bootstrap,
     block_bootstrap_np,
     block_bootstrap_pooled,
-    block_bootstrap_pooled_np,
 )
 
 

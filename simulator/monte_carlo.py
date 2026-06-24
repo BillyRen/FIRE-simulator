@@ -11,14 +11,12 @@ from .bootstrap import (
     IDX_GS,
     IDX_INF,
     RETURN_COLS,
-    block_bootstrap,
     block_bootstrap_np,
-    block_bootstrap_pooled,
     block_bootstrap_pooled_np,
     _prepare_pooled_arrays,
 )
 from .cashflow import CashFlowItem, build_cf_schedule, build_cf_split_schedules, build_expected_cf_schedule, build_expected_cf_split_schedules, has_probabilistic_cf, sample_cash_flows
-from .portfolio import compute_real_portfolio_returns, compute_real_portfolio_returns_np
+from .portfolio import compute_real_portfolio_returns_np
 
 
 def compute_withdrawal(

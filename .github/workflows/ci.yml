@@ -7,6 +7,19 @@ on:
     branches: [main]
 
 jobs:
+  backend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Run from the repo root so ruff.toml (and its per-file-ignore paths,
+      # which are relative to the config file) resolve correctly and the
+      # simulator/ + tests/ trees are actually covered.
+      - run: pip install ruff==0.15.19
+      - run: ruff check backend/ simulator/ tests/
+
   backend-test:
     runs-on: ubuntu-latest
     defaults:

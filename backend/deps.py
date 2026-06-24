@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +21,6 @@ from simulator.data_loader import (
     filter_by_country,
     filter_housing_data,
     get_country_dfs,
-    get_housing_available_countries,
     get_housing_country_dfs,
     load_country_list_by_source,
     load_returns_by_source,

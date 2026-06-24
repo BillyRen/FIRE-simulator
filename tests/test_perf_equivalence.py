@@ -8,7 +8,6 @@ from simulator.sweep import _simulate_success_and_funded, _sweep_single_allocati
 from simulator.monte_carlo import compute_withdrawal
 from simulator.guardrail import (
     find_rate_for_target,
-    find_rate_for_target_cf_aware,
     build_success_rate_table,
     run_fixed_baseline,
 )
@@ -222,7 +221,7 @@ def _simulate_scalar_with_cf(
     smile_min_age=80, smile_increase_rate=0.01,
 ):
     """Pure scalar double-loop reference (ground truth for CF scenarios)."""
-    from simulator.cashflow import build_cf_schedule, has_probabilistic_cf
+    from simulator.cashflow import build_cf_schedule
 
     num_sims, retirement_years = real_returns_matrix.shape
     initial_rate = annual_withdrawal / initial_portfolio if initial_portfolio > 0 else 0.0

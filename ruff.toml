@@ -1,0 +1,29 @@
+# Ruff configuration for the FIRE simulator backend + engine.
+# Scope: backend/, simulator/, tests/ (see CI). Frontend uses ESLint.
+
+target-version = "py312"
+line-length = 120
+
+[lint]
+# Default rule set is pyflakes (F) + a subset of pycodestyle (E). That catches
+# the high-value problems (unused imports, undefined names, redefinitions)
+# without the noise of opinionated style rules on this numerical codebase.
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # line length is enforced via line-length, not hard-failed
+]
+
+[lint.per-file-ignores]
+# main.py injects the project root into sys.path before importing route
+# modules, so its imports are intentionally not at the top of the file.
+"backend/main.py" = ["E402"]
+# monte_carlo.py and guardrail.py compute a per-path `cf_income` schedule
+# alongside `cf_expense` for symmetry with build_cf_split_schedules. The
+# income half is intentionally retained even where the local simulation loop
+# only consumes the expense/net schedule, so F841 (unused local) is expected
+# noise here rather than dead code worth ripping out of the hot path.
+"simulator/monte_carlo.py" = ["F841"]
+"simulator/guardrail.py" = ["F841"]
+# Test modules legitimately insert the project root into sys.path and import
+# fixtures mid-file (after building paths / docstrings), so E402 is expected.
+"tests/**" = ["E402"]

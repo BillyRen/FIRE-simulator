@@ -1,6 +1,5 @@
 """Tests for adaptive memory optimization (low-memory environments)."""
 
-import os
 import numpy as np
 import pytest
 

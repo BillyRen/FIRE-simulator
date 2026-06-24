@@ -604,7 +604,6 @@ def _sweep_single_allocation(args, _shared=None):
         for i in range(num_sims):
             value = initial_portfolio
             prev_wd = annual_withdrawal
-            failed = False
 
             # 现金流 schedule
             if has_groups:
@@ -648,7 +647,6 @@ def _sweep_single_allocation(args, _shared=None):
                 if value <= 0:
                     depletion_years[i] = year + 1
                     value = 0.0
-                    failed = True
                     break
 
                 # Apply income after depletion check (net schedule for portfolio)

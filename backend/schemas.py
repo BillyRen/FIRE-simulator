@@ -99,7 +99,6 @@ class BaseSimulationParams(BaseModel):
         variants: dict[str, dict[str, float]] = defaultdict(dict)
         for cf in self.cash_flows:
             if cf.group is not None:
-                key = (cf.group, cf.name)
                 if cf.name in variants[cf.group]:
                     existing = variants[cf.group][cf.name]
                     if abs(existing - cf.probability) > 1e-9:

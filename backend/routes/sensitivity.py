@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
